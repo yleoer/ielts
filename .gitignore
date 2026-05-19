@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+
+# Local environment
+.env
+.env.*
+
+# Generated Anki exports
+anki_export/*.apkg
+anki_export/*.tsv
+anki_export/*.csv
+
+# Original large chapter audio files. Keep split per-word files in subfolders.
+data/audio/*.mp3
+
+# Keep reusable generation caches
+!anki_export/cache/
+!anki_export/cache/*.json
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
