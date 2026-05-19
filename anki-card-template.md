@@ -60,8 +60,6 @@
     <img src="{{Image}}" alt="{{Word}}" class="word-image">
   </div>
   {{/Image}}
-  
-  <div class="audio-hint">🔊 点击查看答案时自动播放</div>
 </div>
 ```
 
@@ -76,12 +74,9 @@
   </div>
   
   <div class="word-container">
-    <div class="word">{{Word}}</div>
+    <div class="word">{{Word}} <span class="audio-icon">{{Audio}}</span></div>
     <div class="phonetic">{{Phonetic}}</div>
   </div>
-  
-  <!-- 自动播放音频 -->
-  {{Audio}}
   
   <hr class="divider">
   
@@ -154,13 +149,10 @@
   <div class="answer-section">
     <div class="answer-label">答案</div>
     <div class="word-container">
-      <div class="word">{{Word}}</div>
+      <div class="word">{{Word}} <span class="audio-icon">{{Audio}}</span></div>
       <div class="phonetic">{{Phonetic}}</div>
     </div>
   </div>
-  
-  <!-- 自动播放音频 -->
-  {{Audio}}
   
   <hr class="divider">
   
@@ -265,6 +257,15 @@
   font-size: 16px;
   color: #6b7280;
   font-family: "Lucida Sans Unicode", "Arial Unicode MS", sans-serif;
+}
+
+/* ========== 音频图标 ========== */
+.audio-icon {
+  display: inline-block;
+  font-size: 14px;
+  margin-left: 8px;
+  opacity: 0.6;
+  vertical-align: middle;
 }
 
 /* ========== 音频提示 ========== */
