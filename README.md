@@ -76,6 +76,17 @@ python scripts\generate_anki_import.py
 The script prints progress for phonetics, AI calls, note building, and media
 packaging.
 
+You can also choose which AI fields to generate:
+
+```powershell
+python scripts\generate_anki_import.py --ai-task translations
+python scripts\generate_anki_import.py --ai-task etymologies
+python scripts\generate_anki_import.py --ai-task all
+```
+
+`translations` fills example translations first. `etymologies` fills word-root
+notes later. `all` is the default.
+
 ## Generate From Cached AI Only
 
 If the AI service is unavailable, you can generate a temporary deck containing
@@ -146,6 +157,13 @@ Generate only cached AI-translated words:
 
 ```powershell
 python scripts\generate_anki_import.py --cached-ai-only
+```
+
+Generate only one AI field type:
+
+```powershell
+python scripts\generate_anki_import.py --ai-task translations
+python scripts\generate_anki_import.py --ai-task etymologies
 ```
 
 Adjust progress frequency:
