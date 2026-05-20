@@ -76,6 +76,18 @@ python scripts\generate_anki_import.py
 The script prints progress for phonetics, AI calls, note building, and media
 packaging.
 
+## Generate From Cached AI Only
+
+If the AI service is unavailable, you can generate a temporary deck containing
+only words whose AI example translation is already cached:
+
+```powershell
+python scripts\generate_anki_import.py --cached-ai-only
+```
+
+This mode does not make new AI calls. Words without cached AI translations are
+skipped, while cached etymology is used when available.
+
 ## Resume Behavior
 
 The script is safe to stop and rerun.
@@ -128,6 +140,12 @@ Generate without AI for missing cached fields:
 
 ```powershell
 python scripts\generate_anki_import.py --skip-ai
+```
+
+Generate only cached AI-translated words:
+
+```powershell
+python scripts\generate_anki_import.py --cached-ai-only
 ```
 
 Adjust progress frequency:
