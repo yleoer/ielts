@@ -981,7 +981,14 @@ def call_openai_chat(prompt: str) -> str:
     return ""
 
 
-def refresh_ai(records: list[dict[str, Any]], skip_ai: bool = False) -> dict[str, dict[str, str]]:
+def refresh_ai(
+    records: list[dict[str, Any]],
+    skip_ai: bool = False,
+    ai_tasks: set[str] | None = None,
+) -> dict[str, dict[str, str]]:
+    if ai_tasks is None:
+        ai_tasks = {"translations", "etymologies"}
+
     cache = read_json(AI_CACHE, {"translations": {}, "etymologies": {}})
     cache.setdefault("translations", {})
     cache.setdefault("etymologies", {})
@@ -992,14 +999,15 @@ def refresh_ai(records: list[dict[str, Any]], skip_ai: bool = False) -> dict[str
     for record in records:
         word = str(record["primary_word"])
         example = str(record["example"])
-        if example:
+        if "translations" in ai_tasks and example:
             key = ai_cache_key("translation-v1", word, example)
             if key not in cache["translations"]:
                 translation_jobs.append((key, record))
 
-        etymology_key = ai_cache_key("etymology-v1", word)
-        if etymology_key not in cache["etymologies"]:
-            etymology_jobs.append((etymology_key, record))
+        if "etymologies" in ai_tasks:
+            etymology_key = ai_cache_key("etymology-v1", word)
+            if etymology_key not in cache["etymologies"]:
+                etymology_jobs.append((etymology_key, record))
 
     if skip_ai:
         for key, _ in translation_jobs:
@@ -1382,6 +1390,7 @@ def build_export(
     phonetics_only: bool = False,
     limit: int | None = None,
     cached_ai_only: bool = False,
+    ai_tasks: set[str] | None = None,
 ) -> dict[str, int]:
     records = parse_vocabulary()
     if limit is not None:
@@ -1407,7 +1416,7 @@ def build_export(
         return {"notes": len(records), "cards": 0, "media": 0, "missing_audio": 0}
 
     if not cached_ai_only:
-        ai_cache = refresh_ai(records, skip_ai=skip_ai)
+        ai_cache = refresh_ai(records, skip_ai=skip_ai, ai_tasks=ai_tasks)
     notes: list[dict[str, Any]] = []
     media_sources: list[tuple[Path, str]] = []
     missing_audio = 0
@@ -1442,17 +1451,29 @@ def main() -> None:
     parser.add_argument("--phonetics-only", action="store_true", help="Only refresh dictionaryapi.dev phonetic cache.")
     parser.add_argument("--limit", type=int, help="Only export the first N vocabulary records.")
     parser.add_argument(
+        "--ai-task",
+        choices=["all", "translations", "etymologies"],
+        default="all",
+        help="Choose which missing AI fields to generate.",
+    )
+    parser.add_argument(
         "--cached-ai-only",
         action="store_true",
         help="Export only records with cached AI translations, without making new AI calls.",
     )
     args = parser.parse_args()
+    ai_tasks = (
+        {"translations", "etymologies"}
+        if args.ai_task == "all"
+        else {args.ai_task}
+    )
 
     summary = build_export(
         skip_ai=args.skip_ai,
         phonetics_only=args.phonetics_only,
         limit=args.limit,
         cached_ai_only=args.cached_ai_only,
+        ai_tasks=ai_tasks,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if not args.phonetics_only:
