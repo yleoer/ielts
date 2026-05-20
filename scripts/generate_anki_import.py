@@ -136,36 +136,68 @@ FRONT_FORWARD = """
 <div class="card-front">
   <div class="header-section">
     <div class="category">{{Category}}</div>
+    <div class="tags">{{Tags}}</div>
   </div>
+  
   <div class="word-container">
     <div class="word">{{Word}}</div>
-    {{#Phonetic}}<div class="phonetic">{{Phonetic}}</div>{{/Phonetic}}
+    <div class="phonetic">{{Phonetic}}</div>
   </div>
-  <div class="audio-hint">显示答案后播放音频</div>
+  
+  {{#Image}}
+  <div class="image-container">
+    <img src="{{Image}}" alt="{{Word}}" class="word-image">
+  </div>
+  {{/Image}}
 </div>
 """.strip()
 
 BACK_FORWARD = """
 <div class="card-back">
-  {{FrontSide}}
-  {{Audio}}
+  <!-- 显示正面内容 -->
+  <div class="header-section">
+    <div class="category">{{Category}}</div>
+    <div class="tags">{{Tags}}</div>
+  </div>
+  
+  <div class="word-container">
+    <div class="word">{{Word}} <span class="audio-icon">{{Audio}}</span></div>
+    <div class="phonetic">{{Phonetic}}</div>
+  </div>
+  
   <hr class="divider">
+  
+  <!-- 词性和释义 -->
   <div class="meaning-section">
     <span class="part-of-speech">{{PartOfSpeech}}</span>
     <span class="chinese-meaning">{{ChineseMeaning}}</span>
   </div>
+  
+  <!-- 词根词缀 -->
   {{#Etymology}}
-  <div class="etymology-section"><span class="section-label">词根词缀</span>{{Etymology}}</div>
-  {{/Etymology}}
-  {{#ExampleEN}}
-  <div class="example-section">
-    <div class="example-label">例句</div>
-    <div class="example-en">{{ExampleEN}}</div>
-    {{#ExampleCN}}<div class="example-cn">{{ExampleCN}}</div>{{/ExampleCN}}
+  <div class="etymology-section">
+    <span class="etymology-icon">🌱</span>
+    <span class="etymology-content">{{Etymology}}</span>
   </div>
-  {{/ExampleEN}}
+  {{/Etymology}}
+  
+  <!-- 例句部分 -->
+  <div class="example-section">
+    <div class="example-label">📖 例句</div>
+    <div class="example-en">
+      {{ExampleEN}}
+    </div>
+    <div class="example-cn">
+      {{ExampleCN}}
+    </div>
+  </div>
+  
+  <!-- 额外注释 -->
   {{#Notes}}
-  <div class="notes-section"><div class="notes-label">补充说明</div>{{Notes}}</div>
+  <div class="notes-section">
+    <div class="notes-label">💡 补充说明</div>
+    <div class="notes-content">{{Notes}}</div>
+  </div>
   {{/Notes}}
 </div>
 """.strip()
@@ -174,10 +206,11 @@ FRONT_REVERSE = """
 <div class="card-front reverse">
   <div class="header-section">
     <div class="category">{{Category}}</div>
-    <div class="reverse-indicator">反向卡片</div>
+    <div class="reverse-indicator">🔄 反向卡片</div>
   </div>
+  
   <div class="chinese-prompt">
-    <div class="prompt-label">请回忆这个单词</div>
+    <div class="prompt-label">请回忆这个单词：</div>
     <div class="chinese-meaning-large">{{ChineseMeaning}}</div>
     <div class="part-of-speech-hint">{{PartOfSpeech}}</div>
   </div>
@@ -188,190 +221,477 @@ BACK_REVERSE = """
 <div class="card-back reverse">
   <div class="header-section">
     <div class="category">{{Category}}</div>
-    <div class="reverse-indicator">反向卡片</div>
+    <div class="reverse-indicator">🔄 反向卡片</div>
   </div>
+  
+  <!-- 答案：单词 -->
   <div class="answer-section">
     <div class="answer-label">答案</div>
     <div class="word-container">
-      <div class="word">{{Word}}</div>
-      {{#Phonetic}}<div class="phonetic">{{Phonetic}}</div>{{/Phonetic}}
+      <div class="word">{{Word}} <span class="audio-icon">{{Audio}}</span></div>
+      <div class="phonetic">{{Phonetic}}</div>
     </div>
   </div>
-  {{Audio}}
+  
   <hr class="divider">
+  
+  <!-- 释义确认 -->
   <div class="meaning-section">
     <span class="part-of-speech">{{PartOfSpeech}}</span>
     <span class="chinese-meaning">{{ChineseMeaning}}</span>
   </div>
+  
+  <!-- 词根词缀 -->
   {{#Etymology}}
-  <div class="etymology-section"><span class="section-label">词根词缀</span>{{Etymology}}</div>
-  {{/Etymology}}
-  {{#ExampleEN}}
-  <div class="example-section">
-    <div class="example-label">例句</div>
-    <div class="example-en">{{ExampleEN}}</div>
-    {{#ExampleCN}}<div class="example-cn">{{ExampleCN}}</div>{{/ExampleCN}}
+  <div class="etymology-section">
+    <span class="etymology-icon">🌱</span>
+    <span class="etymology-content">{{Etymology}}</span>
   </div>
-  {{/ExampleEN}}
-  {{#Notes}}
-  <div class="notes-section"><div class="notes-label">补充说明</div>{{Notes}}</div>
-  {{/Notes}}
+  {{/Etymology}}
+  
+  <!-- 例句 -->
+  <div class="example-section">
+    <div class="example-label">📖 例句</div>
+    <div class="example-en">{{ExampleEN}}</div>
+    <div class="example-cn">{{ExampleCN}}</div>
+  </div>
 </div>
 """.strip()
 
 CSS = """
+/* ========== 通用样式 ========== */
 .card {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-  max-width: 640px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  max-width: 600px;
   margin: 0 auto;
   padding: 20px;
   background: #ffffff;
-  color: #1f2937;
   line-height: 1.6;
-  text-align: left;
 }
+
+.card-front, .card-back {
+  background: #ffffff;
+  padding: 20px;
+}
+
+/* ========== 头部区域 ========== */
 .header-section {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 15px;
   padding-bottom: 10px;
   border-bottom: 1px solid #e5e7eb;
   flex-wrap: wrap;
+  gap: 8px;
 }
-.category,
-.reverse-indicator {
+
+.category {
+  display: inline-block;
   background: #f3f4f6;
   color: #6b7280;
-  border-radius: 4px;
   padding: 4px 10px;
+  border-radius: 4px;
   font-size: 12px;
+  font-weight: 500;
 }
+
+.tags {
+  font-size: 11px;
+  color: #9ca3af;
+  padding: 3px 8px;
+  background: #f9fafb;
+  border-radius: 3px;
+}
+
+.reverse-indicator {
+  background: #e5e7eb;
+  color: #6b7280;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ========== 单词区域 ========== */
 .word-container {
+  text-align: left;
   margin: 20px 0;
+  padding: 15px 0;
 }
+
 .word {
-  font-size: 30px;
-  font-weight: 650;
-  color: #111827;
+  font-size: 28px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
 }
+
 .phonetic {
-  margin-top: 6px;
   font-size: 16px;
   color: #6b7280;
   font-family: "Lucida Sans Unicode", "Arial Unicode MS", sans-serif;
 }
+
+/* ========== 音频图标 ========== */
+.audio-icon {
+  display: inline-block;
+  font-size: 14px;
+  margin-left: 8px;
+  opacity: 0.6;
+  vertical-align: middle;
+}
+
+/* ========== 音频提示 ========== */
 .audio-hint {
+  text-align: left;
   color: #9ca3af;
   font-size: 12px;
-  margin-top: 14px;
+  margin-top: 15px;
   padding: 8px 10px;
   background: #f9fafb;
+  border-radius: 4px;
   border-left: 2px solid #d1d5db;
 }
+
+/* ========== 分隔线 ========== */
 .divider {
-  border: 0;
-  border-top: 1px solid #e5e7eb;
+  border: none;
+  height: 1px;
+  background: #e5e7eb;
   margin: 20px 0;
 }
+
+/* ========== 释义区域 ========== */
 .meaning-section {
   margin: 15px 0;
   padding: 12px 15px;
   background: #f9fafb;
+  border-radius: 4px;
   border-left: 3px solid #9ca3af;
+  line-height: 1.6;
 }
+
 .part-of-speech {
   display: inline-block;
   background: #e5e7eb;
   color: #4b5563;
-  border-radius: 3px;
   padding: 2px 8px;
-  margin-right: 8px;
+  border-radius: 3px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+  margin-right: 10px;
+  text-transform: lowercase;
 }
+
 .chinese-meaning {
-  font-size: 17px;
-  font-weight: 550;
+  font-size: 16px;
+  font-weight: 500;
+  color: #1f2937;
+  line-height: 1.6;
 }
-.example-section,
-.notes-section,
-.etymology-section,
-.answer-section {
+
+/* ========== 词根词缀区域 ========== */
+.etymology-section {
+  margin: 15px 0;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border-radius: 4px;
+  border-left: 3px solid #d1d5db;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.etymology-icon {
+  font-size: 14px;
+  color: #9ca3af;
+}
+
+.etymology-content {
+  font-size: 14px;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+/* ========== 例句区域 ========== */
+.example-section {
   margin: 15px 0;
   padding: 12px 15px;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
   background: #ffffff;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
 }
-.example-label,
-.notes-label,
-.section-label,
-.answer-label {
-  display: block;
-  margin-bottom: 6px;
-  color: #6b7280;
+
+.example-label {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 8px;
 }
+
 .example-en {
   font-size: 15px;
+  line-height: 1.6;
+  color: #1f2937;
+  margin-bottom: 8px;
 }
+
 .example-cn {
-  margin-top: 8px;
-  color: #6b7280;
   font-size: 14px;
+  line-height: 1.6;
+  color: #6b7280;
 }
-.example-en b,
-.example-en strong {
-  color: #111827;
+
+/* 高亮例句中的单词 */
+.example-en b, .example-en strong {
+  color: #1f2937;
+  font-weight: 600;
   text-decoration: underline;
   text-decoration-color: #d1d5db;
   text-decoration-thickness: 2px;
   text-underline-offset: 2px;
 }
-.reverse {
+
+.example-cn b, .example-cn strong {
+  color: #4b5563;
+  font-weight: 600;
+}
+
+/* ========== 注释区域 ========== */
+.notes-section {
+  margin-top: 15px;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border-radius: 4px;
+  border-left: 3px solid #9ca3af;
+}
+
+.notes-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.notes-content {
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+/* ========== 反向卡片特殊样式 ========== */
+.card-front.reverse {
   background: #f9fafb;
 }
-.prompt-label {
-  color: #6b7280;
-  margin-bottom: 12px;
+
+.chinese-prompt {
+  text-align: left;
+  margin: 30px 0;
 }
+
+.prompt-label {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 15px;
+}
+
 .chinese-meaning-large {
   font-size: 24px;
-  font-weight: 650;
-  line-height: 1.45;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 12px;
+  line-height: 1.4;
 }
+
 .part-of-speech-hint {
-  margin-top: 10px;
+  font-size: 14px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.hint-section {
+  text-align: left;
+  margin-top: 20px;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border-radius: 4px;
+  border-left: 3px solid #d1d5db;
+}
+
+.hint-text {
+  font-size: 13px;
   color: #6b7280;
 }
-.night_mode .card,
+
+.answer-section {
+  text-align: left;
+  margin: 20px 0;
+  padding: 15px;
+  background: #f9fafb;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+}
+
+.answer-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ========== 响应式设计 ========== */
+@media (max-width: 480px) {
+  .word {
+    font-size: 24px;
+  }
+  
+  .phonetic {
+    font-size: 14px;
+  }
+  
+  .chinese-meaning {
+    font-size: 15px;
+  }
+  
+  .chinese-meaning-large {
+    font-size: 20px;
+  }
+  
+  .example-en {
+    font-size: 14px;
+  }
+  
+  .example-cn {
+    font-size: 13px;
+  }
+  
+  .word-image {
+    max-height: 150px;
+  }
+}
+
+/* ========== 夜间模式 ========== */
+.night_mode .card {
+  background: #1f2937;
+}
+
 .night_mode .card-front,
-.night_mode .card-back,
-.night_mode .example-section,
-.night_mode .notes-section,
-.night_mode .etymology-section,
-.night_mode .answer-section {
+.night_mode .card-back {
   background: #1f2937;
   color: #e5e7eb;
 }
-.night_mode .word {
-  color: #f9fafb;
+
+.night_mode .header-section {
+  border-bottom-color: #374151;
 }
+
 .night_mode .category,
-.night_mode .reverse-indicator,
-.night_mode .part-of-speech,
+.night_mode .reverse-indicator {
+  background: #374151;
+  color: #9ca3af;
+}
+
+.night_mode .tags {
+  background: #374151;
+  color: #6b7280;
+}
+
+.night_mode .word {
+  color: #f3f4f6;
+}
+
+.night_mode .phonetic {
+  color: #9ca3af;
+}
+
 .night_mode .meaning-section {
   background: #374151;
+  border-left-color: #6b7280;
+}
+
+.night_mode .chinese-meaning {
+  color: #e5e7eb;
+}
+
+.night_mode .etymology-section {
+  background: #374151;
+  border-left-color: #6b7280;
+}
+
+.night_mode .etymology-content {
   color: #d1d5db;
 }
-.night_mode .example-cn,
-.night_mode .phonetic,
-.night_mode .prompt-label,
-.night_mode .part-of-speech-hint {
+
+.night_mode .synonyms,
+.night_mode .antonyms {
+  background: #374151;
+  border-left-color: #6b7280;
+}
+
+.night_mode .relation-label,
+.night_mode .relation-words {
+  color: #d1d5db;
+}
+
+.night_mode .example-section {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.night_mode .example-en {
+  color: #e5e7eb;
+}
+
+.night_mode .example-cn {
   color: #9ca3af;
+}
+
+.night_mode .example-en b,
+.night_mode .example-en strong {
+  color: #f3f4f6;
+  text-decoration-color: #6b7280;
+}
+
+.night_mode .notes-section {
+  background: #374151;
+  border-left-color: #6b7280;
+}
+
+.night_mode .notes-label {
+  color: #9ca3af;
+}
+
+.night_mode .notes-content {
+  color: #d1d5db;
+}
+
+.night_mode .chinese-meaning-large {
+  color: #f3f4f6;
+}
+
+.night_mode .answer-section {
+  background: #374151;
+  border-color: #4b5563;
+}
+
+.night_mode .hint-section {
+  background: #374151;
+  border-left-color: #6b7280;
+}
+
+.night_mode .audio-hint {
+  background: #374151;
+  border-left-color: #6b7280;
+}
+
+.night_mode .word-image {
+  border-color: #374151;
 }
 """.strip()
 
@@ -741,6 +1061,14 @@ def etymology_for(record: dict[str, Any], cache: dict[str, dict[str, str]]) -> s
     return cache["etymologies"].get(key, "")
 
 
+def has_cached_translation(record: dict[str, Any], cache: dict[str, dict[str, str]]) -> bool:
+    example = str(record["example"])
+    if not example:
+        return False
+    key = ai_cache_key("translation-v1", str(record["primary_word"]), example)
+    return key in cache.get("translations", {})
+
+
 def find_audio(record: dict[str, Any]) -> Path | None:
     category_dir = AUDIO_ROOT / str(record["category_audio_label"])
     for variant in record["word_variants"]:
@@ -1049,16 +1377,37 @@ def write_apkg(notes: list[dict[str, Any]], media_sources: list[tuple[Path, str]
                         progress("media", completed, len(media_sources), source_path.name)
 
 
-def build_export(skip_ai: bool = False, phonetics_only: bool = False, limit: int | None = None) -> dict[str, int]:
+def build_export(
+    skip_ai: bool = False,
+    phonetics_only: bool = False,
+    limit: int | None = None,
+    cached_ai_only: bool = False,
+) -> dict[str, int]:
     records = parse_vocabulary()
     if limit is not None:
         records = records[:limit]
     print(f"Parsed vocabulary records: {len(records)}", flush=True)
+
+    ai_cache = read_json(AI_CACHE, {"translations": {}, "etymologies": {}})
+    ai_cache.setdefault("translations", {})
+    ai_cache.setdefault("etymologies", {})
+
+    if cached_ai_only:
+        original_count = len(records)
+        records = [record for record in records if has_cached_translation(record, ai_cache)]
+        print(
+            f"Using cached AI translations only: {len(records)}/{original_count} records ready",
+            flush=True,
+        )
+        if not records:
+            raise RuntimeError("No records have cached AI translations yet.")
+
     phonetics = refresh_phonetics(records)
     if phonetics_only:
         return {"notes": len(records), "cards": 0, "media": 0, "missing_audio": 0}
 
-    ai_cache = refresh_ai(records, skip_ai=skip_ai)
+    if not cached_ai_only:
+        ai_cache = refresh_ai(records, skip_ai=skip_ai)
     notes: list[dict[str, Any]] = []
     media_sources: list[tuple[Path, str]] = []
     missing_audio = 0
@@ -1092,9 +1441,19 @@ def main() -> None:
     parser.add_argument("--skip-ai", action="store_true", help="Build with blank AI fields for missing cache entries.")
     parser.add_argument("--phonetics-only", action="store_true", help="Only refresh dictionaryapi.dev phonetic cache.")
     parser.add_argument("--limit", type=int, help="Only export the first N vocabulary records.")
+    parser.add_argument(
+        "--cached-ai-only",
+        action="store_true",
+        help="Export only records with cached AI translations, without making new AI calls.",
+    )
     args = parser.parse_args()
 
-    summary = build_export(skip_ai=args.skip_ai, phonetics_only=args.phonetics_only, limit=args.limit)
+    summary = build_export(
+        skip_ai=args.skip_ai,
+        phonetics_only=args.phonetics_only,
+        limit=args.limit,
+        cached_ai_only=args.cached_ai_only,
+    )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if not args.phonetics_only:
         print(str(OUTPUT_TSV))
