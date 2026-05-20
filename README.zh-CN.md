@@ -81,6 +81,17 @@ python scripts\generate_anki_import.py
 
 脚本会显示音标查询、AI 调用、卡片构建和音频打包进度。
 
+也可以选择本次只生成哪一类 AI 字段：
+
+```powershell
+python scripts\generate_anki_import.py --ai-task translations
+python scripts\generate_anki_import.py --ai-task etymologies
+python scripts\generate_anki_import.py --ai-task all
+```
+
+`translations` 会优先补例句翻译；`etymologies` 会补词源/词根说明；
+`all` 是默认值，两者都会补。
+
 ## 只根据现有 AI 缓存生成
 
 如果 AI 服务暂时不可用，可以先生成一份临时牌组，只包含已经有 AI 例句翻译缓存的单词：
@@ -149,6 +160,13 @@ python scripts\generate_anki_import.py --skip-ai
 
 ```powershell
 python scripts\generate_anki_import.py --cached-ai-only
+```
+
+只生成某一类 AI 字段：
+
+```powershell
+python scripts\generate_anki_import.py --ai-task translations
+python scripts\generate_anki_import.py --ai-task etymologies
 ```
 
 调整进度显示频率：
