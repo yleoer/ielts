@@ -46,7 +46,7 @@ $env:OPENAI_API_BASE='http://localhost:8317/v1'
 可选配置：
 
 ```powershell
-$env:OPENAI_MODEL='gpt-5.4-mini'
+$env:OPENAI_MODEL='gpt-5.5'
 $env:AI_REQUEST_DELAY='0.05'
 $env:DICTIONARY_WORKERS='8'
 $env:ANKI_PROGRESS_EVERY='10'
@@ -80,6 +80,17 @@ python scripts\generate_anki_import.py
 ```
 
 脚本会显示音标查询、AI 调用、卡片构建和音频打包进度。
+
+## 只根据现有 AI 缓存生成
+
+如果 AI 服务暂时不可用，可以先生成一份临时牌组，只包含已经有 AI 例句翻译缓存的单词：
+
+```powershell
+python scripts\generate_anki_import.py --cached-ai-only
+```
+
+这个模式不会发起新的 AI 请求。没有 AI 翻译缓存的单词会被跳过；
+词根说明如果已有缓存就使用，没有缓存则留空。
 
 ## 中断后继续生成
 
@@ -132,6 +143,12 @@ python scripts\generate_anki_import.py --phonetics-only
 
 ```powershell
 python scripts\generate_anki_import.py --skip-ai
+```
+
+只生成已有 AI 翻译缓存的单词：
+
+```powershell
+python scripts\generate_anki_import.py --cached-ai-only
 ```
 
 调整进度显示频率：
