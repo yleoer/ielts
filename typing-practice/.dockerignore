@@ -1,0 +1,9 @@
+backend/data/*.anki2
+backend/data/*.db
+backend/data/*.db-*
+backend/data/stats.jsonl
+backend/tmp/
+backend/typing-practice
+frontend/node_modules/
+*.log
+*.tmp
