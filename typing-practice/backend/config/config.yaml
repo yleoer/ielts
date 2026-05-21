@@ -1,0 +1,13 @@
+server:
+  host: localhost
+  port: 8080
+
+anki:
+  db_path: ""
+  deck_name: "IELTS Vocabulary"
+  deck_id: 2055274336
+
+practice:
+  default_limit: 20
+  max_limit: 100
+  enable_audio: false
