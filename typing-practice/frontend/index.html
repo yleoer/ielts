@@ -13,15 +13,26 @@
     <div id="app">
         <div class="container mx-auto px-4 py-8">
             <!-- Theme Toggle -->
-            <div class="fixed top-4 right-4 z-50">
+            <div class="fixed top-4 right-4 z-50 flex gap-2">
+                <!-- 顶部工具按钮只显示图标，文字说明放在 title/aria-label 中，避免练习界面拥挤。 -->
+                <a
+                    href="stats.html"
+                    class="inline-flex h-11 w-11 items-center justify-center rounded-lg text-xl shadow-md transition-all"
+                    :class="stealthMode ? 'bg-white text-gray-700 hover:bg-gray-100' : 'bg-green-600 text-white hover:bg-green-700'"
+                    title="查看统计"
+                    aria-label="查看统计"
+                >
+                    📊
+                </a>
                 <button
                     @click="toggleStealthMode"
-                    class="px-4 py-2 rounded-lg shadow-md transition-all"
+                    class="inline-flex h-11 w-11 items-center justify-center rounded-lg text-xl shadow-md transition-all"
                     :class="stealthMode ? 'bg-white text-gray-700 hover:bg-gray-100' : 'bg-indigo-600 text-white hover:bg-indigo-700'"
-                    title="切换摸鱼模式"
+                    :title="stealthMode ? '切换工作模式' : '切换摸鱼模式'"
+                    :aria-label="stealthMode ? '切换工作模式' : '切换摸鱼模式'"
                 >
-                    <span v-if="stealthMode">👔 工作模式</span>
-                    <span v-else>🕶️ 摸鱼模式</span>
+                    <span v-if="stealthMode">👔</span>
+                    <span v-else>🕶️</span>
                 </button>
             </div>
 
@@ -80,8 +91,11 @@
                             <input
                                 ref="inputField"
                                 v-model="userInput"
-                                @keyup.enter="showAnswer ? nextWord() : submitAnswer()"
-                                @keyup.space.prevent="skipWord"
+                                @beforeinput="handleBeforeInput"
+                                @input="handleInput"
+                                @keydown="handleKeydown"
+                                @compositionstart="handleCompositionStart"
+                                @compositionend="handleCompositionEnd"
                                 @keyup.esc="quitPractice"
                                 type="text"
                                 placeholder="Type the word..."
