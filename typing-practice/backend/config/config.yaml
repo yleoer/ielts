@@ -11,3 +11,6 @@ practice:
   default_limit: 20
   max_limit: 100
   enable_audio: false
+
+stats:
+  db_path: "data/stats.db"

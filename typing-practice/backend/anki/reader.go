@@ -22,6 +22,8 @@ const fieldSeparator = "\x1f"
 
 var htmlTagPattern = regexp.MustCompile(`<[^>]*>`)
 
+// Reader 封装对 Anki collection.anki2 的只读访问。
+// 后端不会修改 Anki 数据库，避免破坏 Anki 自己的同步和学习状态。
 type Reader struct {
 	db       *sql.DB
 	dbPath   string
@@ -39,8 +41,7 @@ func NewReader(cfg config.AnkiConfig) (*Reader, error) {
 		return nil, fmt.Errorf("anki database not found at %s: %w", dbPath, err)
 	}
 
-	dsn := fmt.Sprintf("file:%s?mode=ro&cache=shared&_busy_timeout=5000", filepath.ToSlash(dbPath))
-	db, err := openSQLite(dsn)
+	db, err := openSQLite(dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +53,7 @@ func NewReader(cfg config.AnkiConfig) (*Reader, error) {
 		deckID:   cfg.DeckID,
 	}
 
+	// deck_id 在不同导入环境可能会变化，所以优先用 deck_name 解析真实 ID。
 	if deckID, err := reader.resolveDeckID(); err == nil && deckID != 0 {
 		reader.deckID = deckID
 	}
@@ -59,25 +61,40 @@ func NewReader(cfg config.AnkiConfig) (*Reader, error) {
 	return reader, nil
 }
 
-func openSQLite(dsn string) (*sql.DB, error) {
+func openSQLite(dbPath string) (*sql.DB, error) {
 	var lastErr error
-	for _, driver := range []string{"sqlite3", "sqlite"} {
-		db, err := sql.Open(driver, dsn)
-		if err != nil {
-			lastErr = err
-			continue
-		}
+	// 优先使用 mattn/go-sqlite3；如果当前环境没有 CGO/gcc，则回退到纯 Go 驱动。
+	// 这样本地 Windows 和 Docker/Linux 都能尽量开箱即用。
+	for _, dsn := range ankiDSNs(dbPath) {
+		for _, driver := range []string{"sqlite3", "sqlite"} {
+			db, err := sql.Open(driver, dsn)
+			if err != nil {
+				lastErr = err
+				continue
+			}
 
-		if err := db.Ping(); err != nil {
-			_ = db.Close()
-			lastErr = err
-			continue
-		}
+			if err := db.Ping(); err != nil {
+				_ = db.Close()
+				lastErr = err
+				continue
+			}
 
-		return db, nil
+			return db, nil
+		}
 	}
 
 	return nil, lastErr
+}
+
+func ankiDSNs(dbPath string) []string {
+	escapedPath := filepath.ToSlash(dbPath)
+	// immutable=1 告诉 SQLite 这个文件由外部管理且本连接绝不写入，
+	// 因此读取时不会再向 Anki 的 collection.anki2 申请锁。
+	// 如果某个运行环境不支持 immutable，再回退到普通 mode=ro 只读连接。
+	return []string{
+		fmt.Sprintf("file:%s?mode=ro&immutable=1&cache=shared&_busy_timeout=5000&_pragma=busy_timeout(5000)", escapedPath),
+		fmt.Sprintf("file:%s?mode=ro&cache=shared&_busy_timeout=5000&_pragma=busy_timeout(5000)", escapedPath),
+	}
 }
 
 func (r *Reader) Close() error {
@@ -120,6 +137,7 @@ func (r *Reader) GetLearnedWords(limit int, category string) ([]models.Word, err
 
 	queryLimit := limit
 	if !strings.EqualFold(category, "all") {
+		// 分类筛选发生在解析字段之后，所以先多取一些随机单词，再在 Go 里过滤。
 		queryLimit = limit * 20
 		if queryLimit < 100 {
 			queryLimit = 100
@@ -203,6 +221,8 @@ WHERE c.did = ?
 }
 
 func ParseWord(id int64, rawFields string) (models.Word, bool) {
+	// Anki notes.flds 使用 ASCII 31(Unit Separator) 分隔字段。
+	// 本项目生成牌组的字段顺序是 Word, Phonetic, PartOfSpeech, ChineseMeaning, ...
 	fields := strings.Split(rawFields, fieldSeparator)
 	if len(fields) < 4 {
 		return models.Word{}, false
@@ -234,6 +254,7 @@ func ParseWord(id int64, rawFields string) (models.Word, bool) {
 }
 
 func cleanField(value string) string {
+	// Anki 字段中可能有 HTML 高亮、<br> 和实体编码；API 返回给前端前先转成纯文本。
 	value = html.UnescapeString(value)
 	value = strings.ReplaceAll(value, "<br>", "\n")
 	value = strings.ReplaceAll(value, "<br/>", "\n")
@@ -243,6 +264,8 @@ func cleanField(value string) string {
 }
 
 func (r *Reader) resolveDeckID() (int64, error) {
+	// 新版 Anki 有独立 decks 表；旧版/导入包可能仍把 decks JSON 放在 col 表里。
+	// 两种都尝试，最后才回退到配置里的固定 deck_id。
 	if r.deckName != "" {
 		if id, err := r.resolveDeckIDFromDecksTable(); err == nil && id != 0 {
 			return id, nil
@@ -263,6 +286,8 @@ func (r *Reader) resolveDeckIDFromDecksTable() (int64, error) {
 		return 0, err
 	}
 
+	// 不在 SQL 里用 WHERE name = ?，因为 Anki 新库的 name 使用 unicase collation，
+	// 纯 Go SQLite 驱动未必认识这个 collation；读出来在 Go 里比较最稳。
 	rows, err := r.db.Query(`SELECT id, name FROM decks`)
 	if err != nil {
 		return 0, err
