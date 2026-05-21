@@ -1,45 +1,37 @@
-# 使用官方 Golang 镜像作为构建环境
 FROM golang:1.21-alpine AS builder
 
-# 安装必要的构建工具
 RUN apk add --no-cache gcc musl-dev sqlite-dev
 
-# 设置工作目录
-WORKDIR /app
+WORKDIR /src/backend
 
-# 复制 go.mod 和 go.sum
-COPY go.mod go.sum ./
-
-# 下载依赖
+COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 
-# 复制源代码
-COPY . .
+COPY backend/ ./
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o /out/typing-practice .
 
-# 构建应用
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o typing-practice .
+FROM alpine:3.20
 
-# 使用轻量级镜像作为运行环境
-FROM alpine:latest
+RUN apk --no-cache add ca-certificates sqlite-libs \
+    && addgroup -S app \
+    && adduser -S app -G app
 
-# 安装运行时依赖
-RUN apk --no-cache add ca-certificates sqlite-libs
+WORKDIR /app/backend
 
-WORKDIR /root/
+COPY --from=builder /out/typing-practice ./typing-practice
+COPY frontend ../frontend
 
-# 从构建阶段复制二进制文件
-COPY --from=builder /app/typing-practice .
+RUN mkdir -p /app/data /app/stats \
+    && chown -R app:app /app
 
-# 创建数据目录
-RUN mkdir -p /root/data
+USER app
 
-# 暴露端口
 EXPOSE 8080
 
-# 设置环境变量
-ENV ANKI_DB_PATH=/root/data/collection.anki2
+ENV SERVER_HOST=0.0.0.0
 ENV SERVER_PORT=8080
+ENV ANKI_DB_PATH=/app/data/collection.anki2
+ENV STATS_DB_PATH=/app/stats/stats.db
 ENV GIN_MODE=release
 
-# 运行应用
 CMD ["./typing-practice"]
