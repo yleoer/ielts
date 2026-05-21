@@ -10,18 +10,23 @@ env/
 # Local environment
 .env
 .env.*
+.claude/
 
 # Generated Anki exports
-anki_export/*.apkg
-anki_export/*.tsv
-anki_export/*.csv
+apkg-generator/anki_export/*.apkg
+apkg-generator/anki_export/*.tsv
+apkg-generator/anki_export/*.csv
+
+# Runtime databases
+typing-practice/backend/data/*.db
+typing-practice/backend/data/*.db-*
 
 # Original large chapter audio files. Keep split per-word files in subfolders.
-data/audio/*.mp3
+apkg-generator/data/audio/*.mp3
 
 # Keep reusable generation caches
-!anki_export/cache/
-!anki_export/cache/*.json
+!apkg-generator/anki_export/cache/
+!apkg-generator/anki_export/cache/*.json
 
 # Logs and temporary files
 *.log

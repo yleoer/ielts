@@ -290,7 +290,7 @@ rm -rf typing-practice/backend/data/collection.anki2
 ## 技术支持
 
 - **GitHub Issues**: https://github.com/yleoer/my-ielts/issues
-- **文档**: typing-practice-spec.md
+- **文档**: docs/typing-practice/SPEC.md
 
 ---
 
