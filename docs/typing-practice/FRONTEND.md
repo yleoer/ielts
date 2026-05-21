@@ -10,6 +10,8 @@
 - ✅ 进度条和统计
 - ✅ 键盘快捷键支持
 - ✅ 错题回顾
+- ✅ 统计页入口和摸鱼模式图标按钮
+- ✅ 统计图表页和图表明细弹窗
 - ✅ 响应式设计
 
 ## 文件结构
@@ -17,8 +19,10 @@
 ```
 frontend/
 ├── index.html              # 主页面
+├── stats.html              # 统计页面
 ├── src/
 │   ├── app.js             # Vue 应用主逻辑
+│   ├── stats.js           # 统计页图表逻辑
 │   └── api/
 │       └── client.js      # API 客户端
 └── assets/
@@ -73,6 +77,10 @@ python -m http.server 3000
 - `GET /api/words?limit=20` - 获取单词列表
 - `POST /api/check` - 检查拼写
 - `POST /api/stats` - 提交统计
+- `POST /api/stats/sessions` - 提交完整练习会话
+- `GET /api/stats/overview` - 获取统计概览
+- `GET /api/stats/mastery-words` - 获取掌握度图表明细
+- `GET /api/stats/error-type-words` - 获取错误类型图表明细
 - `GET /api/config` - 获取配置
 
 ## 自定义配置
@@ -168,3 +176,8 @@ data() {
 ## 许可证
 
 MIT
+
+## 相关文档
+
+- [统计页实现说明](statistics/FRONTEND.md)
+- [统计功能总结](statistics/SUMMARY.md)

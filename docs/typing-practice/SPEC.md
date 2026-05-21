@@ -65,7 +65,9 @@ my-ielts/
 │       │       └── client.js       # API 客户端
 │       └── assets/
 │           └── style.css           # 自定义样式
-└── typing-practice-spec.md         # 本文档
+└── docs/
+    └── typing-practice/
+        └── SPEC.md                 # 本文档
 ```
 
 ## 数据模型

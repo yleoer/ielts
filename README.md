@@ -1,174 +1,58 @@
-# IELTS Anki Deck Generator
+# My IELTS Tools
 
-This repository contains the source files and script for generating an Anki
-deck package (`.apkg`) from the IELTS vocabulary list and local pronunciation
-audio.
-
-## Files
-
-- `anki-card-template.md` - card design notes and template reference.
-- `scripts/generate_anki_import.py` - generator script for TSV and APKG output.
-- `data/vocabulary.txt` - source vocabulary data from
-  [`hefengxian/my-ielts`](https://github.com/hefengxian/my-ielts).
-- `data/audio/` - local word audio files.
-- `anki_export/cache/` - reusable cache for phonetics and AI-generated content.
-
-Generated files are written to:
-
-- `anki_export/ielts_vocabulary.tsv`
-- `anki_export/ielts_vocabulary.apkg`
-
-## Attribution
-
-The vocabulary source file `data/vocabulary.txt` comes from the
-[`hefengxian/my-ielts`](https://github.com/hefengxian/my-ielts) project.
-
-## Requirements
-
-- Python 3.11+
-- Network access for phonetic lookup and AI enrichment
-- OpenAI-compatible chat completions endpoint
-
-Python dependencies:
-
-```powershell
-pip install requests
-```
-
-## Environment Variables
-
-Required for AI translation and etymology generation:
-
-```powershell
-$env:OPENAI_API_KEY='your-api-key'
-$env:OPENAI_API_BASE='http://localhost:8317/v1'
-```
-
-Optional:
-
-```powershell
-$env:OPENAI_MODEL='gpt-5.4-mini'
-$env:AI_REQUEST_DELAY='0.05'
-$env:DICTIONARY_WORKERS='8'
-$env:ANKI_PROGRESS_EVERY='10'
-```
-
-## Generate A Preview Deck
-
-Use `--limit` to generate a small deck first:
-
-```powershell
-python scripts\generate_anki_import.py --limit 20
-```
-
-This creates a 20-word preview package at:
+This repository has two independent modules:
 
 ```text
-anki_export/ielts_vocabulary.apkg
+my-ielts/
+├── apkg-generator/      # Generate Anki .apkg packages
+├── typing-practice/     # Typing practice web app
+├── docs/                # Project documentation
+├── README.md
+└── README.zh-CN.md
 ```
 
-## Generate The Full Deck
+## APKG Generator
+
+Generate an Anki deck package from the IELTS vocabulary list, local word audio,
+and optional AI enrichment.
 
 ```powershell
-python scripts\generate_anki_import.py
+python apkg-generator\scripts\generate_anki_import.py --limit 20
+python apkg-generator\scripts\generate_anki_import.py
 ```
 
-The script prints progress for phonetics, AI calls, note building, and media
-packaging.
+Docs:
 
-You can also choose which AI fields to generate:
+- [APKG generator guide](docs/apkg-generator/README.md)
+- [APKG generator guide in Chinese](docs/apkg-generator/README.zh-CN.md)
+- [Anki card template notes](docs/apkg-generator/anki-card-template.md)
+
+## Typing Practice
+
+Run a local web app that reads words from Anki `collection.anki2`, provides
+typing practice, and records learning statistics.
 
 ```powershell
-python scripts\generate_anki_import.py --ai-task translations
-python scripts\generate_anki_import.py --ai-task etymologies
-python scripts\generate_anki_import.py --ai-task all
+cd typing-practice\backend
+go run .
 ```
 
-`translations` fills example translations first. `etymologies` fills word-root
-notes later. `all` is the default.
+Then open:
 
-## Generate From Cached AI Only
-
-If the AI service is unavailable, you can generate a temporary deck containing
-only words whose AI example translation is already cached:
-
-```powershell
-python scripts\generate_anki_import.py --cached-ai-only
+```text
+http://localhost:8080/
+http://localhost:8080/stats.html
 ```
 
-This mode does not make new AI calls. Words without cached AI translations are
-skipped, while cached etymology is used when available.
+Docs:
 
-## Resume Behavior
+- [Typing practice spec](docs/typing-practice/SPEC.md)
+- [Frontend guide](docs/typing-practice/FRONTEND.md)
+- [Docker deploy guide](docs/typing-practice/DOCKER-DEPLOY.md)
+- [Statistics summary](docs/typing-practice/statistics/SUMMARY.md)
 
-The script is safe to stop and rerun.
+## Resource Boundaries
 
-- Phonetics are cached in `anki_export/cache/phonetics.json`.
-- AI translations and etymologies are cached in
-  `anki_export/cache/ai_enrichment.json`.
-- Each successful API result is saved immediately.
-
-If the script is interrupted, rerunning it will reuse completed cached work and
-continue with missing items. The only likely repeat is the single API request
-that was in progress when the process was stopped.
-
-## Anki Study Settings
-
-The generated deck is configured for 10 words per day, with forward and reverse
-cards:
-
-- New cards per day: `20`
-- Learning steps: `15m 4h 8h`
-- Graduating interval: `1d`
-- Easy interval: `3d`
-- Relearning steps: `15m 4h`
-- Review limit per day: `200`
-
-Suggested daily rhythm:
-
-- Morning commute: first pass through 10 new words.
-- Lunch: memory pass.
-- Evening commute: reinforcement.
-- Before sleep: clear due cards and review weak items.
-
-## Import Into Anki
-
-1. Open Anki.
-2. Choose `File -> Import`.
-3. Select `anki_export/ielts_vocabulary.apkg`.
-4. Import the deck.
-5. Check the deck options after import, especially new-card limits and FSRS.
-
-## Useful Commands
-
-Refresh phonetics only:
-
-```powershell
-python scripts\generate_anki_import.py --phonetics-only
-```
-
-Generate without AI for missing cached fields:
-
-```powershell
-python scripts\generate_anki_import.py --skip-ai
-```
-
-Generate only cached AI-translated words:
-
-```powershell
-python scripts\generate_anki_import.py --cached-ai-only
-```
-
-Generate only one AI field type:
-
-```powershell
-python scripts\generate_anki_import.py --ai-task translations
-python scripts\generate_anki_import.py --ai-task etymologies
-```
-
-Adjust progress frequency:
-
-```powershell
-$env:ANKI_PROGRESS_EVERY='25'
-python scripts\generate_anki_import.py
-```
+- `apkg-generator/data/`: source vocabulary and word audio for APKG generation
+- `apkg-generator/anki_export/`: generated APKG/TSV files and reusable caches
+- `typing-practice/backend/data/`: runtime data for the typing practice server

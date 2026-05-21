@@ -11,9 +11,14 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Anki     AnkiConfig     `yaml:"anki"`
+	// Server 控制 Gin 监听地址。
+	Server ServerConfig `yaml:"server"`
+	// Anki 控制外部 Anki collection.anki2 的读取位置和目标牌组。
+	Anki AnkiConfig `yaml:"anki"`
+	// Practice 控制练习单词拉取数量等业务默认值。
 	Practice PracticeConfig `yaml:"practice"`
+	// Stats 控制本应用自己的统计数据库位置。
+	Stats StatsConfig `yaml:"stats"`
 }
 
 type ServerConfig struct {
@@ -33,9 +38,14 @@ type PracticeConfig struct {
 	EnableAudio  bool `yaml:"enable_audio"`
 }
 
+type StatsConfig struct {
+	DBPath string `yaml:"db_path"`
+}
+
 func Load() (*Config, error) {
 	cfg := defaultConfig()
 
+	// config.yaml 是可选的：缺省时用默认配置，存在时覆盖默认值。
 	if path := findConfigFile(); path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -46,6 +56,7 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// 环境变量优先级最高，方便 Docker 运行时通过 -e 覆盖路径和端口。
 	applyEnvOverrides(&cfg)
 	normalize(&cfg)
 
@@ -76,10 +87,16 @@ func defaultConfig() Config {
 			MaxLimit:     100,
 			EnableAudio:  false,
 		},
+		Stats: StatsConfig{
+			DBPath: filepath.Join("data", "stats.db"),
+		},
 	}
 }
 
 func findConfigFile() string {
+	// 支持两种启动目录：
+	// 1. 在 backend 目录运行 go run .
+	// 2. 在仓库根目录运行 go run ./typing-practice/backend
 	candidates := []string{
 		filepath.Join("config", "config.yaml"),
 		filepath.Join("typing-practice", "backend", "config", "config.yaml"),
@@ -124,9 +141,13 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Practice.MaxLimit = limit
 		}
 	}
+	if value := strings.TrimSpace(os.Getenv("STATS_DB_PATH")); value != "" {
+		cfg.Stats.DBPath = value
+	}
 }
 
 func normalize(cfg *Config) {
+	// normalize 负责兜底非法或空配置，避免后续代码到处判断零值。
 	if cfg.Server.Port <= 0 {
 		cfg.Server.Port = 8080
 	}
@@ -148,9 +169,14 @@ func normalize(cfg *Config) {
 	if cfg.Practice.DefaultLimit > cfg.Practice.MaxLimit {
 		cfg.Practice.DefaultLimit = cfg.Practice.MaxLimit
 	}
+	if strings.TrimSpace(cfg.Stats.DBPath) == "" {
+		cfg.Stats.DBPath = filepath.Join("data", "stats.db")
+	}
 }
 
 func defaultAnkiDBPath() string {
+	// Windows 下优先检查文档中的 User 1；如果不存在，就扫描 Anki2 下的真实 profile。
+	// 这对中文 profile 名（例如“账户1”）尤其有用。
 	if appData := os.Getenv("APPDATA"); appData != "" {
 		userOne := filepath.Join(appData, "Anki2", "User 1", "collection.anki2")
 		if _, err := os.Stat(userOne); err == nil {
@@ -178,6 +204,7 @@ func defaultAnkiDBPath() string {
 }
 
 func DiscoverAnkiDB(ankiRoot string) string {
+	// 只做一层 profile 扫描，避免误入 addons/logs 等非用户数据目录。
 	if strings.TrimSpace(ankiRoot) == "" {
 		return ""
 	}
