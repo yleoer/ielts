@@ -1,39 +1,32 @@
-version: '3.8'
-
 services:
-  # 后端服务
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: ielts-typing-backend
     ports:
       - "8080:8080"
     volumes:
-      # 挂载 Anki 数据库文件
-      - ./backend/data:/root/data:ro  # ro = read-only
+      - ./backend/data:/app/data:ro
+      - stats-data:/app/stats
     environment:
-      - ANKI_DB_PATH=/root/data/collection.anki2
-      - SERVER_PORT=8080
-      - GIN_MODE=release
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8080
+      ANKI_DB_PATH: /app/data/collection.anki2
+      STATS_DB_PATH: /app/stats/stats.db
+      GIN_MODE: release
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/config >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
     networks:
       - ielts-network
 
-  # 前端服务（使用 Nginx）
-  frontend:
-    image: nginx:alpine
-    container_name: ielts-typing-frontend
-    ports:
-      - "3000:80"
-    volumes:
-      - ./frontend:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - backend
-    restart: unless-stopped
-    networks:
-      - ielts-network
+volumes:
+  stats-data:
 
 networks:
   ielts-network:

@@ -1,299 +1,134 @@
 # IELTS 打字练习 - Docker 部署指南
 
+打字练习现在使用单容器部署：Go 后端负责 API，同时托管 `frontend/` 下的静态页面。Docker Compose 只需要启动 `backend` 一个服务，并暴露 `8080` 端口。
+
 ## 快速开始
 
-### 1. 准备 Anki 数据库文件
+### 1. 准备 Anki 数据库
 
-**在本地电脑操作**：
+先把 Anki 的 `collection.anki2` 复制到项目目录：
 
-```bash
-# Windows
-# 找到 Anki 数据库文件
-# 路径：C:\Users\yleoer\AppData\Roaming\Anki2\User 1\collection.anki2
-
-# 复制到项目目录
-mkdir typing-practice\backend\data
-copy "%APPDATA%\Anki2\User 1\collection.anki2" typing-practice\backend\data\
-```
-
-**或使用 PowerShell**：
 ```powershell
-# 创建数据目录
 New-Item -ItemType Directory -Force -Path "typing-practice\backend\data"
-
-# 复制 Anki 数据库
-Copy-Item "$env:APPDATA\Anki2\User 1\collection.anki2" -Destination "typing-practice\backend\data\"
+Copy-Item "$env:APPDATA\Anki2\User 1\collection.anki2" -Destination "typing-practice\backend\data\collection.anki2"
 ```
 
-### 2. 启动 Docker 容器
+如果你的 Anki profile 不是 `User 1`，请把源路径换成真实 profile 下的 `collection.anki2`。
+
+### 2. 启动服务
 
 ```bash
-# 进入项目目录
 cd typing-practice
-
-# 构建并启动服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
-
-# 停止服务
-docker-compose down
+docker compose up -d --build
+docker compose logs -f backend
 ```
 
-### 3. 访问应用
+停止服务：
 
-打开浏览器访问：http://localhost:8080
-## 文件结构
-
-```
-typing-practice/
-├── docker-compose.yml          # Docker Compose 配置
-├── nginx.conf                  # Nginx 配置
-├── backend/
-│   ├── Dockerfile             # 后端 Dockerfile
-│   ├── data/
-│   │   └── collection.anki2   # Anki 数据库（需手动复制）
-│   ├── main.go
-│   ├── go.mod
-│   └── ...
-└── frontend/
-    ├── index.html
-    ├── src/
-    └── assets/
+```bash
+docker compose down
 ```
 
-## 环境变量
+## 访问地址
 
-可以在 `docker-compose.yml` 中修改：
-
-```yaml
-environment:
-  - ANKI_DB_PATH=/root/data/collection.anki2  # Anki 数据库路径
-  - SERVER_PORT=8080                          # 后端端口
-  - GIN_MODE=release                          # Gin 运行模式
+```text
+http://localhost:8080/
+http://localhost:8080/stats.html
+http://localhost:8080/api/config
 ```
 
-## 端口映射
+## Compose 结构
 
-- **8080**：后端 API 服务
-
-如需修改端口，编辑 `docker-compose.yml`：
+`typing-practice/docker-compose.yml` 做了三件关键的事：
 
 ```yaml
 ports:
-  - "8080:8080" # 改为 "9090:8080" 则后端运行在 9090
+  - "8080:8080"
+
+volumes:
+  - ./backend/data:/app/data:ro
+  - stats-data:/app/stats
+
+environment:
+  SERVER_HOST: 0.0.0.0
+  SERVER_PORT: 8080
+  ANKI_DB_PATH: /app/data/collection.anki2
+  STATS_DB_PATH: /app/stats/stats.db
 ```
 
-## 数据同步方案
+- `./backend/data:/app/data:ro`：只读挂载 Anki 数据库，避免容器修改 Anki 原始数据。
+- `stats-data:/app/stats`：使用 Docker volume 保存练习统计数据，容器重建后不会丢失。
+- `SERVER_HOST=0.0.0.0`：让服务监听容器网卡，否则宿主机可能无法通过端口映射访问。
 
-### 方案 A：手动同步（简单）
+## 更新 Anki 数据
 
-每次 Anki 学习新单词后，手动复制数据库文件：
+当 Anki 数据有变化时，重新复制数据库并重启容器：
+
+```powershell
+Copy-Item "$env:APPDATA\Anki2\User 1\collection.anki2" -Destination "typing-practice\backend\data\collection.anki2" -Force
+cd typing-practice
+docker compose restart backend
+```
+
+## 服务器部署思路
+
+在服务器上运行时，可以把本地 Anki 数据同步到服务器的 `typing-practice/backend/data/collection.anki2`：
 
 ```bash
-# 停止容器
-docker-compose down
-
-# 复制最新的 Anki 数据库
-copy "%APPDATA%\Anki2\User 1\collection.anki2" typing-practice\backend\data\
-
-# 重启容器
-docker-compose up -d
+scp collection.anki2 user@server:/path/to/my-ielts/typing-practice/backend/data/collection.anki2
+ssh user@server "cd /path/to/my-ielts/typing-practice && docker compose up -d --build"
 ```
 
-### 方案 B：定时同步脚本（推荐）
-
-创建 `sync-anki.bat`：
-
-```batch
-@echo off
-echo Syncing Anki database...
-
-REM 复制 Anki 数据库
-copy "%APPDATA%\Anki2\User 1\collection.anki2" "D:\Code\Github\my-ielts\typing-practice\backend\data\" /Y
-
-REM 重启 Docker 容器
-cd D:\Code\Github\my-ielts\typing-practice
-docker-compose restart backend
-
-echo Sync completed!
-pause
-```
-
-使用 Windows 任务计划程序设置每天自动运行。
-
-### 方案 C：使用 rsync 远程同步（服务器部署）
-
-如果服务器在远程，使用 rsync 或 scp：
+如果需要定期同步，可以用 `rsync`、计划任务或 CI/CD 把 `collection.anki2` 推到服务器，然后执行：
 
 ```bash
-# 从本地同步到服务器
-rsync -avz --progress \
-  "%APPDATA%\Anki2\User 1\collection.anki2" \
-  user@server:/path/to/typing-practice/backend/data/
-
-# SSH 到服务器重启容器
-ssh user@server "cd /path/to/typing-practice && docker-compose restart backend"
+docker compose restart backend
 ```
 
 ## 常见问题
 
-### 1. 后端无法读取数据库
+### 访问不了 `localhost:8080`
 
-**检查文件权限**：
-```bash
-# 进入容器
-docker exec -it ielts-typing-backend sh
-
-# 检查文件是否存在
-ls -la /root/data/collection.anki2
-
-# 检查文件权限
-chmod 644 /root/data/collection.anki2
-```
-
-### 2. 前端无法连接后端
-
-**检查 API 地址**：
-- 确保 `frontend/src/app.js` 中 `apiBaseUrl` 设置为 `/api`
-- 检查 Nginx 配置是否正确代理到后端
-
-**测试后端连接**：
-```bash
-curl http://localhost:8080/api/config
-```
-
-### 3. 容器启动失败
-
-**查看日志**：
-```bash
-docker-compose logs backend
-docker-compose logs frontend
-```
-
-**重新构建**：
-```bash
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-### 4. 数据库文件过大
-
-Anki 数据库可能包含大量媒体文件，如果只需要单词数据：
+检查容器状态和日志：
 
 ```bash
-# 使用 SQLite 导出纯文本数据
-sqlite3 collection.anki2 ".dump notes cards" > anki_data.sql
+docker compose ps
+docker compose logs backend
 ```
 
-## 生产环境部署
+确认 `SERVER_HOST` 是 `0.0.0.0`，并且端口映射是 `"8080:8080"`。
 
-### 使用 HTTPS（推荐）
+### `/api/words` 没有单词
 
-1. 安装 Certbot
-2. 获取 SSL 证书
-3. 修改 `nginx.conf` 添加 SSL 配置
-
-### 使用域名
-
-修改 `nginx.conf`：
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    # ... 其他配置
-}
-```
-
-### 性能优化
-
-在 `docker-compose.yml` 中添加资源限制：
-
-```yaml
-services:
-  backend:
-    # ... 其他配置
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-```
-
-## 备份和恢复
-
-### 备份数据
+确认数据库文件存在：
 
 ```bash
-# 备份 Anki 数据库
-cp typing-practice/backend/data/collection.anki2 backup/collection_$(date +%Y%m%d).anki2
-
-# 备份 Docker 镜像
-docker save ielts-typing-backend > ielts-typing-backend.tar
+docker compose exec backend ls -l /app/data/collection.anki2
 ```
 
-### 恢复数据
+如果文件不存在，重新复制 `collection.anki2` 到 `typing-practice/backend/data/`。
+
+### 统计数据是否会丢失
+
+不会。统计库写入 Docker volume `stats-data`。如果要备份：
 
 ```bash
-# 恢复 Anki 数据库
-cp backup/collection_20260521.anki2 typing-practice/backend/data/collection.anki2
-
-# 重启容器
-docker-compose restart backend
+docker compose exec backend cp /app/stats/stats.db /tmp/stats.db
+docker cp ielts-typing-backend:/tmp/stats.db ./stats-backup.db
 ```
 
-## 监控和日志
-
-### 查看实时日志
+删除统计数据需要显式删除 volume：
 
 ```bash
-# 所有服务
-docker-compose logs -f
-
-# 仅后端
-docker-compose logs -f backend
-
-# 仅前端
-docker-compose logs -f frontend
+docker compose down -v
 ```
 
-### 日志持久化
-
-修改 `docker-compose.yml` 添加日志配置：
-
-```yaml
-services:
-  backend:
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-```
-
-## 卸载
+## 常用命令
 
 ```bash
-# 停止并删除容器
-docker-compose down
-
-# 删除镜像
-docker rmi ielts-typing-backend nginx:alpine
-
-# 删除数据（可选）
-rm -rf typing-practice/backend/data/collection.anki2
+docker compose up -d --build
+docker compose logs -f backend
+docker compose restart backend
+docker compose down
+docker compose down -v
 ```
-
-## 技术支持
-
-- **GitHub Issues**: https://github.com/yleoer/my-ielts/issues
-- **文档**: docs/typing-practice/SPEC.md
-
----
-
-**最后更新**: 2026-05-21  
-**Docker 版本**: 20.10+  
-**Docker Compose 版本**: 2.0+
