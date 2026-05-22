@@ -1,12 +1,12 @@
 services:
   anki-sync:
-    image: ${ANKI_SYNC_IMAGE:-afrima/anki-sync-server:latest}
+    image: afrima/anki-sync-server:latest
     container_name: anki-sync-server
     user: "0:0"
     ports:
       - "${ANKI_SYNC_PORT:-8081}:8080"
     volumes:
-      - anki-sync-data:/data
+      - ./data/anki-sync:/data
     environment:
       SYNC_BASE: /data
       SYNC_PORT: 8080
@@ -16,14 +16,15 @@ services:
       - ielts-network
 
   typing-practice:
-    image: ${TYPING_PRACTICE_IMAGE:-yleoer/ielts-typing-practice:latest}
+    image: yleoer/ielts-typing-practice:latest
     container_name: ielts-typing-practice
+    user: "0:0"
     ports:
-      - "8080:8080"
+      - "${TYPING_PRACTICE_PORT:-8080}:8080"
     volumes:
-      - anki-sync-data:/app/anki-sync:ro
-      - anki-cache:/app/anki-cache
-      - stats-data:/app/stats
+      - ./data/anki-sync:/app/anki-sync:ro
+      - ./data/anki-cache:/app/anki-cache
+      - ./data/stats:/app/stats
     environment:
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8080
@@ -45,11 +46,6 @@ services:
       - anki-sync
     networks:
       - ielts-network
-
-volumes:
-  anki-sync-data:
-  anki-cache:
-  stats-data:
 
 networks:
   ielts-network:

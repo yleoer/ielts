@@ -28,6 +28,11 @@
   - 错误类型分布
 - “单词掌握度分布”和“错误类型分布”支持点击扇区打开单词明细弹窗
 - 摸鱼模式支持图表和页面配色切换，并保存到 `localStorage`
+- 当前统计页布局：
+  - 第一行：学习热力图、正确率趋势
+  - 第二行：单词掌握度分布、错误类型分布
+  - 第三行：分类掌握度、错误单词 Top 10
+  - 最后一行：每日练习时长，横向占满整行
 
 ## 当前统计接口
 
@@ -77,11 +82,22 @@ docs/typing-practice/statistics/
 
 ## 验证方式
 
+本地开发：
+
 ```bash
 cd typing-practice/backend
 go test ./...
 go build ./...
 go run .
+```
+
+Docker 部署：
+
+```bash
+cd typing-practice
+docker compose pull
+docker compose up -d
+docker compose logs -f typing-practice
 ```
 
 然后访问：

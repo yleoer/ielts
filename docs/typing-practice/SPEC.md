@@ -17,7 +17,7 @@
 - 界面现代化、简洁
 - 响应速度快（< 100ms）
 - 支持键盘快捷键操作（全键盘操作）
-- 本地运行，无需外部依赖
+- 支持本地开发运行，也支持服务器 Docker Compose 部署
 - 支持主题切换（彩色模式 / 摸鱼模式）
 
 ## 技术栈
@@ -32,7 +32,7 @@
 - **框架**：Vue 3 (Composition API)
 - **UI 库**：Tailwind CSS
 - **HTTP 客户端**：Axios
-- **构建工具**：Vite（可选，也可用 CDN 方式）
+- **构建方式**：当前使用 CDN 静态页面，由 Go 后端直接托管
 
 ## 项目结构
 
@@ -43,28 +43,30 @@ my-ielts/
 │   │   ├── main.go                 # 入口文件
 │   │   ├── go.mod                  # Go 依赖管理
 │   │   ├── go.sum
+│   │   ├── Dockerfile              # 练习服务镜像构建
+│   │   ├── docker/
+│   │   │   └── entrypoint.sh       # 启动时复制 Anki 同步数据
 │   │   ├── config/
 │   │   │   └── config.go           # 配置管理（Anki 路径等）
 │   │   ├── anki/
 │   │   │   └── reader.go           # Anki 数据库读取逻辑
-│   │   ├── models/
-│   │   │   └── word.go             # 单词数据模型
 │   │   ├── handlers/
-│   │   │   └── api.go              # API 处理器
-│   │   └── utils/
-│   │       └── helpers.go          # 工具函数
-│   └── frontend/
-│       ├── index.html              # 主页面
-│       ├── src/
-│       │   ├── app.js              # Vue 应用入口
-│       │   ├── components/
-│       │   │   ├── TypingInput.vue # 输入组件
-│       │   │   ├── WordDisplay.vue # 单词显示组件
-│       │   │   └── Stats.vue       # 统计组件
-│       │   └── api/
-│       │       └── client.js       # API 客户端
-│       └── assets/
-│           └── style.css           # 自定义样式
+│   │   │   ├── api.go              # 练习 API 处理器
+│   │   │   └── stats.go            # 统计 API 处理器
+│   │   └── stats/                  # 统计数据模型、存储和查询
+│   ├── frontend/
+│   │   ├── index.html              # 主页面
+│   │   ├── stats.html              # 统计页面
+│   │   ├── src/
+│   │   │   ├── app.js              # 练习页逻辑
+│   │   │   ├── stats.js            # 统计页逻辑
+│   │   │   └── api/
+│   │   │       └── client.js       # API 客户端
+│   │   └── assets/
+│   │       └── style.css           # 自定义样式
+│   ├── docker-compose.yml          # anki-sync + typing-practice 部署
+│   ├── .env.example                # Compose 环境变量示例
+│   └── data/                       # Compose 运行时数据目录
 └── docs/
     └── typing-practice/
         └── SPEC.md                 # 本文档
@@ -332,6 +334,9 @@ practice:
   default_limit: 20
   max_limit: 100
   enable_audio: false  # 未来功能
+
+stats:
+  db_path: "data/stats.db"
 ```
 
 ### 环境变量支持
@@ -341,16 +346,21 @@ export ANKI_DB_PATH="/path/to/collection.anki2"
 
 # 覆盖服务器端口
 export SERVER_PORT=9090
+
+# 覆盖统计数据库路径
+export STATS_DB_PATH="/path/to/stats.db"
 ```
+
+Docker Compose 部署时，常用变量集中在 `typing-practice/.env.example`，包括服务端口、Anki 同步账号和同步间隔。
 
 ## 实现步骤
 
-### Phase 1: 后端基础（优先级：高）
-1. 初始化 Go 项目，安装依赖
-2. 实现 Anki 数据库读取逻辑（`anki/reader.go`）
-3. 实现 `/api/words` 端点
-4. 实现 `/api/check` 端点
-5. 添加 CORS 支持
+### Phase 1: 后端基础（优先级：高）✅ 已完成
+1. ✅ 初始化 Go 项目，安装依赖
+2. ✅ 实现 Anki 数据库读取逻辑
+3. ✅ 实现 `/api/words` 端点
+4. ✅ 实现 `/api/check` 端点
+5. ✅ 添加 CORS 支持
 
 ### Phase 2: 前端基础（优先级：高）✅ 已完成
 1. ✅ 创建 HTML 模板，引入 Vue 3 + Tailwind CSS（CDN）
@@ -371,9 +381,8 @@ export SERVER_PORT=9090
 ### Phase 4: 高级功能（优先级：低）⏳ 待开发
 1. ⏳ 音频播放支持（复用 `data/audio/`）
 2. ⏳ 难度分级（根据单词长度/复杂度）
-3. ⏳ 练习历史记录和趋势图表
+3. ✅ 练习历史记录和趋势图表
 4. ⏳ 导出错题列表到 Anki
-5. ⏳ 后端 Golang API 实现
 
 ## 技术细节
 
@@ -454,36 +463,25 @@ loadStealthMode() {
 ```bash
 # 后端
 cd typing-practice/backend
-go mod init typing-practice
 go mod tidy
-go run main.go
+go run .
 
-# 前端（如果使用 CDN，直接打开 index.html）
-cd typing-practice/frontend
-# 使用 Live Server 或任意 HTTP 服务器
-python -m http.server 3000
+# 访问
+http://localhost:8080/
+http://localhost:8080/stats.html
 ```
 
-### 生产构建
+### Docker Compose 部署
 ```bash
-# 后端编译
-cd typing-practice/backend
-go build -o typing-practice.exe main.go
-
-# 前端（如果使用 Vite）
-cd typing-practice/frontend
-npm run build
+cd typing-practice
+cp .env.example .env
+docker compose pull
+docker compose up -d
 ```
 
-### 一键启动脚本（`start.bat`）
-```batch
-@echo off
-echo Starting IELTS Typing Practice...
-cd typing-practice\backend
-start /B go run main.go
-timeout /t 2 /nobreak >nul
-start http://localhost:8080
-```
+Docker Compose 会启动 `anki-sync` 和 `typing-practice` 两个服务。练习服务镜像由 GitHub Actions 构建并推送到 Docker Hub，服务器更新时只需要 `docker compose pull` 和 `docker compose up -d`，不需要本地 build。
+
+详细说明见 [Docker 部署说明](DOCKER-DEPLOY.md)。
 
 ## 测试计划
 
@@ -530,12 +528,11 @@ start http://localhost:8080
 ### 短期（1-2 周）
 - [ ] 添加音频播放功能
 - [ ] 实现错题本重点练习
-- [ ] 添加练习历史记录
-- [ ] **完成后端 Golang API 开发**
+- [x] 添加练习历史记录和统计图表
 
 ### 中期（1-2 月）
 - [ ] 支持多用户（登录系统）
-- [ ] 练习数据可视化（图表）
+- [x] 练习数据可视化（图表）
 - [ ] 移动端适配
 - [ ] 添加计时功能和速度统计
 
@@ -545,6 +542,14 @@ start http://localhost:8080
 - [ ] 社区功能（排行榜、挑战赛）
 
 ## 更新日志
+
+### v1.2 - 2026-05-22
+**后端、统计和部署完成**
+- ✅ 完成 Go 后端 API 和 Anki SQLite 读取
+- ✅ 使用 SQLite 保存练习统计原始数据
+- ✅ 新增统计页面和 7 个核心图表
+- ✅ Docker Compose 使用 `anki-sync` + `typing-practice` 双服务部署
+- ✅ 练习服务镜像由 GitHub Actions 构建并推送到 Docker Hub
 
 ### v1.1 - 2026-05-21
 **前端完成**
@@ -558,9 +563,9 @@ start http://localhost:8080
 - ✅ 错题回顾功能
 - ✅ 响应式设计
 
-**待开发**
-- ⏳ 后端 Golang API
-- ⏳ Anki 数据库读取
+**后续已完成**
+- ✅ 后端 Golang API
+- ✅ Anki 数据库读取
 
 ### v1.0 - 2026-05-21
 **初始设计**

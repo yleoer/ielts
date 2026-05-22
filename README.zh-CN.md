@@ -22,17 +22,20 @@ python apkg-generator\scripts\generate_anki_import.py
 
 文档：
 
+- [项目文档索引](docs/README.zh-CN.md)
 - [APKG 生成器说明](docs/apkg-generator/README.zh-CN.md)
 - [APKG 生成器英文说明](docs/apkg-generator/README.md)
 - [Anki 卡片模板说明](docs/apkg-generator/anki-card-template.md)
 
 ## 打字练习
 
-用于读取本地 Anki `collection.anki2` 中的单词，提供拼写练习和学习统计。
+用于读取 Anki `collection.anki2` 中的单词，提供拼写练习和学习统计。服务器部署推荐使用 Docker Compose：`anki-sync` 接收 Anki 客户端同步数据，`typing-practice` 从 Docker Hub 拉取预构建镜像并定时复制同步数据。
 
-```powershell
-cd typing-practice\backend
-go run .
+```bash
+cd typing-practice
+cp .env.example .env
+docker compose pull
+docker compose up -d
 ```
 
 访问：
@@ -44,6 +47,7 @@ http://localhost:8080/stats.html
 
 文档：
 
+- [项目文档索引](docs/README.zh-CN.md)
 - [打字练习规格](docs/typing-practice/SPEC.md)
 - [前端说明](docs/typing-practice/FRONTEND.md)
 - [Docker 部署说明](docs/typing-practice/DOCKER-DEPLOY.md)
@@ -53,4 +57,7 @@ http://localhost:8080/stats.html
 
 - `apkg-generator/data/`：APKG 生成器使用的源词表和单词音频
 - `apkg-generator/anki_export/`：APKG/TSV 输出和可复用缓存
-- `typing-practice/backend/data/`：打字练习服务运行时数据
+- `typing-practice/.env.example`：Docker Compose 环境变量示例
+- `typing-practice/data/anki-sync/`：Anki 同步服务器数据
+- `typing-practice/data/anki-cache/`：练习服务使用的 `collection.anki2` 缓存
+- `typing-practice/data/stats/`：学习统计 SQLite 数据

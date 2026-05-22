@@ -17,22 +17,21 @@ GET /api/stats/error-type-words?type=spelling&limit=500
 
 ## 项目概述
 
-为 IELTS 打字练习系统添加完整的数据统计和可视化功能，通过 10 种不同类型的图表全方位展示学习进度、掌握情况和薄弱环节。
+为 IELTS 打字练习系统添加完整的数据统计和可视化功能。当前前端聚焦展示 7 个核心图表，覆盖学习进度、掌握情况、错误分布和练习投入。
 
 ## 功能列表
 
-### 方案 C：专业版（10 个图表）
+### 当前展示的 7 个核心图表
 
 1. **GitHub 风格热力图** - 学习习惯可视化
 2. **正确率趋势折线图** - 学习效果趋势
 3. **单词掌握度分布饼图** - 整体掌握情况
 4. **错误单词 Top 10 排行榜** - 薄弱点识别
-5. **打字速度曲线图** - 熟练度提升
-6. **每日练习时长柱状图** - 学习投入监控
-7. **单词分类掌握雷达图** - 主题掌握情况
-8. **学习连续性日历** - 持续学习激励
-9. **错误类型分析饼图** - 错误原因分析
-10. **进步里程碑时间轴** - 成就记录
+5. **每日练习时长柱状图** - 学习投入监控
+6. **单词分类掌握雷达图** - 主题掌握情况
+7. **错误类型分析饼图** - 错误原因分析
+
+后端仍保留打字速度、连续学习和里程碑相关接口，便于后续重新展示或扩展。
 
 ## 技术栈
 
@@ -557,7 +556,7 @@ const option = {
 };
 ```
 
-### 5. 打字速度曲线图
+### 5. 打字速度曲线图（后端保留，当前页面未展示）
 
 **ECharts 配置**：
 ```javascript
@@ -583,7 +582,7 @@ const option = {
 };
 ```
 
-### 6. 每日练习时长柱状图
+### 6. 每日练习时长柱状图（当前页面最后一行全宽展示）
 
 **ECharts 配置**：
 ```javascript
@@ -641,7 +640,7 @@ const option = {
 };
 ```
 
-### 8. 学习连续性日历
+### 8. 学习连续性日历（后端保留，当前页面未展示）
 
 **ECharts 配置**：
 ```javascript
@@ -688,7 +687,7 @@ const option = {
 };
 ```
 
-### 10. 进步里程碑时间轴
+### 10. 进步里程碑时间轴（后端保留，当前页面未展示）
 
 **ECharts 配置**：
 ```javascript
@@ -759,13 +758,10 @@ const option = {
     <div class="chart-container bg-white rounded-lg shadow p-6" id="heatmap"></div>
     <div class="chart-container bg-white rounded-lg shadow p-6" id="accuracy-trend"></div>
     <div class="chart-container bg-white rounded-lg shadow p-6" id="mastery-pie"></div>
-    <div class="chart-container bg-white rounded-lg shadow p-6" id="top-errors"></div>
-    <div class="chart-container bg-white rounded-lg shadow p-6" id="speed-curve"></div>
-    <div class="chart-container bg-white rounded-lg shadow p-6" id="daily-duration"></div>
-    <div class="chart-container bg-white rounded-lg shadow p-6" id="category-radar"></div>
-    <div class="chart-container bg-white rounded-lg shadow p-6" id="streak-calendar"></div>
     <div class="chart-container bg-white rounded-lg shadow p-6" id="error-types"></div>
-    <div class="chart-container bg-white rounded-lg shadow p-6 col-span-2" id="milestones"></div>
+    <div class="chart-container bg-white rounded-lg shadow p-6" id="category-radar"></div>
+    <div class="chart-container bg-white rounded-lg shadow p-6" id="top-errors"></div>
+    <div class="chart-container bg-white rounded-lg shadow p-6 col-span-2" id="daily-duration"></div>
   </div>
 </div>
 ```
@@ -792,13 +788,10 @@ createApp({
       await this.loadHeatmap();
       await this.loadAccuracyTrend();
       await this.loadMasteryPie();
-      await this.loadTopErrors();
-      await this.loadSpeedCurve();
-      await this.loadDailyDuration();
-      await this.loadCategoryRadar();
-      await this.loadStreakCalendar();
       await this.loadErrorTypes();
-      await this.loadMilestones();
+      await this.loadCategoryRadar();
+      await this.loadTopErrors();
+      await this.loadDailyDuration();
     },
     
     async loadHeatmap() {
@@ -1069,27 +1062,27 @@ func calculateCurrentStreak() int {
 
 ## 实现步骤
 
-### Phase 1: 后端数据库和 API（优先级：高）
-1. 创建数据库表结构
-2. 实现 POST /api/stats/sessions 端点
-3. 实现单词掌握度更新逻辑
-4. 实现所有统计查询 API（12 个端点）
-5. 实现里程碑自动检测
-6. 添加数据库索引优化查询
+### Phase 1: 后端数据库和 API（优先级：高）✅ 已完成
+1. ✅ 创建数据库表结构
+2. ✅ 实现 POST /api/stats/sessions 端点
+3. ✅ 实现单词掌握度更新逻辑
+4. ✅ 实现统计查询 API
+5. ✅ 实现里程碑自动检测
+6. ✅ 添加数据库索引优化查询
 
-### Phase 2: 前端统计页面（优先级：高）
-1. 创建 stats.html 页面
-2. 引入 ECharts 库
-3. 实现概览卡片组件
-4. 实现 10 个图表组件
-5. 连接后端 API
-6. 添加加载状态和错误处理
+### Phase 2: 前端统计页面（优先级：高）✅ 已完成
+1. ✅ 创建 stats.html 页面
+2. ✅ 引入 ECharts 库
+3. ✅ 实现概览卡片组件
+4. ✅ 实现 7 个核心图表
+5. ✅ 连接后端 API
+6. ✅ 添加加载状态和错误处理
 
-### Phase 3: 集成到练习流程（优先级：中）
-1. 修改练习页面，提交时调用统计 API
-2. 添加"查看统计"按钮跳转到统计页面
-3. 实现实时数据更新
-4. 添加导航菜单
+### Phase 3: 集成到练习流程（优先级：中）✅ 已完成
+1. ✅ 修改练习页面，提交时调用统计 API
+2. ✅ 添加"查看统计"按钮跳转到统计页面
+3. ✅ 实现实时数据更新
+4. ✅ 添加导航入口
 
 ### Phase 4: 优化和增强（优先级：低）
 1. 添加图表交互（点击查看详情）
@@ -1239,25 +1232,25 @@ curl "http://localhost:8080/api/stats/heatmap?start_date=2026-01-01&end_date=202
 #### 前端测试
 - [ ] 统计页面正常加载
 - [ ] 概览卡片显示正确数据
-- [ ] 10 个图表正常渲染
+- [ ] 7 个核心图表正常渲染
 - [ ] 图表交互功能正常
 - [ ] 响应式布局适配移动端
 - [ ] 摸鱼模式下图表样式正确
 
-## Docker 部署更新
+## Docker 部署
 
-### 更新 docker-compose.yml
+当前 Compose 使用相对路径保存统计数据库：
 
-添加统计数据库挂载：
 ```yaml
 services:
-  backend:
+  typing-practice:
     volumes:
-      - ./backend/data:/root/data:ro
-      - ./backend/stats.db:/root/stats.db  # 新增：统计数据库
+      - ./data/stats:/app/stats
     environment:
-      - STATS_DB_PATH=/root/stats.db
+      STATS_DB_PATH: /app/stats/stats.db
 ```
+
+完整部署方式见 [Docker 部署说明](../DOCKER-DEPLOY.md)。
 
 ### 数据备份
 
@@ -1272,8 +1265,7 @@ DATE=$(date +%Y%m%d_%H%M%S)
 mkdir -p $BACKUP_DIR
 
 # 备份统计数据库
-docker exec ielts-typing-backend sqlite3 /root/stats.db ".backup /tmp/stats_backup.db"
-docker cp ielts-typing-backend:/tmp/stats_backup.db $BACKUP_DIR/stats_$DATE.db
+cp ./data/stats/stats.db $BACKUP_DIR/stats_$DATE.db
 
 # 保留最近 30 天的备份
 find $BACKUP_DIR -name "stats_*.db" -mtime +30 -delete
