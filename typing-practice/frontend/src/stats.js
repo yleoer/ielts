@@ -145,61 +145,160 @@ createApp({
         },
 
         async loadHeatmap() {
-            const chart = echarts.init(document.getElementById('heatmap'));
+            const container = document.getElementById('heatmap');
+            const year = new Date().getFullYear();
 
             const response = await axios.get(`${this.apiBaseUrl}/stats/heatmap`, {
                 params: {
-                    start_date: '2026-01-01',
-                    end_date: '2026-12-31'
+                    start_date: `${year}-01-01`,
+                    end_date: `${year}-12-31`
                 }
             });
 
-            const data = (response.data.data || []).map(item => [item.date, item.count, item.accuracy || 0]);
-            this.renderHeatmap(chart, data);
+            this.renderHeatmap(container, response.data.data || [], year);
         },
 
-        renderHeatmap(chart, data) {
-            const option = {
-                title: {
-                    text: this.stealthMode ? 'Practice Heatmap' : '学习热力图',
-                    left: 'center',
-                    textStyle: {
-                        color: this.stealthMode ? '#374151' : '#4338ca'
-                    }
-                },
-                tooltip: {
-                    formatter: function(params) {
-                        const accuracy = Number(params.value[2] || 0).toFixed(1);
-                        return `${params.value[0]}<br/>练习次数: ${params.value[1]}<br/>正确率: ${accuracy}%`;
-                    }
-                },
-                visualMap: {
-                    min: 0,
-                    max: 5,
-                    calculable: true,
-                    orient: 'horizontal',
-                    left: 'center',
-                    bottom: '5%',
-                    inRange: {
-                        color: this.stealthMode
-                            ? ['#f3f4f6', '#d1d5db', '#9ca3af', '#6b7280', '#4b5563']
-                            : ['#ebedf0', '#c6e48b', '#7bc96f', '#239a3b', '#196127']
-                    }
-                },
-                calendar: {
-                    range: '2026',
-                    cellSize: ['auto', 13],
-                    yearLabel: { show: false }
-                },
-                series: [{
-                    type: 'heatmap',
-                    coordinateSystem: 'calendar',
-                    data: data
-                }]
-            };
+        renderHeatmap(container, data, year) {
+            if (!container) {
+                return;
+            }
 
-            chart.setOption(option);
-            this.charts.heatmap = chart;
+            const countsByDate = new Map(data.map((item) => [
+                item.date,
+                {
+                    count: Number(item.count || 0),
+                    accuracy: Number(item.accuracy || 0)
+                }
+            ]));
+
+            const maxCount = Math.max(0, ...data.map((item) => Number(item.count || 0)));
+            const monthLabels = this.buildHeatmapMonthLabels(year);
+            const weeks = this.buildHeatmapWeeks(year);
+            const title = this.stealthMode ? 'Practice Heatmap' : '学习热力图';
+            const less = this.stealthMode ? 'Less' : '少';
+            const more = this.stealthMode ? 'More' : '多';
+            const titleColor = this.stealthMode ? '#374151' : '#4338ca';
+
+            container.innerHTML = `
+                <div class="github-heatmap">
+                    <div class="github-heatmap-title" style="color: ${titleColor};">${title}</div>
+                    <div class="github-heatmap-scroll">
+                        <div class="github-heatmap-months">
+                            <span></span>
+                            ${monthLabels.map((month) => `<span style="grid-column:${month.column};">${month.label}</span>`).join('')}
+                        </div>
+                        <div class="github-heatmap-body">
+                            <div class="github-heatmap-weekdays" aria-hidden="true">
+                                <span></span>
+                                <span>${this.stealthMode ? 'Mon' : '周一'}</span>
+                                <span></span>
+                                <span>${this.stealthMode ? 'Wed' : '周三'}</span>
+                                <span></span>
+                                <span>${this.stealthMode ? 'Fri' : '周五'}</span>
+                                <span></span>
+                            </div>
+                            <div class="github-heatmap-grid" role="grid" aria-label="${title}">
+                                ${weeks.map((week) => `
+                                    <div class="github-heatmap-week" role="row">
+                                        ${week.map((date) => this.renderHeatmapCell(date, countsByDate, maxCount, year)).join('')}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="github-heatmap-footer">
+                        <span>${less}</span>
+                        ${[0, 1, 2, 3, 4].map((level) => `<span class="github-heatmap-cell github-heatmap-level-${level}"></span>`).join('')}
+                        <span>${more}</span>
+                    </div>
+                </div>
+            `;
+        },
+
+        renderHeatmapCell(date, countsByDate, maxCount, year) {
+            const dateText = this.formatHeatmapDate(date);
+            const item = countsByDate.get(dateText) || { count: 0, accuracy: 0 };
+            const isCurrentYear = date.getUTCFullYear() === year;
+            const level = isCurrentYear ? this.heatmapLevel(item.count, maxCount) : 0;
+            const text = this.stealthMode
+                ? `${dateText}: ${item.count} practice sessions, ${item.accuracy.toFixed(1)}% accuracy`
+                : `${dateText}: ${item.count} 次练习，正确率 ${item.accuracy.toFixed(1)}%`;
+
+            return `<span
+                class="github-heatmap-cell github-heatmap-level-${level}${isCurrentYear ? '' : ' github-heatmap-outside'}"
+                role="gridcell"
+                aria-label="${text}"
+                title="${text}"
+            ></span>`;
+        },
+
+        buildHeatmapWeeks(year) {
+            const start = new Date(Date.UTC(year, 0, 1));
+            start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+
+            const end = new Date(Date.UTC(year, 11, 31));
+            end.setUTCDate(end.getUTCDate() + (6 - end.getUTCDay()));
+
+            const weeks = [];
+            for (let cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 7)) {
+                const week = [];
+                for (let day = 0; day < 7; day += 1) {
+                    const date = new Date(cursor);
+                    date.setUTCDate(cursor.getUTCDate() + day);
+                    week.push(date);
+                }
+                weeks.push(week);
+            }
+            return weeks;
+        },
+
+        buildHeatmapMonthLabels(year) {
+            const labels = [];
+            const seen = new Set();
+            const weeks = this.buildHeatmapWeeks(year);
+            const monthNames = this.stealthMode
+                ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                : ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+
+            weeks.forEach((week, index) => {
+                const firstInMonth = week.find((date) => date.getUTCFullYear() === year && date.getUTCDate() <= 7);
+                if (!firstInMonth) {
+                    return;
+                }
+                const month = firstInMonth.getUTCMonth();
+                if (!seen.has(month)) {
+                    seen.add(month);
+                    labels.push({
+                        label: monthNames[month],
+                        column: index + 2
+                    });
+                }
+            });
+
+            return labels;
+        },
+
+        heatmapLevel(count, maxCount) {
+            if (!count) {
+                return 0;
+            }
+            if (maxCount <= 4) {
+                return Math.min(4, count);
+            }
+            if (count <= maxCount * 0.25) {
+                return 1;
+            }
+            if (count <= maxCount * 0.5) {
+                return 2;
+            }
+            if (count <= maxCount * 0.75) {
+                return 3;
+            }
+            return 4;
+        },
+
+        formatHeatmapDate(date) {
+            return date.toISOString().slice(0, 10);
         },
 
         async loadAccuracyTrend() {
