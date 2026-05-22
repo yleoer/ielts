@@ -8,6 +8,7 @@ services:
     volumes:
       - ./data/anki-sync:/data
     environment:
+      TZ: "${TZ:-Asia/Shanghai}"
       SYNC_BASE: /data
       SYNC_PORT: 8080
       SYNC_USER1: "${ANKI_SYNC_USER:-ielts}:${ANKI_SYNC_PASSWORD:-ielts}"
@@ -26,6 +27,7 @@ services:
       - ./data/anki-cache:/app/anki-cache
       - ./data/stats:/app/stats
     environment:
+      TZ: "${TZ:-Asia/Shanghai}"
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8080
       ANKI_DB_PATH: /app/anki-cache/collection.anki2

@@ -8,19 +8,19 @@ import (
 func (s *Store) Heatmap(startDate, endDate string) ([]HeatmapPoint, error) {
 	// 热力图按天聚合 session 数量和平均正确率。
 	if startDate == "" {
-		startDate = time.Now().UTC().AddDate(0, 0, -365).Format("2006-01-02")
+		startDate = time.Now().In(time.Local).AddDate(0, 0, -365).Format("2006-01-02")
 	}
 	if endDate == "" {
-		endDate = time.Now().UTC().Format("2006-01-02")
+		endDate = time.Now().In(time.Local).Format("2006-01-02")
 	}
 
 	rows, err := s.db.Query(`
-SELECT date(start_time) AS practice_date,
+SELECT date(start_time, 'localtime') AS practice_date,
        COUNT(*) AS session_count,
        COALESCE(AVG(accuracy), 0) AS accuracy
 FROM practice_sessions
-WHERE date(start_time) BETWEEN ? AND ?
-GROUP BY date(start_time)
+WHERE date(start_time, 'localtime') BETWEEN ? AND ?
+GROUP BY date(start_time, 'localtime')
 ORDER BY practice_date`, startDate, endDate)
 	if err != nil {
 		return nil, err
@@ -41,12 +41,12 @@ ORDER BY practice_date`, startDate, endDate)
 func (s *Store) AccuracyTrend(days int) ([]AccuracyTrendPoint, error) {
 	// 正确率趋势用“总正确数 / 总单词数”计算，避免简单平均 session accuracy 造成偏差。
 	rows, err := s.db.Query(`
-SELECT date(start_time) AS practice_date,
+SELECT date(start_time, 'localtime') AS practice_date,
        COALESCE(SUM(correct_words) * 100.0 / NULLIF(SUM(total_words), 0), 0) AS accuracy,
        COALESCE(SUM(total_words), 0) AS total_words
 FROM practice_sessions
-WHERE date(start_time) >= date(?)
-GROUP BY date(start_time)
+WHERE date(start_time, 'localtime') >= date(?)
+GROUP BY date(start_time, 'localtime')
 ORDER BY practice_date`, sinceDate(days))
 	if err != nil {
 		return nil, err
@@ -205,13 +205,13 @@ func (s *Store) SpeedTrend(days int) ([]SpeedTrendPoint, error) {
 	// 打字速度趋势使用 word_attempts.time_spent 的每日平均值。
 	// 前端图表可以反转 Y 轴，让“时间越短越好”更直观。
 	rows, err := s.db.Query(`
-SELECT date(attempt_time) AS practice_date,
+SELECT date(attempt_time, 'localtime') AS practice_date,
        COALESCE(AVG(time_spent), 0) AS average_time,
        COUNT(*) AS word_count
 FROM word_attempts
 WHERE time_spent IS NOT NULL
-  AND date(attempt_time) >= date(?)
-GROUP BY date(attempt_time)
+  AND date(attempt_time, 'localtime') >= date(?)
+GROUP BY date(attempt_time, 'localtime')
 ORDER BY practice_date`, sinceDate(days))
 	if err != nil {
 		return nil, err
@@ -232,12 +232,12 @@ ORDER BY practice_date`, sinceDate(days))
 func (s *Store) DailyDuration(days int) ([]DailyDurationPoint, error) {
 	// 每日练习时长来自 session.duration_seconds，单位在 API 层转为分钟。
 	rows, err := s.db.Query(`
-SELECT date(start_time) AS practice_date,
+SELECT date(start_time, 'localtime') AS practice_date,
        COALESCE(SUM(duration_seconds), 0) / 60.0 AS duration_minutes,
        COUNT(*) AS session_count
 FROM practice_sessions
-WHERE date(start_time) >= date(?)
-GROUP BY date(start_time)
+WHERE date(start_time, 'localtime') >= date(?)
+GROUP BY date(start_time, 'localtime')
 ORDER BY practice_date`, sinceDate(days))
 	if err != nil {
 		return nil, err
@@ -261,7 +261,7 @@ func (s *Store) Streak() (StreakData, error) {
 	if err != nil {
 		return StreakData{}, err
 	}
-	current, longest := calculateStreaks(dates, time.Now().UTC())
+	current, longest := calculateStreaks(dates, time.Now().In(time.Local))
 	return StreakData{
 		CurrentStreak: current,
 		LongestStreak: longest,
@@ -486,9 +486,9 @@ INSERT OR IGNORE INTO milestones (
 
 func (s *Store) practiceDates() ([]string, error) {
 	rows, err := s.db.Query(`
-SELECT DISTINCT date(start_time)
+SELECT DISTINCT date(start_time, 'localtime')
 FROM practice_sessions
-ORDER BY date(start_time) ASC`)
+ORDER BY date(start_time, 'localtime') ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +509,7 @@ func sinceDate(days int) string {
 	if days <= 0 {
 		days = 30
 	}
-	return time.Now().UTC().AddDate(0, 0, -days+1).Format("2006-01-02")
+	return time.Now().In(time.Local).AddDate(0, 0, -days+1).Format("2006-01-02")
 }
 
 func calculateStreaks(dateStrings []string, now time.Time) (int, int) {
