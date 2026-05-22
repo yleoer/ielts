@@ -31,7 +31,23 @@ frontend/
 
 ## 快速开始
 
-### 1. 直接打开（推荐用于开发测试）
+### 1. 通过后端访问（推荐）
+
+后端会托管 `frontend/` 下的静态页面：
+
+```bash
+cd typing-practice/backend
+go run .
+```
+
+然后访问：
+
+```text
+http://localhost:8080/
+http://localhost:8080/stats.html
+```
+
+### 2. 直接打开（仅用于前端静态调试）
 
 由于使用了 CDN 引入依赖，可以直接在浏览器中打开 `index.html`：
 
@@ -44,7 +60,7 @@ python -m http.server 3000
 # 然后访问 http://localhost:3000
 ```
 
-### 2. 使用 Live Server（VS Code）
+### 3. 使用 Live Server（VS Code）
 
 如果使用 VS Code，安装 Live Server 插件后：
 - 右键点击 `index.html`
@@ -166,12 +182,13 @@ data() {
 
 ## 下一步
 
-前端已完成，接下来需要：
+前端、后端 API、Anki 数据库读取和统计页面均已完成，后续主要是体验增强：
 
-1. ✅ 前端界面（已完成）
-2. ⏳ 后端 API（Golang）
-3. ⏳ Anki 数据库读取
-4. ⏳ 集成测试
+1. ✅ 前端界面
+2. ✅ 后端 API（Golang）
+3. ✅ Anki 数据库读取
+4. ✅ 统计图表页面
+5. ⏳ 音频、移动端和更多筛选能力
 
 ## 许可证
 

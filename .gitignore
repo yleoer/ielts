@@ -10,6 +10,8 @@ env/
 # Local environment
 .env
 .env.*
+!.env.example
+!**/.env.example
 .claude/
 
 # Generated Anki exports
@@ -20,6 +22,17 @@ apkg-generator/anki_export/*.csv
 # Runtime databases
 typing-practice/backend/data/*.db
 typing-practice/backend/data/*.db-*
+typing-practice/data/*
+!typing-practice/data/.gitkeep
+!typing-practice/data/anki-sync/
+typing-practice/data/anki-sync/*
+!typing-practice/data/anki-sync/.gitkeep
+!typing-practice/data/anki-cache/
+typing-practice/data/anki-cache/*
+!typing-practice/data/anki-cache/.gitkeep
+!typing-practice/data/stats/
+typing-practice/data/stats/*
+!typing-practice/data/stats/.gitkeep
 
 # Original large chapter audio files. Keep split per-word files in subfolders.
 apkg-generator/data/audio/*.mp3

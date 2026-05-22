@@ -1,26 +1,53 @@
 # IELTS 打字练习 - Docker 部署指南
 
-打字练习现在使用单容器部署：Go 后端负责 API，同时托管 `frontend/` 下的静态页面。Docker Compose 只需要启动 `backend` 一个服务，并暴露 `8080` 端口。
+当前部署使用 Docker Compose 启动两个服务：
+
+- `anki-sync`：Anki 同步服务器，接收 Anki 客户端同步过来的数据。
+- `typing-practice`：打字练习服务，直接从 Docker Hub 拉取镜像，定时把同步数据复制到自己的缓存目录后读取。
+
+因此服务器上不再需要每次执行 `docker compose build`。
 
 ## 快速开始
 
-### 1. 准备 Anki 数据库
+### 1. 准备环境变量
 
-先把 Anki 的 `collection.anki2` 复制到项目目录：
+复制示例配置：
 
-```powershell
-New-Item -ItemType Directory -Force -Path "typing-practice\backend\data"
-Copy-Item "$env:APPDATA\Anki2\User 1\collection.anki2" -Destination "typing-practice\backend\data\collection.anki2"
+```bash
+cd typing-practice
+cp .env.example .env
 ```
 
-如果你的 Anki profile 不是 `User 1`，请把源路径换成真实 profile 下的 `collection.anki2`。
+按需修改 `.env`：
+
+```dotenv
+ANKI_SYNC_PORT=8081
+ANKI_SYNC_USER=ielts
+ANKI_SYNC_PASSWORD=ielts
+TYPING_PRACTICE_PORT=8080
+ANKI_SYNC_INTERVAL_SECONDS=300
+ANKI_SYNC_INITIAL_WAIT_SECONDS=60
+```
+
+两个镜像在 `docker-compose.yml` 中固定：
+
+- `afrima/anki-sync-server:latest`
+- `yleoer/ielts-typing-practice:latest`
 
 ### 2. 启动服务
 
 ```bash
 cd typing-practice
-docker compose up -d --build
-docker compose logs -f backend
+docker compose pull
+docker compose up -d
+```
+
+查看状态和日志：
+
+```bash
+docker compose ps
+docker compose logs -f anki-sync
+docker compose logs -f typing-practice
 ```
 
 停止服务：
@@ -31,104 +58,142 @@ docker compose down
 
 ## 访问地址
 
+默认端口：
+
 ```text
-http://localhost:8080/
-http://localhost:8080/stats.html
-http://localhost:8080/api/config
+打字练习：http://localhost:8080/
+统计页面：http://localhost:8080/stats.html
+健康检查：http://localhost:8080/api/config
+Anki 同步：http://localhost:8081/
 ```
+
+服务器部署时，把 `localhost` 换成服务器 IP 或域名。
+
+## Anki 客户端同步
+
+Anki 客户端需要连接到 `anki-sync` 服务。默认账号来自 `.env`：
+
+```text
+用户名：ielts
+密码：ielts
+端口：8081
+```
+
+同步成功后，`typing-practice` 会从共享目录中定时复制最新的 `collection.anki2` 到：
+
+```text
+/app/anki-cache/collection.anki2
+```
+
+第一次启动会等待 `ANKI_SYNC_INITIAL_WAIT_SECONDS` 秒后尝试复制，之后按 `ANKI_SYNC_INTERVAL_SECONDS` 周期刷新。
 
 ## Compose 结构
 
-`typing-practice/docker-compose.yml` 做了三件关键的事：
+`typing-practice/docker-compose.yml` 的关键结构：
 
 ```yaml
-ports:
-  - "8080:8080"
+services:
+  anki-sync:
+    image: afrima/anki-sync-server:latest
+    ports:
+      - "${ANKI_SYNC_PORT:-8081}:8080"
+    volumes:
+      - ./data/anki-sync:/data
+    environment:
+      SYNC_USER1: "${ANKI_SYNC_USER:-ielts}:${ANKI_SYNC_PASSWORD:-ielts}"
 
-volumes:
-  - ./backend/data:/app/data:ro
-  - stats-data:/app/stats
-
-environment:
-  SERVER_HOST: 0.0.0.0
-  SERVER_PORT: 8080
-  ANKI_DB_PATH: /app/data/collection.anki2
-  STATS_DB_PATH: /app/stats/stats.db
+  typing-practice:
+    image: yleoer/ielts-typing-practice:latest
+    user: "0:0"
+    ports:
+      - "${TYPING_PRACTICE_PORT:-8080}:8080"
+    volumes:
+      - ./data/anki-sync:/app/anki-sync:ro
+      - ./data/anki-cache:/app/anki-cache
+      - ./data/stats:/app/stats
+    environment:
+      ANKI_DB_PATH: /app/anki-cache/collection.anki2
+      STATS_DB_PATH: /app/stats/stats.db
 ```
 
-- `./backend/data:/app/data:ro`：只读挂载 Anki 数据库，避免容器修改 Anki 原始数据。
-- `stats-data:/app/stats`：使用 Docker volume 保存练习统计数据，容器重建后不会丢失。
-- `SERVER_HOST=0.0.0.0`：让服务监听容器网卡，否则宿主机可能无法通过端口映射访问。
+- `./data/anki-sync`：保存 Anki 同步服务器的数据，同时只读挂载给练习服务。
+- `./data/anki-cache`：保存练习服务复制出来的 `collection.anki2`。
+- `./data/stats`：保存练习统计 SQLite 数据库，容器重建后不会丢失。
 
-## 更新 Anki 数据
+`typing-practice` 服务在 Compose 中使用 `user: "0:0"`，这样在服务器用 root 拉取仓库时，容器可以直接写入这些相对路径数据目录。
 
-当 Anki 数据有变化时，重新复制数据库并重启容器：
+## 更新镜像
 
-```powershell
-Copy-Item "$env:APPDATA\Anki2\User 1\collection.anki2" -Destination "typing-practice\backend\data\collection.anki2" -Force
+GitHub Actions 会构建 `yleoer/ielts-typing-practice:latest` 并推送到 Docker Hub。服务器更新时执行：
+
+```bash
 cd typing-practice
-docker compose restart backend
+docker compose pull typing-practice
+docker compose up -d typing-practice
 ```
 
-## 服务器部署思路
-
-在服务器上运行时，可以把本地 Anki 数据同步到服务器的 `typing-practice/backend/data/collection.anki2`：
+如需同时更新 Anki 同步服务器镜像：
 
 ```bash
-scp collection.anki2 user@server:/path/to/my-ielts/typing-practice/backend/data/collection.anki2
-ssh user@server "cd /path/to/my-ielts/typing-practice && docker compose up -d --build"
+docker compose pull
+docker compose up -d
 ```
 
-如果需要定期同步，可以用 `rsync`、计划任务或 CI/CD 把 `collection.anki2` 推到服务器，然后执行：
+## 统计数据备份
+
+统计数据保存在 `typing-practice/data/stats/stats.db`。备份示例：
 
 ```bash
-docker compose restart backend
+cp data/stats/stats.db ./stats-backup.db
+```
+
+删除所有运行数据：
+
+```bash
+docker compose down
+rm -rf data/anki-sync/* data/anki-cache/* data/stats/*
 ```
 
 ## 常见问题
 
-### 访问不了 `localhost:8080`
+### 访问不了打字练习页面
 
 检查容器状态和日志：
 
 ```bash
 docker compose ps
-docker compose logs backend
+docker compose logs typing-practice
 ```
 
-确认 `SERVER_HOST` 是 `0.0.0.0`，并且端口映射是 `"8080:8080"`。
+确认 `.env` 中的 `TYPING_PRACTICE_PORT` 没有和服务器上其他服务冲突。
 
 ### `/api/words` 没有单词
 
-确认数据库文件存在：
+先确认 Anki 同步服务已经收到客户端数据，再检查练习服务缓存：
 
 ```bash
-docker compose exec backend ls -l /app/data/collection.anki2
+docker compose logs anki-sync
+docker compose exec typing-practice ls -l /app/anki-cache/collection.anki2
 ```
 
-如果文件不存在，重新复制 `collection.anki2` 到 `typing-practice/backend/data/`。
+如果缓存文件不存在，通常是客户端还没有同步成功，或等待时间还没到。
 
-### 统计数据是否会丢失
+### 不想等待定时复制
 
-不会。统计库写入 Docker volume `stats-data`。如果要备份：
-
-```bash
-docker compose exec backend cp /app/stats/stats.db /tmp/stats.db
-docker cp ielts-typing-backend:/tmp/stats.db ./stats-backup.db
-```
-
-删除统计数据需要显式删除 volume：
+可以重启练习服务触发启动复制流程：
 
 ```bash
-docker compose down -v
+docker compose restart typing-practice
 ```
 
 ## 常用命令
 
 ```bash
-docker compose up -d --build
-docker compose logs -f backend
-docker compose restart backend
+docker compose pull
+docker compose up -d
+docker compose ps
+docker compose logs -f typing-practice
+docker compose logs -f anki-sync
+docker compose restart typing-practice
 docker compose down
-docker compose down -v
 ```

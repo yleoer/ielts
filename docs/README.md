@@ -1,5 +1,7 @@
 # Documentation Index
 
+中文入口：[项目中文说明](../README.zh-CN.md)
+
 ## APKG Generator
 
 - [Generator guide](apkg-generator/README.md)
