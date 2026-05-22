@@ -15,7 +15,6 @@ import (
 	"typing-practice/models"
 
 	_ "github.com/mattn/go-sqlite3"
-	_ "modernc.org/sqlite"
 )
 
 const fieldSeparator = "\x1f"
@@ -63,10 +62,9 @@ func NewReader(cfg config.AnkiConfig) (*Reader, error) {
 
 func openSQLite(dbPath string) (*sql.DB, error) {
 	var lastErr error
-	// 优先使用 mattn/go-sqlite3；如果当前环境没有 CGO/gcc，则回退到纯 Go 驱动。
-	// 这样本地 Windows 和 Docker/Linux 都能尽量开箱即用。
+	// The app now runs on local Linux/Docker, so use the CGO sqlite3 driver only.
 	for _, dsn := range ankiDSNs(dbPath) {
-		for _, driver := range []string{"sqlite3", "sqlite"} {
+		for _, driver := range []string{"sqlite3"} {
 			db, err := sql.Open(driver, dsn)
 			if err != nil {
 				lastErr = err
