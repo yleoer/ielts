@@ -9,6 +9,122 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="assets/style.css">
+    <style>
+        .github-heatmap {
+            height: 100%;
+            color: #57606a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 12px;
+            --heatmap-gap: 2px;
+            --heatmap-weekday-width: 24px;
+        }
+
+        .github-heatmap-title {
+            color: #4338ca;
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 24px;
+            margin-bottom: 18px;
+            text-align: center;
+        }
+
+        .github-heatmap-scroll {
+            overflow-x: hidden;
+            padding-bottom: 8px;
+        }
+
+        .github-heatmap-months {
+            display: grid;
+            grid-template-columns: var(--heatmap-weekday-width) repeat(53, minmax(0, 1fr));
+            column-gap: var(--heatmap-gap);
+            width: 100%;
+            margin-bottom: 4px;
+        }
+
+        .github-heatmap-months span {
+            white-space: nowrap;
+        }
+
+        .github-heatmap-body {
+            display: grid;
+            grid-template-columns: var(--heatmap-weekday-width) minmax(0, 1fr);
+            column-gap: var(--heatmap-gap);
+            width: 100%;
+        }
+
+        .github-heatmap-weekdays {
+            display: grid;
+            grid-template-rows: repeat(7, 1fr);
+            row-gap: var(--heatmap-gap);
+            width: var(--heatmap-weekday-width);
+            font-size: 10px;
+            line-height: 1;
+            align-items: center;
+        }
+
+        .github-heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(53, minmax(0, 1fr));
+            column-gap: var(--heatmap-gap);
+            min-width: 0;
+        }
+
+        .github-heatmap-week {
+            display: grid;
+            grid-template-rows: repeat(7, auto);
+            row-gap: var(--heatmap-gap);
+            min-width: 0;
+        }
+
+        .github-heatmap-cell {
+            display: block;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            border-radius: 2px;
+            outline: 1px solid rgba(27, 31, 36, 0.06);
+            outline-offset: -1px;
+        }
+
+        .github-heatmap-level-0 {
+            background: #ebedf0;
+        }
+
+        .github-heatmap-level-1 {
+            background: #9be9a8;
+        }
+
+        .github-heatmap-level-2 {
+            background: #40c463;
+        }
+
+        .github-heatmap-level-3 {
+            background: #30a14e;
+        }
+
+        .github-heatmap-level-4 {
+            background: #216e39;
+        }
+
+        .github-heatmap-outside {
+            visibility: hidden;
+        }
+
+        .github-heatmap-footer {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            width: 100%;
+            margin-top: 12px;
+            font-size: 12px;
+        }
+
+        .github-heatmap-footer .github-heatmap-cell {
+            width: 10px;
+            height: 10px;
+            flex: 0 0 10px;
+        }
+    </style>
 </head>
 <body :class="stealthMode ? 'bg-gray-50' : 'bg-gradient-to-br from-blue-50 to-indigo-100'" class="min-h-screen">
     <div id="app">
@@ -201,6 +317,6 @@
         </div>
     </div>
 
-    <script src="src/stats.js?v=20260523-stats-layout"></script>
+    <script src="src/stats.js?v=20260523-heatmap-responsive"></script>
 </body>
 </html>

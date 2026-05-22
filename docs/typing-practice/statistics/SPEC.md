@@ -374,53 +374,32 @@ GET /api/stats/overview
 
 ## 前端图表实现
 
-### 图表库选择：ECharts 5.x
+### 图表库选择：ECharts 5.x + 原生 DOM
 
 **引入方式**：
 ```html
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
 ```
 
+热力图为了贴近 GitHub contributions 样式，使用原生 DOM 小方格实现；其他折线图、饼图和柱状图继续使用 ECharts。
+
 ### 1. GitHub 风格热力图
 
 **数据格式**：
 ```javascript
 const heatmapData = [
-  ['2026-05-21', 3, 85.5],  // [日期, 练习次数, 正确率]
-  ['2026-05-22', 2, 92.0]
+  { date: '2026-05-21', count: 3, accuracy: 85.5 },
+  { date: '2026-05-22', count: 2, accuracy: 92.0 }
 ];
 ```
 
-**ECharts 配置**：
+**渲染规则**：
 ```javascript
-const option = {
-  title: { text: '学习热力图' },
-  tooltip: {
-    formatter: function(params) {
-      return `${params.value[0]}<br/>练习次数: ${params.value[1]}<br/>正确率: ${params.value[2]}%`;
-    }
-  },
-  visualMap: {
-    min: 0,
-    max: 5,
-    calculable: true,
-    orient: 'horizontal',
-    left: 'center',
-    bottom: '15%',
-    inRange: {
-      color: ['#ebedf0', '#c6e48b', '#7bc96f', '#239a3b', '#196127']
-    }
-  },
-  calendar: {
-    range: '2026',
-    cellSize: ['auto', 13]
-  },
-  series: [{
-    type: 'heatmap',
-    coordinateSystem: 'calendar',
-    data: heatmapData
-  }]
-};
+// 颜色完全使用 GitHub contributions 绿色阶梯。
+const colors = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
+
+// 方块颜色只由 count 决定；accuracy 只作为 title/aria-label 中的辅助信息。
+const level = count === 0 ? 0 : Math.ceil((count / maxCount) * 4);
 ```
 
 ### 2. 正确率趋势折线图
