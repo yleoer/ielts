@@ -138,6 +138,57 @@ LIMIT ?`, level, limit)
 	return data, rows.Err()
 }
 
+func (s *Store) SelectionStatsByWord() (map[string]SelectionStats, error) {
+	// 练习选词算法需要一个轻量索引：每个词的掌握度、错误次数、平均耗时和最近一次结果。
+	rows, err := s.db.Query(`
+WITH latest_attempt AS (
+    SELECT word,
+           is_correct,
+           attempt_time,
+           ROW_NUMBER() OVER (PARTITION BY word ORDER BY attempt_time DESC, id DESC) AS row_number
+    FROM word_attempts
+)
+SELECT wm.word,
+       wm.total_attempts,
+       wm.correct_attempts,
+       wm.incorrect_attempts,
+       wm.mastery_level,
+       COALESCE(wm.average_time, 0),
+       COALESCE(wm.last_attempt_time, ''),
+       COALESCE(la.is_correct, 1)
+FROM word_mastery wm
+LEFT JOIN latest_attempt la
+  ON la.word = wm.word
+ AND la.row_number = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	data := make(map[string]SelectionStats)
+	for rows.Next() {
+		var item SelectionStats
+		var lastAttempt string
+		var lastCorrect int
+		if err := rows.Scan(
+			&item.Word,
+			&item.TotalAttempts,
+			&item.CorrectAttempts,
+			&item.IncorrectAttempts,
+			&item.MasteryLevel,
+			&item.AverageTime,
+			&lastAttempt,
+			&lastCorrect,
+		); err != nil {
+			return nil, err
+		}
+		item.LastAttemptTime = parseDBTime(lastAttempt)
+		item.LastAttemptCorrect = lastCorrect != 0
+		data[item.Word] = item
+	}
+	return data, rows.Err()
+}
+
 func (s *Store) TopErrors(limit int) ([]TopErrorWord, error) {
 	// 错误排行榜按错误次数优先，再按总尝试次数排序，方便定位高频薄弱单词。
 	if limit <= 0 {

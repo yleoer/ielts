@@ -41,6 +41,17 @@ type WordMastery struct {
 	AverageTime       float64
 }
 
+type SelectionStats struct {
+	Word               string
+	TotalAttempts      int
+	CorrectAttempts    int
+	IncorrectAttempts  int
+	MasteryLevel       string
+	AverageTime        float64
+	LastAttemptTime    time.Time
+	LastAttemptCorrect bool
+}
+
 type HeatmapPoint struct {
 	Date     string  `json:"date"`
 	Count    int     `json:"count"`

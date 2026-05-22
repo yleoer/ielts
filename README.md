@@ -56,6 +56,7 @@ Docs:
 - [Chinese documentation index](docs/README.zh-CN.md)
 - [Typing practice spec](docs/typing-practice/SPEC.md)
 - [Frontend guide](docs/typing-practice/FRONTEND.md)
+- [Word selection algorithm](docs/typing-practice/WORD-SELECTION.md)
 - [Docker deploy guide](docs/typing-practice/DOCKER-DEPLOY.md)
 - [Statistics summary](docs/typing-practice/statistics/SUMMARY.md)
 

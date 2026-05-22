@@ -186,6 +186,53 @@ LIMIT ?`, r.deckID, queryLimit)
 	return words, rows.Err()
 }
 
+func (r *Reader) GetLearnedWordPool(category string) ([]models.Word, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("anki reader is not available")
+	}
+
+	category = strings.TrimSpace(category)
+	if category == "" {
+		category = "all"
+	}
+
+	rows, err := r.db.Query(`
+SELECT n.id, n.flds
+FROM notes n
+WHERE n.id IN (
+    SELECT DISTINCT c.nid
+    FROM cards c
+    WHERE c.did = ?
+      AND (c.type >= 1 OR c.queue >= 2)
+)
+ORDER BY n.id`, r.deckID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var words []models.Word
+	for rows.Next() {
+		var id int64
+		var fields string
+		if err := rows.Scan(&id, &fields); err != nil {
+			return nil, err
+		}
+
+		word, ok := ParseWord(id, fields)
+		if !ok {
+			continue
+		}
+		if !strings.EqualFold(category, "all") && !strings.EqualFold(word.Category, category) {
+			continue
+		}
+
+		words = append(words, word)
+	}
+
+	return words, rows.Err()
+}
+
 func (r *Reader) GetWordByID(id int64) (models.Word, error) {
 	if r == nil || r.db == nil {
 		return models.Word{}, errors.New("anki reader is not available")
