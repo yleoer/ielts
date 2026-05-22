@@ -2,13 +2,10 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
-	"time"
 
 	"typing-practice/anki"
 	"typing-practice/config"
@@ -115,22 +112,21 @@ func (api *API) CheckSpelling(c *gin.Context) {
 }
 
 func (api *API) SubmitStats(c *gin.Context) {
-	// 兼容旧前端的统计提交格式：继续写 JSONL，同时同步写入新的 SQLite 统计库。
+	if api.Stats == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "stats database is not available"})
+		return
+	}
+
+	// 兼容旧前端的统计提交格式，但图表原始数据只保存到 SQLite。
 	var request models.StatsRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
-	if err := appendStats(request); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+	if err := api.Stats.SaveSession(legacyStatsToSession(request)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
-	}
-	if api.Stats != nil && request.Total > 0 {
-		if err := api.Stats.SaveSession(legacyStatsToSession(request)); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-			return
-		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -161,28 +157,4 @@ func (api *API) GetConfig(c *gin.Context) {
 		"default_limit":  api.Config.Practice.DefaultLimit,
 		"max_limit":      api.Config.Practice.MaxLimit,
 	})
-}
-
-func appendStats(stats models.StatsRequest) error {
-	// 旧版轻量统计文件，保留它是为了不破坏已有调试数据和前端调用。
-	record := struct {
-		SubmittedAt time.Time `json:"submitted_at"`
-		models.StatsRequest
-	}{
-		SubmittedAt:  time.Now(),
-		StatsRequest: stats,
-	}
-
-	if err := os.MkdirAll("data", 0o755); err != nil {
-		return err
-	}
-
-	file, err := os.OpenFile(filepath.Join("data", "stats.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	return encoder.Encode(record)
 }
