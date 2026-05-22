@@ -50,6 +50,7 @@ http://localhost:8080/stats.html
 - [项目文档索引](docs/README.zh-CN.md)
 - [打字练习规格](docs/typing-practice/SPEC.md)
 - [前端说明](docs/typing-practice/FRONTEND.md)
+- [选词算法说明](docs/typing-practice/WORD-SELECTION.md)
 - [Docker 部署说明](docs/typing-practice/DOCKER-DEPLOY.md)
 - [统计功能总结](docs/typing-practice/statistics/SUMMARY.md)
 

@@ -12,6 +12,7 @@
 
 - [Typing practice spec](typing-practice/SPEC.md)
 - [Frontend guide](typing-practice/FRONTEND.md)
+- [Word selection algorithm](typing-practice/WORD-SELECTION.md)
 - [Docker deploy guide](typing-practice/DOCKER-DEPLOY.md)
 
 ## Statistics

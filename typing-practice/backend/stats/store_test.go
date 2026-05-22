@@ -140,4 +140,13 @@ func TestStoreWordDetailQueries(t *testing.T) {
 	if errorWords[0].Word != "atmosphere" || errorWords[0].UserInput != "atmosphire" || errorWords[0].ErrorCount != 1 {
 		t.Fatalf("unexpected latest error detail: %#v", errorWords[0])
 	}
+
+	selectionStats, err := store.SelectionStatsByWord()
+	if err != nil {
+		t.Fatalf("SelectionStatsByWord() error = %v", err)
+	}
+	atmosphere := selectionStats["atmosphere"]
+	if atmosphere.Word != "atmosphere" || atmosphere.TotalAttempts != 2 || atmosphere.LastAttemptCorrect {
+		t.Fatalf("unexpected selection stats: %#v", atmosphere)
+	}
 }

@@ -12,6 +12,7 @@
 
 - [打字练习规格](typing-practice/SPEC.md)
 - [前端说明](typing-practice/FRONTEND.md)
+- [选词算法说明](typing-practice/WORD-SELECTION.md)
 - [Docker 部署说明](typing-practice/DOCKER-DEPLOY.md)
 
 ## 学习统计

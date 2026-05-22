@@ -13,8 +13,10 @@ env/
 !.env.example
 !**/.env.example
 .claude/
+.idea/
 
 # Generated Anki exports
+anki_export/
 apkg-generator/anki_export/*.apkg
 apkg-generator/anki_export/*.tsv
 apkg-generator/anki_export/*.csv
