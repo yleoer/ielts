@@ -9,7 +9,7 @@ STABLE_SECONDS="${ANKI_SYNC_STABLE_SECONDS:-2}"
 APP_PID=""
 
 log() {
-	printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+	printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*"
 }
 
 latest_collection() {
