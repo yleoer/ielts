@@ -1,18 +1,39 @@
 services:
-  backend:
+  anki-sync:
+    image: ${ANKI_SYNC_IMAGE:-afrima/anki-sync-server:latest}
+    container_name: anki-sync-server
+    user: "0:0"
+    ports:
+      - "${ANKI_SYNC_PORT:-8081}:8080"
+    volumes:
+      - anki-sync-data:/data
+    environment:
+      SYNC_BASE: /data
+      SYNC_PORT: 8080
+      SYNC_USER1: "${ANKI_SYNC_USER:-ielts}:${ANKI_SYNC_PASSWORD:-ielts}"
+    restart: unless-stopped
+    networks:
+      - ielts-network
+
+  typing-practice:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: ielts-typing-backend
+    container_name: ielts-typing-practice
     ports:
       - "8080:8080"
     volumes:
-      - ./backend/data:/app/data:ro
+      - anki-sync-data:/app/anki-sync:ro
+      - anki-cache:/app/anki-cache
       - stats-data:/app/stats
     environment:
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8080
-      ANKI_DB_PATH: /app/data/collection.anki2
+      ANKI_DB_PATH: /app/anki-cache/collection.anki2
+      ANKI_SYNC_SOURCE_DIR: /app/anki-sync
+      ANKI_SYNC_TARGET: /app/anki-cache/collection.anki2
+      ANKI_SYNC_INTERVAL_SECONDS: "${ANKI_SYNC_INTERVAL_SECONDS:-300}"
+      ANKI_SYNC_INITIAL_WAIT_SECONDS: "${ANKI_SYNC_INITIAL_WAIT_SECONDS:-60}"
       STATS_DB_PATH: /app/stats/stats.db
       GIN_MODE: release
     healthcheck:
@@ -22,10 +43,14 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    depends_on:
+      - anki-sync
     networks:
       - ielts-network
 
 volumes:
+  anki-sync-data:
+  anki-cache:
   stats-data:
 
 networks:
