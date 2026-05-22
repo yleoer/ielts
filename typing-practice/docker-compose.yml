@@ -16,9 +16,7 @@ services:
       - ielts-network
 
   typing-practice:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: ${TYPING_PRACTICE_IMAGE:-yleoer/ielts-typing-practice:latest}
     container_name: ielts-typing-practice
     ports:
       - "8080:8080"

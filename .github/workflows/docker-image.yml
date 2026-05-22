@@ -1,0 +1,39 @@
+name: Build typing-practice image
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "typing-practice/**"
+      - ".github/workflows/docker-image.yml"
+  workflow_dispatch:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: ./typing-practice
+          file: ./typing-practice/backend/Dockerfile
+          push: true
+          tags: |
+            yleoer/ielts-typing-practice:latest
+            yleoer/ielts-typing-practice:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
