@@ -179,9 +179,16 @@
                                     :class="stealthMode ? 'border-gray-200 bg-gray-50' : 'border-gray-100 bg-gray-50'"
                                 >
                                     <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                                        <div>
-                                            <p class="text-lg font-semibold text-gray-900">{{ item.word }}</p>
-                                            <p v-if="item.chinese_meaning" class="text-sm text-gray-600">{{ item.chinese_meaning }}</p>
+                                        <div class="min-w-0">
+                                            <p class="text-lg font-semibold leading-snug text-gray-900">
+                                                {{ item.chinese_meaning || item.word }}
+                                            </p>
+                                            <p
+                                                v-if="item.word"
+                                                class="mt-1 text-xs font-medium uppercase tracking-wide text-gray-500"
+                                            >
+                                                {{ item.word }}
+                                            </p>
                                             <p v-if="item.category" class="text-xs text-gray-500">{{ item.category }}</p>
                                         </div>
                                         <div class="text-sm text-gray-600 md:text-right">

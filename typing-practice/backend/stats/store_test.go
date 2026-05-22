@@ -129,6 +129,9 @@ func TestStoreWordDetailQueries(t *testing.T) {
 	if len(masteryWords) == 0 {
 		t.Fatal("expected weak mastery words")
 	}
+	if masteryWords[0].ChineseMeaning == "" {
+		t.Fatalf("expected mastery word Chinese meaning, got %#v", masteryWords[0])
+	}
 
 	errorWords, err := store.ErrorTypeWords("spelling", 10)
 	if err != nil {

@@ -73,6 +73,7 @@ type TopErrorWord struct {
 
 type MasteryWordDetail struct {
 	Word              string  `json:"word"`
+	ChineseMeaning    string  `json:"chinese_meaning"`
 	TotalAttempts     int     `json:"total_attempts"`
 	CorrectAttempts   int     `json:"correct_attempts"`
 	IncorrectAttempts int     `json:"incorrect_attempts"`

@@ -104,16 +104,27 @@ func (s *Store) MasteryWords(level string, limit int) ([]MasteryWordDetail, erro
 	}
 
 	rows, err := s.db.Query(`
-SELECT word,
-       total_attempts,
-       correct_attempts,
-       incorrect_attempts,
-       COALESCE(correct_attempts * 100.0 / NULLIF(total_attempts, 0), 0) AS accuracy,
-       COALESCE(average_time, 0) AS average_time
-FROM word_mastery
-WHERE mastery_level = ?
+WITH latest_meaning AS (
+    SELECT word,
+           chinese_meaning,
+           ROW_NUMBER() OVER (PARTITION BY word ORDER BY attempt_time DESC, id DESC) AS row_number
+    FROM word_attempts
+    WHERE COALESCE(chinese_meaning, '') <> ''
+)
+SELECT wm.word,
+       COALESCE(lm.chinese_meaning, '') AS chinese_meaning,
+       wm.total_attempts,
+       wm.correct_attempts,
+       wm.incorrect_attempts,
+       COALESCE(wm.correct_attempts * 100.0 / NULLIF(wm.total_attempts, 0), 0) AS accuracy,
+       COALESCE(wm.average_time, 0) AS average_time
+FROM word_mastery wm
+LEFT JOIN latest_meaning lm
+  ON lm.word = wm.word
+ AND lm.row_number = 1
+WHERE wm.mastery_level = ?
 -- 优先展示最需要复习的词：错误多、练习多的排在前面。
-ORDER BY incorrect_attempts DESC, total_attempts DESC, word ASC
+ORDER BY wm.incorrect_attempts DESC, wm.total_attempts DESC, wm.word ASC
 LIMIT ?`, level, limit)
 	if err != nil {
 		return nil, err
@@ -125,6 +136,7 @@ LIMIT ?`, level, limit)
 		var item MasteryWordDetail
 		if err := rows.Scan(
 			&item.Word,
+			&item.ChineseMeaning,
 			&item.TotalAttempts,
 			&item.CorrectAttempts,
 			&item.IncorrectAttempts,
