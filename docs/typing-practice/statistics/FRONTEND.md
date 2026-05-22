@@ -4,21 +4,20 @@
 
 统计页由 `stats.html` 和 `src/stats.js` 实现，使用 Vue 3、Axios、ECharts 和 Tailwind CSS。页面会从后端 `/api/stats/*` 接口加载真实练习数据。
 
-当前保留 7 个核心图表，已去掉“打字速度趋势”和“里程碑时间轴”：
+当前保留 5 个核心图表，已移除“错误单词 Top 10”和“分类掌握度”的前端面板及后端接口；“打字速度趋势”和“里程碑时间轴”暂不展示：
 
 1. 学习热力图
 2. 正确率趋势
 3. 单词掌握度分布
 4. 错误类型分布
-5. 分类掌握度
-6. 错误单词 Top 10
-7. 每日练习时长
+5. 每日练习时长
+
+“错误单词 Top 10”和“分类掌握度”不再展示，也不再提供对应后端接口。
 
 ## 页面布局
 
 - 第一行保持学习热力图和正确率趋势。
 - 第二行展示单词掌握度分布和错误类型分布。
-- 第三行展示分类掌握度和错误单词 Top 10。
 - 最后一行展示每日练习时长，并占满整行宽度。
 
 ## 交互说明
@@ -49,9 +48,7 @@ GET /api/stats/heatmap
 GET /api/stats/accuracy-trend
 GET /api/stats/mastery-distribution
 GET /api/stats/mastery-words?level=weak&limit=500
-GET /api/stats/top-errors
 GET /api/stats/daily-duration
-GET /api/stats/category-mastery
 GET /api/stats/error-types
 GET /api/stats/error-type-words?type=spelling&limit=500
 ```
@@ -69,7 +66,7 @@ apiBaseUrl: window.location.origin && window.location.origin.startsWith('http')
 ## 测试清单
 
 1. 打开 `http://localhost:8080/stats.html`
-2. 确认 7 个图表正常渲染
+2. 确认 5 个图表正常渲染
 3. 点击“单词掌握度分布”的非空扇区，确认弹窗展示具体单词
 4. 点击“错误类型分布”的非空扇区，确认弹窗展示具体单词和最近输入
 5. 切换摸鱼模式，确认图表颜色和顶部图标按钮正常

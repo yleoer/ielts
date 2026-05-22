@@ -21,7 +21,8 @@ COPY backend/docker/entrypoint.sh /usr/local/bin/typing-practice-entrypoint
 COPY --from=builder /out/typing-practice ./typing-practice
 COPY frontend ../frontend
 
-RUN chmod +x /usr/local/bin/typing-practice-entrypoint \
+RUN sed -i 's/\r$//' /usr/local/bin/typing-practice-entrypoint \
+    && chmod +x /usr/local/bin/typing-practice-entrypoint \
     && mkdir -p /app/data /app/stats /app/anki-cache \
     && chown -R app:app /app
 

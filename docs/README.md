@@ -14,6 +14,7 @@
 - [Frontend guide](typing-practice/FRONTEND.md)
 - [Word selection algorithm](typing-practice/WORD-SELECTION.md)
 - [Docker deploy guide](typing-practice/DOCKER-DEPLOY.md)
+- [Local server build testing](typing-practice/LOCAL-BUILD.md)
 
 ## Statistics
 
