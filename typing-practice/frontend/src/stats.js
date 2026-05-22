@@ -60,14 +60,16 @@ createApp({
             this.loading = true;
             try {
                 await this.loadOverview();
-                this.loading = false;
-                await this.$nextTick();
-                await this.initCharts();
             } catch (error) {
-                console.error('Error loading data:', error);
+                console.error('Error loading overview:', error);
                 this.loading = false;
                 alert('无法加载统计数据，请确保后端服务正在运行');
+                return;
             }
+
+            this.loading = false;
+            await this.$nextTick();
+            await this.initCharts();
         },
 
         async loadOverview() {
@@ -126,13 +128,20 @@ createApp({
         },
 
         async initCharts() {
-            await this.loadHeatmap();
-            await this.loadAccuracyTrend();
-            await this.loadMasteryPie();
-            await this.loadTopErrors();
-            await this.loadDailyDuration();
-            await this.loadCategoryRadar();
-            await this.loadErrorTypes();
+            const chartLoaders = [
+                ['heatmap', () => this.loadHeatmap()],
+                ['accuracy-trend', () => this.loadAccuracyTrend()],
+                ['mastery-pie', () => this.loadMasteryPie()],
+                ['daily-duration', () => this.loadDailyDuration()],
+                ['error-types', () => this.loadErrorTypes()]
+            ];
+
+            const results = await Promise.allSettled(chartLoaders.map(([, load]) => load()));
+            results.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                    console.warn(`Failed to load stats chart: ${chartLoaders[index][0]}`, result.reason);
+                }
+            });
         },
 
         async loadHeatmap() {
@@ -341,62 +350,6 @@ createApp({
             this.charts.masteryPie = chart;
         },
 
-        async loadTopErrors() {
-            const chart = echarts.init(document.getElementById('top-errors'));
-
-            const response = await axios.get(`${this.apiBaseUrl}/stats/top-errors`, {
-                params: { limit: 10 }
-            });
-
-            const data = response.data.data || [];
-            this.renderTopErrors(chart, data);
-        },
-
-        renderTopErrors(chart, data) {
-            const words = data.map(item => item.word);
-            const counts = data.map(item => item.error_count);
-            const option = {
-                title: {
-                    text: this.stealthMode ? 'Top 10 Error Words' : '错误单词 Top 10',
-                    left: 'center',
-                    textStyle: {
-                        color: this.stealthMode ? '#374151' : '#4338ca'
-                    }
-                },
-                tooltip: {
-                    trigger: 'axis',
-                    axisPointer: { type: 'shadow' },
-                    formatter: (params) => {
-                        const item = data[params[0].dataIndex] || {};
-                        return `${item.word || ''}<br/>含义: ${item.chinese_meaning || '-'}<br/>错误次数: ${item.error_count || 0}<br/>总尝试: ${item.total_attempts || 0}`;
-                    }
-                },
-                xAxis: {
-                    type: 'value',
-                    axisLabel: { formatter: '{value}' }
-                },
-                yAxis: {
-                    type: 'category',
-                    data: words,
-                    axisLabel: {
-                        interval: 0,
-                        fontSize: 12
-                    }
-                },
-                series: [{
-                    name: this.stealthMode ? 'Error Count' : '错误次数',
-                    type: 'bar',
-                    data: counts,
-                    itemStyle: {
-                        color: this.stealthMode ? '#6b7280' : '#F56C6C'
-                    }
-                }]
-            };
-
-            chart.setOption(option);
-            this.charts.topErrors = chart;
-        },
-
         async loadDailyDuration() {
             const chart = echarts.init(document.getElementById('daily-duration'));
 
@@ -452,75 +405,6 @@ createApp({
 
             chart.setOption(option);
             this.charts.dailyDuration = chart;
-        },
-
-        async loadCategoryRadar() {
-            const chart = echarts.init(document.getElementById('category-radar'));
-
-            const response = await axios.get(`${this.apiBaseUrl}/stats/category-mastery`);
-            const data = response.data.data || [];
-            this.renderCategoryRadar(chart, data);
-        },
-
-        renderCategoryRadar(chart, data) {
-            const normalized = data.slice(0, 8);
-            const indicator = normalized.map(item => ({
-                name: item.category,
-                max: 100
-            }));
-
-            const values = normalized.map(item => item.accuracy);
-
-            const option = {
-                title: {
-                    text: this.stealthMode ? 'Category Mastery' : '分类掌握度',
-                    left: 'center',
-                    textStyle: {
-                        color: this.stealthMode ? '#374151' : '#4338ca'
-                    }
-                },
-                tooltip: {
-                    formatter: () => normalized.map((item) => {
-                        const accuracy = Number(item.accuracy || 0).toFixed(1);
-                        return `${item.category}: ${accuracy}% (${item.word_count || 0} 词)`;
-                    }).join('<br/>')
-                },
-                radar: {
-                    indicator: indicator,
-                    shape: 'polygon',
-                    splitNumber: 5,
-                    axisName: {
-                        color: this.stealthMode ? '#6b7280' : '#333'
-                    },
-                    splitLine: {
-                        lineStyle: {
-                            color: this.stealthMode ? '#d1d5db' : '#ddd'
-                        }
-                    },
-                    splitArea: {
-                        show: true,
-                        areaStyle: {
-                            color: this.stealthMode ? ['#f9fafb', '#f3f4f6'] : ['rgba(114, 172, 209, 0.2)', 'rgba(114, 172, 209, 0.4)']
-                        }
-                    }
-                },
-                series: [{
-                    type: 'radar',
-                    data: [{
-                        value: values,
-                        name: this.stealthMode ? 'Mastery' : '掌握度',
-                        areaStyle: {
-                            color: this.stealthMode ? 'rgba(107, 114, 128, 0.3)' : 'rgba(84, 112, 198, 0.3)'
-                        },
-                        lineStyle: {
-                            color: this.stealthMode ? '#6b7280' : '#5470c6'
-                        }
-                    }]
-                }]
-            };
-
-            chart.setOption(option);
-            this.charts.categoryRadar = chart;
         },
 
         async loadErrorTypes() {

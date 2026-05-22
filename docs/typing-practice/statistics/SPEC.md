@@ -2,9 +2,9 @@
 
 ## 当前实现补充（2026-05-22）
 
-当前代码已完成后端统计存储、查询接口和前端统计页。前端实际展示 7 个核心图表：学习热力图、正确率趋势、单词掌握度分布、错误单词 Top 10、每日练习时长、分类掌握度、错误类型分布。
+当前代码已完成后端统计存储、查询接口和前端统计页。前端实际展示 5 个核心图表：学习热力图、正确率趋势、单词掌握度分布、每日练习时长、错误类型分布。
 
-“打字速度趋势”和“里程碑时间轴”后端接口仍保留，但当前统计页不再展示这两个图表。学习连续性仍用于概览中的连续学习天数。
+“错误单词 Top 10”“分类掌握度”已移除前端面板及后端接口；“打字速度趋势”和“里程碑时间轴”后端接口仍保留，但当前统计页不展示这些面板。学习连续性仍用于概览中的连续学习天数。
 
 新增两个图表明细接口，用于点击饼图后弹窗展示具体单词：
 
@@ -17,19 +17,17 @@ GET /api/stats/error-type-words?type=spelling&limit=500
 
 ## 项目概述
 
-为 IELTS 打字练习系统添加完整的数据统计和可视化功能。当前前端聚焦展示 7 个核心图表，覆盖学习进度、掌握情况、错误分布和练习投入。
+为 IELTS 打字练习系统添加完整的数据统计和可视化功能。当前前端聚焦展示 5 个核心图表，覆盖学习进度、掌握情况、错误分布和练习投入。
 
 ## 功能列表
 
-### 当前展示的 7 个核心图表
+### 当前展示的 5 个核心图表
 
 1. **GitHub 风格热力图** - 学习习惯可视化
 2. **正确率趋势折线图** - 学习效果趋势
 3. **单词掌握度分布饼图** - 整体掌握情况
-4. **错误单词 Top 10 排行榜** - 薄弱点识别
-5. **每日练习时长柱状图** - 学习投入监控
-6. **单词分类掌握雷达图** - 主题掌握情况
-7. **错误类型分析饼图** - 错误原因分析
+4. **每日练习时长柱状图** - 学习投入监控
+5. **错误类型分析饼图** - 错误原因分析
 
 后端仍保留打字速度、连续学习和里程碑相关接口，便于后续重新展示或扩展。
 
@@ -248,27 +246,7 @@ GET /api/stats/mastery-distribution
 }
 ```
 
-### 5. 获取错误单词 Top 10
-```
-GET /api/stats/top-errors?limit=10
-```
-
-**响应**：
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "word": "catastrophic",
-      "error_count": 8,
-      "total_attempts": 10,
-      "chinese_meaning": "灾难性的"
-    }
-  ]
-}
-```
-
-### 6. 获取打字速度趋势
+### 5. 获取打字速度趋势
 ```
 GET /api/stats/speed-trend?days=30
 ```
@@ -287,7 +265,7 @@ GET /api/stats/speed-trend?days=30
 }
 ```
 
-### 7. 获取每日练习时长
+### 6. 获取每日练习时长
 ```
 GET /api/stats/daily-duration?days=30
 ```
@@ -306,31 +284,7 @@ GET /api/stats/daily-duration?days=30
 }
 ```
 
-### 8. 获取分类掌握度（雷达图）
-```
-GET /api/stats/category-mastery
-```
-
-**响应**：
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "category": "自然地理",
-      "accuracy": 85.5,
-      "word_count": 50
-    },
-    {
-      "category": "商业经济",
-      "accuracy": 78.0,
-      "word_count": 30
-    }
-  ]
-}
-```
-
-### 9. 获取学习连续性
+### 7. 获取学习连续性
 ```
 GET /api/stats/streak
 ```
@@ -535,26 +489,9 @@ const option = {
 };
 ```
 
-### 4. 错误单词 Top 10 排行榜
+### 4. 错误单词 Top 10 排行榜（已移除）
 
-**ECharts 配置**：
-```javascript
-const option = {
-  title: { text: '错误单词 Top 10' },
-  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-  grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-  xAxis: { type: 'value' },
-  yAxis: {
-    type: 'category',
-    data: ['catastrophic', 'phenomenon', 'atmosphere']
-  },
-  series: [{
-    type: 'bar',
-    data: [8, 6, 5],
-    itemStyle: { color: '#F56C6C' }
-  }]
-};
-```
+当前统计页不渲染该面板，后端也不再提供 `/api/stats/top-errors`。
 
 ### 5. 打字速度曲线图（后端保留，当前页面未展示）
 
@@ -613,32 +550,9 @@ const option = {
 };
 ```
 
-### 7. 单词分类掌握雷达图
+### 7. 单词分类掌握雷达图（已移除）
 
-**ECharts 配置**：
-```javascript
-const option = {
-  title: { text: '分类掌握度' },
-  tooltip: {},
-  radar: {
-    indicator: [
-      { name: '自然地理', max: 100 },
-      { name: '商业经济', max: 100 },
-      { name: '科技创新', max: 100 },
-      { name: '社会文化', max: 100 },
-      { name: '教育学习', max: 100 }
-    ]
-  },
-  series: [{
-    type: 'radar',
-    data: [{
-      value: [85.5, 78.0, 92.0, 80.5, 88.0],
-      name: '正确率',
-      areaStyle: { opacity: 0.3 }
-    }]
-  }]
-};
-```
+当前统计页不渲染该面板，后端也不再提供 `/api/stats/category-mastery`。
 
 ### 8. 学习连续性日历（后端保留，当前页面未展示）
 
@@ -759,8 +673,6 @@ const option = {
     <div class="chart-container bg-white rounded-lg shadow p-6" id="accuracy-trend"></div>
     <div class="chart-container bg-white rounded-lg shadow p-6" id="mastery-pie"></div>
     <div class="chart-container bg-white rounded-lg shadow p-6" id="error-types"></div>
-    <div class="chart-container bg-white rounded-lg shadow p-6" id="category-radar"></div>
-    <div class="chart-container bg-white rounded-lg shadow p-6" id="top-errors"></div>
     <div class="chart-container bg-white rounded-lg shadow p-6 col-span-2" id="daily-duration"></div>
   </div>
 </div>
@@ -789,8 +701,6 @@ createApp({
       await this.loadAccuracyTrend();
       await this.loadMasteryPie();
       await this.loadErrorTypes();
-      await this.loadCategoryRadar();
-      await this.loadTopErrors();
       await this.loadDailyDuration();
     },
     
@@ -1074,7 +984,7 @@ func calculateCurrentStreak() int {
 1. ✅ 创建 stats.html 页面
 2. ✅ 引入 ECharts 库
 3. ✅ 实现概览卡片组件
-4. ✅ 实现 7 个核心图表
+4. ✅ 实现 5 个核心图表
 5. ✅ 连接后端 API
 6. ✅ 添加加载状态和错误处理
 
@@ -1232,7 +1142,7 @@ curl "http://localhost:8080/api/stats/heatmap?start_date=2026-01-01&end_date=202
 #### 前端测试
 - [ ] 统计页面正常加载
 - [ ] 概览卡片显示正确数据
-- [ ] 7 个核心图表正常渲染
+- [ ] 5 个核心图表正常渲染
 - [ ] 图表交互功能正常
 - [ ] 响应式布局适配移动端
 - [ ] 摸鱼模式下图表样式正确
@@ -1441,10 +1351,8 @@ func logSlowQuery(query string, duration time.Duration) {
 | `/api/stats/heatmap` | GET | 获取热力图数据 |
 | `/api/stats/accuracy-trend` | GET | 获取正确率趋势 |
 | `/api/stats/mastery-distribution` | GET | 获取单词掌握度分布 |
-| `/api/stats/top-errors` | GET | 获取错误单词 Top 10 |
 | `/api/stats/speed-trend` | GET | 获取打字速度趋势 |
 | `/api/stats/daily-duration` | GET | 获取每日练习时长 |
-| `/api/stats/category-mastery` | GET | 获取分类掌握度 |
 | `/api/stats/streak` | GET | 获取学习连续性 |
 | `/api/stats/error-types` | GET | 获取错误类型分布 |
 | `/api/stats/milestones` | GET | 获取里程碑列表 |

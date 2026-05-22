@@ -12,7 +12,7 @@ import (
 )
 
 func (api *API) RegisterStatsRoutes(router *gin.Engine) {
-	// 统计接口单独挂在 /api/stats 下，对应 STATISTICS-SPEC.md 中的 12 个端点。
+	// 统计接口单独挂在 /api/stats 下，对应统计文档中的端点。
 	group := router.Group("/api/stats")
 	group.POST("/sessions", api.SaveStatsSession)
 	group.GET("/heatmap", api.GetHeatmap)
@@ -20,10 +20,8 @@ func (api *API) RegisterStatsRoutes(router *gin.Engine) {
 	group.GET("/mastery-distribution", api.GetMasteryDistribution)
 	// 点击“单词掌握度分布”饼图时，前端会按 mastery_level 拉取对应单词明细。
 	group.GET("/mastery-words", api.GetMasteryWords)
-	group.GET("/top-errors", api.GetTopErrors)
 	group.GET("/speed-trend", api.GetSpeedTrend)
 	group.GET("/daily-duration", api.GetDailyDuration)
-	group.GET("/category-mastery", api.GetCategoryMastery)
 	group.GET("/streak", api.GetStreak)
 	group.GET("/error-types", api.GetErrorTypes)
 	// 点击“错误类型分布”饼图时，前端会按 error_type 拉取具体错误单词。
@@ -83,12 +81,6 @@ func (api *API) GetMasteryWords(c *gin.Context) {
 	})
 }
 
-func (api *API) GetTopErrors(c *gin.Context) {
-	api.respondStats(c, func() (any, error) {
-		return api.Stats.TopErrors(queryInt(c, "limit", 10))
-	})
-}
-
 func (api *API) GetSpeedTrend(c *gin.Context) {
 	api.respondStats(c, func() (any, error) {
 		return api.Stats.SpeedTrend(queryInt(c, "days", 30))
@@ -98,12 +90,6 @@ func (api *API) GetSpeedTrend(c *gin.Context) {
 func (api *API) GetDailyDuration(c *gin.Context) {
 	api.respondStats(c, func() (any, error) {
 		return api.Stats.DailyDuration(queryInt(c, "days", 30))
-	})
-}
-
-func (api *API) GetCategoryMastery(c *gin.Context) {
-	api.respondStats(c, func() (any, error) {
-		return api.Stats.CategoryMastery()
 	})
 }
 

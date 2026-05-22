@@ -201,41 +201,6 @@ LEFT JOIN latest_attempt la
 	return data, rows.Err()
 }
 
-func (s *Store) TopErrors(limit int) ([]TopErrorWord, error) {
-	// 错误排行榜按错误次数优先，再按总尝试次数排序，方便定位高频薄弱单词。
-	if limit <= 0 {
-		limit = 10
-	}
-	if limit > 100 {
-		limit = 100
-	}
-
-	rows, err := s.db.Query(`
-SELECT word,
-       SUM(CASE WHEN is_correct = 0 THEN 1 ELSE 0 END) AS error_count,
-       COUNT(*) AS total_attempts,
-       COALESCE(MAX(chinese_meaning), '') AS chinese_meaning
-FROM word_attempts
-GROUP BY word
-HAVING error_count > 0
-ORDER BY error_count DESC, total_attempts DESC, word ASC
-LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var data []TopErrorWord
-	for rows.Next() {
-		var item TopErrorWord
-		if err := rows.Scan(&item.Word, &item.ErrorCount, &item.TotalAttempts, &item.ChineseMeaning); err != nil {
-			return nil, err
-		}
-		data = append(data, item)
-	}
-	return data, rows.Err()
-}
-
 func (s *Store) SpeedTrend(days int) ([]SpeedTrendPoint, error) {
 	// 打字速度趋势使用 word_attempts.time_spent 的每日平均值。
 	// 前端图表可以反转 Y 轴，让“时间越短越好”更直观。
@@ -283,31 +248,6 @@ ORDER BY practice_date`, sinceDate(days))
 	for rows.Next() {
 		var item DailyDurationPoint
 		if err := rows.Scan(&item.Date, &item.DurationMinutes, &item.SessionCount); err != nil {
-			return nil, err
-		}
-		data = append(data, item)
-	}
-	return data, rows.Err()
-}
-
-func (s *Store) CategoryMastery() ([]CategoryMasteryPoint, error) {
-	// 分类掌握度按 category 聚合正确率和去重单词数，用于雷达图。
-	rows, err := s.db.Query(`
-SELECT COALESCE(NULLIF(category, ''), '未分类') AS category_name,
-       COALESCE(SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) AS accuracy,
-       COUNT(DISTINCT word) AS word_count
-FROM word_attempts
-GROUP BY category_name
-ORDER BY word_count DESC, category_name ASC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var data []CategoryMasteryPoint
-	for rows.Next() {
-		var item CategoryMasteryPoint
-		if err := rows.Scan(&item.Category, &item.Accuracy, &item.WordCount); err != nil {
 			return nil, err
 		}
 		data = append(data, item)

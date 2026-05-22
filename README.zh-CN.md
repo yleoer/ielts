@@ -52,6 +52,7 @@ http://localhost:8080/stats.html
 - [前端说明](docs/typing-practice/FRONTEND.md)
 - [选词算法说明](docs/typing-practice/WORD-SELECTION.md)
 - [Docker 部署说明](docs/typing-practice/DOCKER-DEPLOY.md)
+- [本地服务器构建测试](docs/typing-practice/LOCAL-BUILD.md)
 - [统计功能总结](docs/typing-practice/statistics/SUMMARY.md)
 
 ## 资源边界

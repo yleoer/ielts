@@ -122,17 +122,7 @@
                         <div id="error-types" style="width: 100%; height: 300px;"></div>
                     </div>
 
-                    <!-- Chart 5: Category Radar -->
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="category-radar" style="width: 100%; height: 300px;"></div>
-                    </div>
-
-                    <!-- Chart 6: Top Errors -->
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="top-errors" style="width: 100%; height: 300px;"></div>
-                    </div>
-
-                    <!-- Chart 7: Daily Duration -->
+                    <!-- Chart 5: Daily Duration -->
                     <div class="rounded-lg shadow p-6 lg:col-span-2" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
                         <div id="daily-duration" style="width: 100%; height: 300px;"></div>
                     </div>
@@ -185,9 +175,9 @@
                                             </p>
                                             <p
                                                 v-if="item.word"
-                                                class="mt-1 text-xs font-medium uppercase tracking-wide text-gray-500"
+                                                class="mt-1 text-xs font-medium tracking-wide text-gray-500"
                                             >
-                                                {{ item.word }}
+                                                {{ (item.word || '').toLowerCase() }}
                                             </p>
                                             <p v-if="item.category" class="text-xs text-gray-500">{{ item.category }}</p>
                                         </div>
@@ -211,6 +201,6 @@
         </div>
     </div>
 
-    <script src="src/stats.js"></script>
+    <script src="src/stats.js?v=20260523-stats-layout"></script>
 </body>
 </html>

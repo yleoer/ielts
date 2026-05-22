@@ -551,7 +551,7 @@ Docker Compose 会启动 `anki-sync` 和 `typing-practice` 两个服务。练习
 **后端、统计和部署完成**
 - ✅ 完成 Go 后端 API 和 Anki SQLite 读取
 - ✅ 使用 SQLite 保存练习统计原始数据
-- ✅ 新增统计页面和 7 个核心图表
+- ✅ 新增统计页面和核心图表
 - ✅ Docker Compose 使用 `anki-sync` + `typing-practice` 双服务部署
 - ✅ 练习服务镜像由 GitHub Actions 构建并推送到 Docker Hub
 

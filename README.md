@@ -58,6 +58,7 @@ Docs:
 - [Frontend guide](docs/typing-practice/FRONTEND.md)
 - [Word selection algorithm](docs/typing-practice/WORD-SELECTION.md)
 - [Docker deploy guide](docs/typing-practice/DOCKER-DEPLOY.md)
+- [Local server build testing](docs/typing-practice/LOCAL-BUILD.md)
 - [Statistics summary](docs/typing-practice/statistics/SUMMARY.md)
 
 ## Resource Boundaries

@@ -139,6 +139,17 @@ docker compose pull
 docker compose up -d
 ```
 
+## 本地构建测试
+
+如果要在服务器 `172.0.14.17` 上直接验证代码改动，不等待 GitHub Actions 构建 Docker Hub 镜像，可以叠加本地 build 配置：
+
+```bash
+cd /root/me/ielts/typing-practice
+docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build --no-deps typing-practice
+```
+
+详细流程见 [本地服务器构建测试](LOCAL-BUILD.md)。
+
 ## 统计数据备份
 
 统计数据保存在 `typing-practice/data/stats/stats.db`。备份示例：

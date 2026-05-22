@@ -64,13 +64,6 @@ type AccuracyTrendPoint struct {
 	TotalWords int     `json:"total_words"`
 }
 
-type TopErrorWord struct {
-	Word           string `json:"word"`
-	ErrorCount     int    `json:"error_count"`
-	TotalAttempts  int    `json:"total_attempts"`
-	ChineseMeaning string `json:"chinese_meaning"`
-}
-
 type MasteryWordDetail struct {
 	Word              string  `json:"word"`
 	ChineseMeaning    string  `json:"chinese_meaning"`
@@ -100,12 +93,6 @@ type DailyDurationPoint struct {
 	Date            string  `json:"date"`
 	DurationMinutes float64 `json:"duration_minutes"`
 	SessionCount    int     `json:"session_count"`
-}
-
-type CategoryMasteryPoint struct {
-	Category  string  `json:"category"`
-	Accuracy  float64 `json:"accuracy"`
-	WordCount int     `json:"word_count"`
 }
 
 type StreakData struct {

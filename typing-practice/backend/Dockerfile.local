@@ -1,5 +1,10 @@
 FROM golang:1.21-bookworm AS builder
+
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
+
 WORKDIR /src/backend
+
+ENV GOPROXY=https://goproxy.cn,direct
 
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
@@ -9,7 +14,8 @@ RUN CGO_ENABLED=1 GOOS=linux go build -o /out/typing-practice .
 
 FROM debian:bookworm-slim
 
-RUN apt-get update \
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends wget \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system app \
