@@ -38,7 +38,16 @@ Docs:
 
 Runs the web app for spelling practice and learning statistics.
 
-The app reads learned words from Anki, selects practice words with a weighted strategy, checks spelling, and stores session-level progress in SQLite.
+The app reads learned words from Anki, selects practice words with a weighted strategy, checks spelling in the browser, and stores normal practice sessions in SQLite.
+
+Highlights:
+
+- Chinese meaning prompt with English spelling input.
+- Local answer checking during practice, without per-word backend requests.
+- Fast correct-answer animation before moving to the next word.
+- Draft session restore after refresh or reopening the page.
+- Same-session mistake review that does not affect historical statistics.
+- Clear empty state when no practice words are available.
 
 Key paths:
 
