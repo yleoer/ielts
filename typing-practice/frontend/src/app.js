@@ -292,7 +292,7 @@ createApp({
             this.submitAnswer();
         },
 
-        async submitAnswer() {
+        submitAnswer() {
             const trimmedInput = this.sanitizeInput(this.userInput).trim();
             this.userInput = trimmedInput;
             if (!trimmedInput || this.isChecking || this.showAnswer) {
@@ -305,21 +305,8 @@ createApp({
 
             this.isChecking = true;
             const timeSpent = this.getCurrentWordTimeSpent();
-
-            try {
-                const response = await axios.post(`${this.apiBaseUrl}/check`, {
-                    word_id: this.currentWord.id,
-                    user_input: trimmedInput
-                });
-
-                this.isCorrect = response.data.correct;
-            } catch (error) {
-                console.error('Error checking answer:', error);
-                // 本地检查逻辑（后端不可用时）
-                this.isCorrect = this.checkAnswerLocally();
-            } finally {
-                this.isChecking = false;
-            }
+            this.isCorrect = this.checkAnswerLocally();
+            this.isChecking = false;
 
             this.showAnswer = true;
             this.updateStats(trimmedInput, timeSpent);
@@ -338,7 +325,10 @@ createApp({
         checkAnswerLocally() {
             const expected = this.currentWord.word.toLowerCase().trim();
             const input = this.userInput.toLowerCase().trim();
-            return expected === input;
+            if (expected === input) {
+                return true;
+            }
+            return expected.split('/').some(candidate => candidate.trim() === input);
         },
 
         analyzeErrorType(expected, input) {

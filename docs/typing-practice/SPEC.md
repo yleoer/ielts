@@ -21,8 +21,6 @@
 
 - `GET /api/health`
 - `GET /api/words`
-- `POST /api/check`
-- `POST /api/stats`
 - `GET /api/config`
 - `GET /api/sync/status`
 - `POST /api/sync/now`
@@ -47,7 +45,7 @@
 1. 前端加载。
 2. 页面向 `/api/words` 请求练习单词。
 3. 用户输入英文单词。
-4. `/api/check` 校验答案。
+4. 前端直接用已返回的单词数据做本地校验。
 5. 前端记录尝试，并手动进入下一题。
 6. 练习结束后提交会话统计。
 
