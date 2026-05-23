@@ -110,6 +110,7 @@
                                 placeholder="Type the word..."
                                 class="w-full px-6 py-4 text-2xl text-center border-2 rounded-xl focus:outline-none transition-all"
                                 :class="[inputClass, stealthMode ? 'focus:ring-1 focus:ring-gray-400' : 'focus:ring-2 focus:ring-indigo-500']"
+                                :readonly="isAdvancing"
                                 :disabled="isChecking"
                             >
                         </div>
@@ -403,6 +404,6 @@
         </div>
     </div>
 
-    <script src="src/app.js?v=20260524-empty-state"></script>
+    <script src="src/app.js?v=20260524-fast-correct"></script>
 </body>
 </html>
