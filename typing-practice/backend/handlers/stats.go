@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"typing-practice/models"
@@ -70,14 +71,40 @@ func (api *API) GetAccuracyTrend(c *gin.Context) {
 
 func (api *API) GetMasteryDistribution(c *gin.Context) {
 	api.respondStats(c, func() (any, error) {
-		return api.Stats.MasteryDistribution()
+		distribution, err := api.Stats.MasteryDistribution()
+		if err != nil {
+			return nil, err
+		}
+		selectionStats, err := api.Stats.SelectionStatsByWord()
+		if err != nil {
+			return nil, err
+		}
+		words, err := api.currentAnkiWordPool()
+		if err != nil || len(words) == 0 {
+			return distribution, nil
+		}
+		return mergeUnpracticedWords(distribution, words, selectionStats), nil
 	})
 }
 
 func (api *API) GetMasteryWords(c *gin.Context) {
 	// level 与 word_mastery.mastery_level 对齐：mastered/familiar/learning/weak/new。
 	api.respondStats(c, func() (any, error) {
-		return api.Stats.MasteryWords(c.Query("level"), queryInt(c, "limit", 200))
+		level := c.Query("level")
+		limit := queryInt(c, "limit", 200)
+		if level != "new" {
+			return api.Stats.MasteryWords(level, limit)
+		}
+
+		selectionStats, err := api.Stats.SelectionStatsByWord()
+		if err != nil {
+			return nil, err
+		}
+		words, err := api.currentAnkiWordPool()
+		if err != nil {
+			return nil, err
+		}
+		return unpracticedWordDetails(words, selectionStats, limit), nil
 	})
 }
 
@@ -147,6 +174,68 @@ func queryInt(c *gin.Context, name string, defaultValue int) int {
 		return defaultValue
 	}
 	return value
+}
+
+func (api *API) currentAnkiWordPool() ([]models.Word, error) {
+	api.ReaderMu.RLock()
+	defer api.ReaderMu.RUnlock()
+
+	if api.Reader == nil {
+		return nil, nil
+	}
+	return api.Reader.GetLearnedWordPool("all")
+}
+
+func mergeUnpracticedWords(distribution map[string]int, words []models.Word, selectionStats map[string]stats.SelectionStats) map[string]int {
+	data := make(map[string]int, len(distribution))
+	for level, count := range distribution {
+		data[level] = count
+	}
+	data["new"] = len(unpracticedWordDetails(words, selectionStats, 0))
+	return data
+}
+
+func unpracticedWordDetails(words []models.Word, selectionStats map[string]stats.SelectionStats, limit int) []stats.MasteryWordDetail {
+	if limit <= 0 {
+		limit = len(words)
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	practiced := make(map[string]struct{}, len(selectionStats))
+	for word := range selectionStats {
+		practiced[normalizeWordKey(word)] = struct{}{}
+	}
+
+	details := make([]stats.MasteryWordDetail, 0)
+	seen := make(map[string]struct{}, len(words))
+	for _, word := range words {
+		key := normalizeWordKey(word.Word)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if _, ok := practiced[key]; ok {
+			continue
+		}
+
+		details = append(details, stats.MasteryWordDetail{
+			Word:           word.Word,
+			ChineseMeaning: word.ChineseMeaning,
+		})
+		if len(details) >= limit {
+			break
+		}
+	}
+	return details
+}
+
+func normalizeWordKey(word string) string {
+	return strings.ToLower(strings.TrimSpace(word))
 }
 
 func legacyStatsToSession(request models.StatsRequest) stats.SessionRequest {

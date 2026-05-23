@@ -94,8 +94,8 @@ func TestStoreWordDetailQueries(t *testing.T) {
 		Accuracy:        50,
 		DurationSeconds: 300,
 		WordAttempts: []AttemptRequest{
-			{Word: "atmosphere", UserInput: "atmosphere", IsCorrect: true},
-			{Word: "catastrophic", UserInput: "catastrofic", IsCorrect: false},
+			{Word: "atmosphere", ChineseMeaning: "大气层；氛围", UserInput: "atmosphere", IsCorrect: true},
+			{Word: "catastrophic", ChineseMeaning: "灾难性的", UserInput: "catastrofic", IsCorrect: false},
 		},
 	}
 
@@ -110,8 +110,8 @@ func TestStoreWordDetailQueries(t *testing.T) {
 		Accuracy:        50,
 		DurationSeconds: 300,
 		WordAttempts: []AttemptRequest{
-			{Word: "atmosphere", UserInput: "atmosphire", IsCorrect: false},
-			{Word: "evidence", UserInput: "evidence", IsCorrect: true},
+			{Word: "atmosphere", ChineseMeaning: "大气层；氛围", UserInput: "atmosphire", IsCorrect: false},
+			{Word: "evidence", ChineseMeaning: "证据", UserInput: "evidence", IsCorrect: true},
 		},
 	}
 

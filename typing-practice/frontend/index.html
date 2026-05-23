@@ -25,6 +25,15 @@
                     📊
                 </a>
                 <button
+                    @click="openSyncModal"
+                    class="inline-flex h-11 w-11 items-center justify-center rounded-lg text-xl shadow-md transition-all"
+                    :class="stealthMode ? 'bg-white text-gray-700 hover:bg-gray-100' : 'bg-sky-600 text-white hover:bg-sky-700'"
+                    title="同步 Anki"
+                    aria-label="同步 Anki"
+                >
+                    🔄
+                </button>
+                <button
                     @click="toggleStealthMode"
                     class="inline-flex h-11 w-11 items-center justify-center rounded-lg text-xl shadow-md transition-all"
                     :class="stealthMode ? 'bg-white text-gray-700 hover:bg-gray-100' : 'bg-indigo-600 text-white hover:bg-indigo-700'"
@@ -226,9 +235,112 @@
                     </button>
                 </div>
             </div>
+
+            <div
+                v-if="syncModal.visible"
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 px-4"
+                @click.self="closeSyncModal"
+            >
+                <div
+                    class="w-full max-w-md rounded-xl p-6 shadow-xl"
+                    :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'"
+                >
+                    <div class="mb-5 flex items-center justify-between">
+                        <h2 class="text-xl font-bold" :class="stealthMode ? 'text-gray-800' : 'text-indigo-900'">
+                            <span v-if="stealthMode">Anki Sync</span>
+                            <span v-else>Anki 同步</span>
+                        </h2>
+                        <button
+                            @click="closeSyncModal"
+                            class="rounded px-3 py-1 text-xl leading-none text-gray-600 hover:bg-gray-100"
+                            aria-label="关闭"
+                        >
+                            ×
+                        </button>
+                    </div>
+
+                    <div v-if="syncModal.loading" class="py-8 text-center text-gray-500">
+                        <span v-if="stealthMode">Loading...</span>
+                        <span v-else>加载中...</span>
+                    </div>
+                    <div v-else class="space-y-4">
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                            <div class="rounded-lg p-3" :class="stealthMode ? 'bg-gray-50' : 'bg-blue-50'">
+                                <p class="text-gray-500">
+                                    <span v-if="stealthMode">Last sync</span>
+                                    <span v-else>上次同步</span>
+                                </p>
+                                <p class="mt-1 font-semibold text-gray-800">
+                                    {{ formatSyncTime(syncModal.status && syncModal.status.last_sync_at) }}
+                                </p>
+                            </div>
+                            <div class="rounded-lg p-3" :class="stealthMode ? 'bg-gray-50' : 'bg-green-50'">
+                                <p class="text-gray-500">
+                                    <span v-if="stealthMode">Added words</span>
+                                    <span v-else>新增单词</span>
+                                </p>
+                                <p class="mt-1 text-2xl font-bold" :class="stealthMode ? 'text-gray-800' : 'text-green-700'">
+                                    {{ (syncModal.status && syncModal.status.added_words) || 0 }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="rounded-lg border border-gray-100 p-3 text-sm text-gray-600">
+                            <p>
+                                <span v-if="stealthMode">Total words:</span>
+                                <span v-else>同步后单词数:</span>
+                                <span class="font-semibold text-gray-800">{{ (syncModal.status && syncModal.status.after_words) || 0 }}</span>
+                            </p>
+                            <div class="mt-3">
+                                <p class="mb-2">
+                                    <span v-if="stealthMode">Added word list:</span>
+                                    <span v-else>新增单词:</span>
+                                </p>
+                                <div
+                                    v-if="syncModal.status && syncModal.status.added_word_list && syncModal.status.added_word_list.length"
+                                    class="max-h-48 space-y-2 overflow-y-auto"
+                                >
+                                    <div
+                                        v-for="word in syncModal.status.added_word_list"
+                                        :key="word.id"
+                                        class="rounded-md bg-gray-50 px-3 py-2"
+                                    >
+                                        <p class="font-semibold text-gray-800">{{ word.chinese_meaning }}</p>
+                                        <p class="text-xs text-gray-500">{{ word.word }}</p>
+                                    </div>
+                                </div>
+                                <p v-else class="text-gray-500">
+                                    <span v-if="stealthMode">No new words</span>
+                                    <span v-else>暂无新增单词</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <p v-if="syncModal.error" class="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                            {{ syncModal.error }}
+                        </p>
+
+                        <button
+                            @click="syncNow"
+                            :disabled="syncModal.syncing"
+                            class="w-full rounded-lg px-4 py-3 font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                            :class="stealthMode ? 'bg-gray-700 text-white hover:bg-gray-800' : 'bg-sky-600 text-white hover:bg-sky-700'"
+                        >
+                            <span v-if="syncModal.syncing">
+                                <span v-if="stealthMode">Syncing...</span>
+                                <span v-else>同步中...</span>
+                            </span>
+                            <span v-else>
+                                <span v-if="stealthMode">Sync Now</span>
+                                <span v-else>立即同步</span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <script src="src/app.js"></script>
+    <script src="src/app.js?v=20260523-anki-sync-words"></script>
 </body>
 </html>
