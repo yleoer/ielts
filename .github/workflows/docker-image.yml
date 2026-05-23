@@ -37,3 +37,82 @@ jobs:
             yleoer/ielts-typing-practice:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    needs: docker
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
+
+    steps:
+      - name: Check deploy config
+        id: deploy_config
+        run: |
+          if [ -n "$DEPLOY_HOST" ] && [ -n "$DEPLOY_USER" ] && [ -n "$DEPLOY_SSH_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Deploy secrets are not configured; skip remote deploy."
+          fi
+
+      - name: Deploy typing-practice
+        if: steps.deploy_config.outputs.enabled == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          key: ${{ env.DEPLOY_SSH_KEY }}
+          envs: DEPLOY_APP_DIR
+          script: |
+            set -eu
+
+            APP_DIR="${DEPLOY_APP_DIR:-/root/all-in-one}"
+            ENV_FILE="$APP_DIR/.env"
+            SERVICE="typing-practice"
+            CONTAINER="ielts-typing-practice"
+            NEW_TAG="${{ github.sha }}"
+
+            cd "$APP_DIR"
+            touch "$ENV_FILE"
+
+            OLD_TAG="$(grep '^TYPING_PRACTICE_IMAGE_TAG=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)"
+            OLD_TAG="${OLD_TAG:-latest}"
+
+            set_tag() {
+              tag="$1"
+              sed -i '/^TYPING_PRACTICE_IMAGE_TAG=/d' "$ENV_FILE"
+              printf 'TYPING_PRACTICE_IMAGE_TAG=%s\n' "$tag" >> "$ENV_FILE"
+            }
+
+            wait_healthy() {
+              for _ in $(seq 1 30); do
+                status="$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || true)"
+                if [ "$status" = "healthy" ]; then
+                  return 0
+                fi
+                sleep 2
+              done
+              return 1
+            }
+
+            rollback() {
+              echo "Deploy failed, rollback to $OLD_TAG"
+              set_tag "$OLD_TAG"
+              docker compose pull "$SERVICE" || true
+              docker compose up -d --no-deps "$SERVICE"
+              wait_healthy || true
+            }
+
+            trap rollback ERR
+
+            echo "Deploy typing-practice: $NEW_TAG"
+            set_tag "$NEW_TAG"
+            docker compose pull "$SERVICE"
+            docker compose up -d --no-deps "$SERVICE"
+            wait_healthy
+
+            trap - ERR
+            echo "Deploy succeeded: $NEW_TAG"

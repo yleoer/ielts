@@ -17,7 +17,7 @@ services:
       - ielts-network
 
   typing-practice:
-    image: yleoer/ielts-typing-practice:latest
+    image: yleoer/ielts-typing-practice:${TYPING_PRACTICE_IMAGE_TAG:-latest}
     container_name: ielts-typing-practice
     user: "0:0"
     ports:

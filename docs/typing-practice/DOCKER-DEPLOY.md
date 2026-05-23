@@ -25,14 +25,15 @@ ANKI_SYNC_PORT=8081
 ANKI_SYNC_USER=ielts
 ANKI_SYNC_PASSWORD=ielts
 TYPING_PRACTICE_PORT=8080
+TYPING_PRACTICE_IMAGE_TAG=latest
 ANKI_SYNC_INTERVAL_SECONDS=300
 ANKI_SYNC_INITIAL_WAIT_SECONDS=60
 ```
 
-两个镜像在 `docker-compose.yml` 中固定：
+两个服务的镜像在 `docker-compose.yml` 中配置：
 
 - `afrima/anki-sync-server:latest`
-- `yleoer/ielts-typing-practice:latest`
+- `yleoer/ielts-typing-practice:${TYPING_PRACTICE_IMAGE_TAG:-latest}`
 
 ### 2. 启动服务
 
@@ -112,7 +113,7 @@ services:
       SYNC_USER1: "${ANKI_SYNC_USER:-ielts}:${ANKI_SYNC_PASSWORD:-ielts}"
 
   typing-practice:
-    image: yleoer/ielts-typing-practice:latest
+    image: yleoer/ielts-typing-practice:${TYPING_PRACTICE_IMAGE_TAG:-latest}
     user: "0:0"
     ports:
       - "${TYPING_PRACTICE_PORT:-8080}:8080"
@@ -140,6 +141,8 @@ cd typing-practice
 docker compose pull typing-practice
 docker compose up -d typing-practice
 ```
+
+如果要在 GitHub Actions 构建成功后自动更新云服务器，并在健康检查失败时回滚，见 [自动部署和回滚](AUTO-DEPLOY.md)。
 
 如需同时更新 Anki 同步服务器镜像：
 
