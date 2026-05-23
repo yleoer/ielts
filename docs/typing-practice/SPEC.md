@@ -44,8 +44,6 @@ my-ielts/
 │   │   ├── go.mod                  # Go 依赖管理
 │   │   ├── go.sum
 │   │   ├── Dockerfile              # 练习服务镜像构建
-│   │   ├── docker/
-│   │   │   └── entrypoint.sh       # 启动时复制 Anki 同步数据
 │   │   ├── config/
 │   │   │   └── config.go           # 配置管理（Anki 路径等）
 │   │   ├── anki/

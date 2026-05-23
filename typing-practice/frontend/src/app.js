@@ -188,6 +188,10 @@ createApp({
             });
         },
 
+        syncHistory() {
+            return (this.syncModal.status && this.syncModal.status.history) || [];
+        },
+
         loadMockData() {
             // 模拟数据，用于前端开发测试
             this.words = [

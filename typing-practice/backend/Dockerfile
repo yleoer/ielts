@@ -17,13 +17,10 @@ RUN apt-get update \
 
 WORKDIR /app/backend
 
-COPY backend/docker/entrypoint.sh /usr/local/bin/typing-practice-entrypoint
 COPY --from=builder /out/typing-practice ./typing-practice
 COPY frontend ../frontend
 
-RUN sed -i 's/\r$//' /usr/local/bin/typing-practice-entrypoint \
-    && chmod +x /usr/local/bin/typing-practice-entrypoint \
-    && mkdir -p /app/data /app/stats /app/anki-cache \
+RUN mkdir -p /app/data /app/stats /app/anki-cache \
     && chown -R app:app /app
 
 USER app
@@ -37,5 +34,4 @@ ENV ANKI_DB_PATH=/app/anki-cache/collection.anki2
 ENV STATS_DB_PATH=/app/stats/stats.db
 ENV GIN_MODE=release
 
-ENTRYPOINT ["/usr/local/bin/typing-practice-entrypoint"]
 CMD ["./typing-practice"]

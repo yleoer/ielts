@@ -65,6 +65,7 @@ func main() {
 	api := &handlers.API{Config: cfg, Reader: reader, Stats: statsStore}
 	handlers.RegisterRoutes(router, api)
 	registerFrontend(router)
+	api.StartAnkiSyncScheduler()
 
 	log.Printf("Listening on http://%s", cfg.Addr())
 	if err := router.Run(cfg.Addr()); err != nil {

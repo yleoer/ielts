@@ -242,7 +242,7 @@
                 @click.self="closeSyncModal"
             >
                 <div
-                    class="w-full max-w-md rounded-xl p-6 shadow-xl"
+                    class="w-full max-w-lg rounded-xl p-6 shadow-xl"
                     :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'"
                 >
                     <div class="mb-5 flex items-center justify-between">
@@ -291,29 +291,47 @@
                                 <span v-else>同步后单词数:</span>
                                 <span class="font-semibold text-gray-800">{{ (syncModal.status && syncModal.status.after_words) || 0 }}</span>
                             </p>
-                            <div class="mt-3">
-                                <p class="mb-2">
-                                    <span v-if="stealthMode">Added word list:</span>
-                                    <span v-else>新增单词:</span>
+                        </div>
+
+                        <div class="rounded-lg border border-gray-100 p-3 text-sm text-gray-600">
+                            <div class="mb-3 flex items-center justify-between">
+                                <p class="font-semibold text-gray-800">
+                                    <span v-if="stealthMode">Sync history</span>
+                                    <span v-else>同步历史</span>
                                 </p>
-                                <div
-                                    v-if="syncModal.status && syncModal.status.added_word_list && syncModal.status.added_word_list.length"
-                                    class="max-h-48 space-y-2 overflow-y-auto"
-                                >
-                                    <div
-                                        v-for="word in syncModal.status.added_word_list"
-                                        :key="word.id"
-                                        class="rounded-md bg-gray-50 px-3 py-2"
-                                    >
-                                        <p class="font-semibold text-gray-800">{{ word.chinese_meaning }}</p>
-                                        <p class="text-xs text-gray-500">{{ word.word }}</p>
-                                    </div>
-                                </div>
-                                <p v-else class="text-gray-500">
-                                    <span v-if="stealthMode">No new words</span>
-                                    <span v-else>暂无新增单词</span>
-                                </p>
+                                <span class="text-xs text-gray-400">{{ syncHistory().length }}</span>
                             </div>
+                            <div v-if="syncHistory().length" class="max-h-56 space-y-3 overflow-y-auto pr-1">
+                                <div
+                                    v-for="(item, index) in syncHistory()"
+                                    :key="item.synced_at + '-' + index"
+                                    class="rounded-md bg-gray-50 px-3 py-2"
+                                >
+                                    <div class="mb-2 flex items-start justify-between gap-3">
+                                        <p class="font-semibold text-gray-800">{{ formatSyncTime(item.synced_at) }}</p>
+                                        <span class="shrink-0 rounded bg-white px-2 py-0.5 text-xs text-gray-500">
+                                            +{{ item.added_words || 0 }}
+                                        </span>
+                                    </div>
+                                    <div v-if="item.added_word_list && item.added_word_list.length" class="flex flex-wrap gap-1.5">
+                                        <span
+                                            v-for="word in item.added_word_list"
+                                            :key="item.synced_at + '-' + word.id"
+                                            class="rounded bg-white px-2 py-1 text-xs text-gray-700"
+                                        >
+                                            {{ word.chinese_meaning || word.word }}
+                                        </span>
+                                    </div>
+                                    <p v-else class="text-xs text-gray-500">
+                                        <span v-if="stealthMode">No new words</span>
+                                        <span v-else>无新增单词</span>
+                                    </p>
+                                </div>
+                            </div>
+                            <p v-else class="text-gray-500">
+                                <span v-if="stealthMode">No sync history</span>
+                                <span v-else>暂无同步历史</span>
+                            </p>
                         </div>
 
                         <p v-if="syncModal.error" class="rounded-lg bg-red-50 p-3 text-sm text-red-700">
@@ -341,6 +359,6 @@
         </div>
     </div>
 
-    <script src="src/app.js?v=20260523-anki-sync-words"></script>
+    <script src="src/app.js?v=20260523-sync-history"></script>
 </body>
 </html>

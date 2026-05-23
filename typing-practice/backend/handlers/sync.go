@@ -14,22 +14,34 @@ import (
 
 	"typing-practice/anki"
 	"typing-practice/models"
+	"typing-practice/stats"
 
 	"github.com/gin-gonic/gin"
 )
 
 type SyncStatus struct {
-	LastSyncAt     *time.Time    `json:"last_sync_at,omitempty"`
-	SourcePath     string        `json:"source_path,omitempty"`
-	TargetPath     string        `json:"target_path,omitempty"`
-	BeforeWords    int           `json:"before_words"`
-	AfterWords     int           `json:"after_words"`
-	AddedWords     int           `json:"added_words"`
-	AddedWordList  []models.Word `json:"added_word_list"`
-	CopiedFiles    []string      `json:"-"`
-	Success        bool          `json:"success"`
-	Message        string        `json:"message,omitempty"`
-	SyncConfigured bool          `json:"sync_configured"`
+	LastSyncAt     *time.Time         `json:"last_sync_at,omitempty"`
+	SourcePath     string             `json:"source_path,omitempty"`
+	TargetPath     string             `json:"target_path,omitempty"`
+	BeforeWords    int                `json:"before_words"`
+	AfterWords     int                `json:"after_words"`
+	AddedWords     int                `json:"added_words"`
+	AddedWordList  []models.Word      `json:"added_word_list"`
+	History        []SyncHistoryEntry `json:"history"`
+	CopiedFiles    []string           `json:"-"`
+	Success        bool               `json:"success"`
+	Message        string             `json:"message,omitempty"`
+	SyncConfigured bool               `json:"sync_configured"`
+}
+
+type SyncHistoryEntry struct {
+	SyncedAt      time.Time     `json:"synced_at"`
+	BeforeWords   int           `json:"before_words"`
+	AfterWords    int           `json:"after_words"`
+	AddedWords    int           `json:"added_words"`
+	AddedWordList []models.Word `json:"added_word_list"`
+	Success       bool          `json:"success"`
+	Message       string        `json:"message,omitempty"`
 }
 
 type syncFileStat struct {
@@ -40,8 +52,6 @@ type syncFileStat struct {
 
 func (api *API) GetSyncStatus(c *gin.Context) {
 	api.ReaderMu.RLock()
-	defer api.ReaderMu.RUnlock()
-
 	status := api.Sync
 	status.SyncConfigured = syncConfigured()
 	status.TargetPath = syncTargetPath(api)
@@ -50,6 +60,9 @@ func (api *API) GetSyncStatus(c *gin.Context) {
 			status.AfterWords = total
 		}
 	}
+	api.ReaderMu.RUnlock()
+
+	status.History = api.loadSyncHistory()
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": status})
 }
 
@@ -125,13 +138,15 @@ func (api *API) syncAnkiCollection() (SyncStatus, error) {
 	status.AddedWords = len(status.AddedWordList)
 	status.Success = true
 	status.Message = "Anki collection synced"
+	api.saveSyncHistory(status)
+	status.History = api.loadSyncHistory()
 	api.Sync = status
 
 	log.Printf(
-		"Anki sync completed at %s: added_words=%d added_word_list=%s before_words=%d after_words=%d source=%s target=%s files=%s",
+		"Anki sync completed at %s: added_words=%d added_word_meanings=%s before_words=%d after_words=%d source=%s target=%s files=%s",
 		status.LastSyncAt.Format(time.RFC3339),
 		status.AddedWords,
-		strings.Join(wordNames(status.AddedWordList), ","),
+		strings.Join(wordMeanings(status.AddedWordList), ","),
 		status.BeforeWords,
 		status.AfterWords,
 		status.SourcePath,
@@ -158,15 +173,126 @@ func findAddedWords(before, after []models.Word) []models.Word {
 	return added
 }
 
-func wordNames(words []models.Word) []string {
+func wordMeanings(words []models.Word) []string {
 	if len(words) == 0 {
 		return []string{"-"}
 	}
 	names := make([]string, 0, len(words))
 	for _, word := range words {
+		if word.ChineseMeaning != "" {
+			names = append(names, word.ChineseMeaning)
+			continue
+		}
 		names = append(names, word.Word)
 	}
 	return names
+}
+
+func (api *API) saveSyncHistory(status SyncStatus) {
+	if api.Stats == nil || status.AddedWords <= 0 || len(status.AddedWordList) == 0 {
+		return
+	}
+	entry := stats.AnkiSyncHistoryEntry{
+		SyncedAt:      time.Now(),
+		BeforeWords:   status.BeforeWords,
+		AfterWords:    status.AfterWords,
+		AddedWords:    status.AddedWords,
+		AddedWordList: syncWordsToStats(status.AddedWordList),
+		Success:       status.Success,
+		Message:       status.Message,
+		SourcePath:    status.SourcePath,
+		TargetPath:    status.TargetPath,
+	}
+	if status.LastSyncAt != nil {
+		entry.SyncedAt = *status.LastSyncAt
+	}
+	if err := api.Stats.SaveAnkiSyncHistory(entry); err != nil {
+		log.Printf("save Anki sync history: %v", err)
+	}
+}
+
+func (api *API) loadSyncHistory() []SyncHistoryEntry {
+	if api.Stats == nil {
+		return nil
+	}
+	history, err := api.Stats.ListAnkiSyncHistory(50)
+	if err != nil {
+		log.Printf("load Anki sync history: %v", err)
+		return nil
+	}
+	return syncHistoryFromStats(history)
+}
+
+func syncWordsToStats(words []models.Word) []stats.AnkiSyncWord {
+	result := make([]stats.AnkiSyncWord, 0, len(words))
+	for _, word := range words {
+		result = append(result, stats.AnkiSyncWord{
+			ID:             word.ID,
+			Word:           word.Word,
+			ChineseMeaning: word.ChineseMeaning,
+			Category:       word.Category,
+		})
+	}
+	return result
+}
+
+func syncHistoryFromStats(history []stats.AnkiSyncHistoryEntry) []SyncHistoryEntry {
+	result := make([]SyncHistoryEntry, 0, len(history))
+	for _, item := range history {
+		result = append(result, SyncHistoryEntry{
+			SyncedAt:      item.SyncedAt,
+			BeforeWords:   item.BeforeWords,
+			AfterWords:    item.AfterWords,
+			AddedWords:    item.AddedWords,
+			AddedWordList: syncWordsFromStats(item.AddedWordList),
+			Success:       item.Success,
+			Message:       item.Message,
+		})
+	}
+	return result
+}
+
+func syncWordsFromStats(words []stats.AnkiSyncWord) []models.Word {
+	result := make([]models.Word, 0, len(words))
+	for _, word := range words {
+		result = append(result, models.Word{
+			ID:             word.ID,
+			Word:           word.Word,
+			ChineseMeaning: word.ChineseMeaning,
+			Category:       word.Category,
+		})
+	}
+	return result
+}
+
+func (api *API) StartAnkiSyncScheduler() {
+	if !syncConfigured() {
+		return
+	}
+	go func() {
+		initialWait := syncInitialWaitDuration()
+		if initialWait > 0 {
+			time.Sleep(initialWait)
+		}
+		api.runScheduledSync()
+
+		ticker := time.NewTicker(syncIntervalDuration())
+		defer ticker.Stop()
+		for range ticker.C {
+			api.runScheduledSync()
+		}
+	}()
+}
+
+func (api *API) runScheduledSync() {
+	status, err := api.syncAnkiCollection()
+	if err != nil {
+		log.Printf("Anki scheduled sync skipped: %v", err)
+		return
+	}
+	if status.AddedWords == 0 {
+		log.Printf("Anki scheduled sync completed with no new words")
+	}
 }
 
 func syncConfigured() bool {
@@ -297,6 +423,30 @@ func syncStableDuration() time.Duration {
 		return 2 * time.Second
 	}
 	return parsed
+}
+
+func syncIntervalDuration() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("ANKI_SYNC_INTERVAL_SECONDS"))
+	if raw == "" {
+		return 300 * time.Second
+	}
+	seconds, err := time.ParseDuration(raw + "s")
+	if err != nil || seconds <= 0 {
+		return 300 * time.Second
+	}
+	return seconds
+}
+
+func syncInitialWaitDuration() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("ANKI_SYNC_INITIAL_WAIT_SECONDS"))
+	if raw == "" {
+		return 60 * time.Second
+	}
+	seconds, err := time.ParseDuration(raw + "s")
+	if err != nil || seconds < 0 {
+		return 60 * time.Second
+	}
+	return seconds
 }
 
 func copyFileAtomic(source, target string) error {
