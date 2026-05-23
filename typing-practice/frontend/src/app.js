@@ -15,11 +15,14 @@ createApp({
             isComposing: false,
             isLoadingWords: false,
             isAdvancing: false,
+            isRestoringDraft: false,
             advanceTimer: null,
             wordsError: '',
             sessionId: '',
             sessionStartedAt: null,
             currentWordStartedAt: 0,
+            draftSaveTimer: null,
+            draftStorageKey: 'typingPracticeDraftSession:v1',
             stealthMode: false,
             stats: {
                 total: 0,
@@ -97,12 +100,19 @@ createApp({
     },
     watch: {
         userInput(newVal) {
+            if (this.isRestoringDraft) {
+                return;
+            }
+
             const filtered = this.sanitizeInput(newVal);
             if (filtered !== newVal) {
                 this.$nextTick(() => {
                     this.userInput = filtered;
                 });
+                return;
             }
+
+            this.scheduleDraftSave();
         }
     },
     methods: {
@@ -142,9 +152,14 @@ createApp({
         handleCompositionEnd() {
             this.isComposing = false;
             this.handleInput();
+            this.scheduleDraftSave();
         },
 
-        async fetchWords() {
+        async fetchWords({ clearDraft = true } = {}) {
+            if (clearDraft) {
+                this.clearDraftSession();
+            }
+
             this.isLoadingWords = true;
             this.wordsError = '';
             this.words = [];
@@ -241,6 +256,7 @@ createApp({
             this.resetInputState();
             this.beginCurrentWord();
             this.focusInput();
+            this.saveDraftSession();
         },
 
         resetPracticeSession() {
@@ -258,6 +274,164 @@ createApp({
                 attempts: []
             };
             this.resetInputState();
+        },
+
+        restoreDraftSession() {
+            const rawDraft = localStorage.getItem(this.draftStorageKey);
+            if (!rawDraft) {
+                return false;
+            }
+
+            let draft = null;
+            try {
+                draft = JSON.parse(rawDraft);
+            } catch (error) {
+                console.warn('Invalid draft session:', error);
+                this.clearDraftSession();
+                return false;
+            }
+
+            if (!this.isValidDraftSession(draft)) {
+                this.clearDraftSession();
+                return false;
+            }
+
+            const elapsedSeconds = Math.max(Number(draft.currentWordElapsedSeconds || 0), 0);
+            const showAnswer = Boolean(draft.showAnswer) && !Boolean(draft.isCorrect);
+
+            this.clearAdvanceTimer();
+            this.isRestoringDraft = true;
+            this.words = draft.words;
+            this.currentIndex = Math.min(Math.max(Number(draft.currentIndex || 0), 0), this.words.length);
+            this.userInput = this.sanitizeInput(draft.userInput || '');
+            this.isChecking = false;
+            this.showAnswer = showAnswer;
+            this.isCorrect = false;
+            this.feedbackMessage = showAnswer ? String(draft.feedbackMessage || '✗ 错误') : '';
+            this.isFinished = false;
+            this.isPracticeAbandoned = false;
+            this.isLoadingWords = false;
+            this.isAdvancing = false;
+            this.wordsError = '';
+            this.sessionId = draft.sessionId;
+            this.sessionStartedAt = this.parseDraftDate(draft.sessionStartedAt) || new Date();
+            this.currentWordStartedAt = performance.now() - elapsedSeconds * 1000;
+            this.stats = this.normalizeDraftStats(draft.stats);
+            this.isRestoringDraft = false;
+            if (this.currentIndex >= this.words.length) {
+                this.finishPractice();
+                return true;
+            }
+            this.focusInput();
+            return true;
+        },
+
+        isValidDraftSession(draft) {
+            if (!draft || draft.version !== 1) return false;
+            if (!Array.isArray(draft.words) || draft.words.length === 0) return false;
+            if (!draft.sessionId || typeof draft.sessionId !== 'string') return false;
+            if (!this.parseDraftDate(draft.sessionStartedAt)) return false;
+
+            const currentIndex = Number(draft.currentIndex);
+            if (!Number.isInteger(currentIndex) || currentIndex < 0 || currentIndex > draft.words.length) {
+                return false;
+            }
+
+            const savedAt = this.parseDraftDate(draft.savedAt);
+            if (!savedAt) return false;
+
+            const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+            return Date.now() - savedAt.getTime() <= maxAgeMs;
+        },
+
+        parseDraftDate(value) {
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? null : date;
+        },
+
+        normalizeDraftStats(stats) {
+            const source = stats || {};
+            return {
+                total: Number(source.total || this.words.length),
+                correct: Number(source.correct || 0),
+                incorrect: Number(source.incorrect || 0),
+                errors: Array.isArray(source.errors) ? source.errors : [],
+                attempts: Array.isArray(source.attempts) ? source.attempts : []
+            };
+        },
+
+        scheduleDraftSave() {
+            if (this.isRestoringDraft || this.isFinished || this.isAdvancing || !this.words.length || !this.sessionId) {
+                return;
+            }
+
+            if (this.draftSaveTimer) {
+                window.clearTimeout(this.draftSaveTimer);
+            }
+
+            this.draftSaveTimer = window.setTimeout(() => {
+                this.draftSaveTimer = null;
+                this.saveDraftSession();
+            }, 250);
+        },
+
+        saveDraftSession(overrides = {}) {
+            if (this.isRestoringDraft || this.isFinished || this.isAdvancing || !this.words.length || !this.sessionId) {
+                return;
+            }
+
+            const draft = {
+                version: 1,
+                savedAt: new Date().toISOString(),
+                words: this.words,
+                currentIndex: overrides.currentIndex ?? this.currentIndex,
+                userInput: overrides.userInput ?? this.userInput,
+                showAnswer: overrides.showAnswer ?? this.showAnswer,
+                isCorrect: overrides.isCorrect ?? this.isCorrect,
+                feedbackMessage: overrides.feedbackMessage ?? this.feedbackMessage,
+                sessionId: this.sessionId,
+                sessionStartedAt: this.sessionStartedAt ? this.sessionStartedAt.toISOString() : new Date().toISOString(),
+                currentWordElapsedSeconds: overrides.currentWordElapsedSeconds ?? (this.getCurrentWordTimeSpent() || 0),
+                stats: this.stats
+            };
+
+            try {
+                localStorage.setItem(this.draftStorageKey, JSON.stringify(draft));
+            } catch (error) {
+                console.warn('Unable to save draft session:', error);
+            }
+        },
+
+        clearDraftSession() {
+            if (this.draftSaveTimer) {
+                window.clearTimeout(this.draftSaveTimer);
+                this.draftSaveTimer = null;
+            }
+            localStorage.removeItem(this.draftStorageKey);
+        },
+
+        saveCorrectAdvanceDraft() {
+            const nextIndex = this.currentIndex + 1;
+            if (nextIndex >= this.words.length) {
+                this.saveDraftSession({
+                    currentIndex: this.words.length,
+                    userInput: '',
+                    showAnswer: false,
+                    isCorrect: false,
+                    feedbackMessage: '',
+                    currentWordElapsedSeconds: 0
+                });
+                return;
+            }
+
+            this.saveDraftSession({
+                currentIndex: nextIndex,
+                userInput: '',
+                showAnswer: false,
+                isCorrect: false,
+                feedbackMessage: '',
+                currentWordElapsedSeconds: 0
+            });
         },
 
         beginCurrentWord() {
@@ -325,6 +499,7 @@ createApp({
             if (this.isCorrect) {
                 this.feedbackMessage = '';
                 this.playSuccessAnimation();
+                this.saveCorrectAdvanceDraft();
                 this.startCorrectAdvance();
                 return;
             }
@@ -332,6 +507,7 @@ createApp({
             this.showAnswer = true;
             this.displayFeedback();
             this.focusInput();
+            this.saveDraftSession();
         },
 
         checkAnswerLocally() {
@@ -479,6 +655,7 @@ createApp({
             this.resetInputState();
             this.beginCurrentWord();
             this.focusInput();
+            this.saveDraftSession();
         },
 
         skipWord() {
@@ -517,6 +694,7 @@ createApp({
             this.clearAdvanceTimer();
             this.isFinished = true;
             this.isPracticeAbandoned = abandoned;
+            this.clearDraftSession();
             if (submit) {
                 this.submitStats();
             }
@@ -559,6 +737,7 @@ createApp({
         },
 
         restartPractice() {
+            this.clearDraftSession();
             this.fetchWords();
         },
 
@@ -588,7 +767,9 @@ createApp({
     },
     mounted() {
         this.loadStealthMode();
-        this.fetchWords();
+        if (!this.restoreDraftSession()) {
+            this.fetchWords();
+        }
         this.focusInput();
 
         // 添加全局键盘事件监听
@@ -602,6 +783,10 @@ createApp({
             if (e.key === 'Enter' && this.showAnswer && e.target === document.body) {
                 this.handleEnter(e);
             }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            this.saveDraftSession();
         });
     }
 }).mount('#app');
