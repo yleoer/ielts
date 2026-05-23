@@ -14,6 +14,7 @@
 - [前端说明](typing-practice/FRONTEND.md)
 - [选词算法说明](typing-practice/WORD-SELECTION.md)
 - [Docker 部署说明](typing-practice/DOCKER-DEPLOY.md)
+- [自动部署和回滚](typing-practice/AUTO-DEPLOY.md)
 - [本地服务器构建测试](typing-practice/LOCAL-BUILD.md)
 
 ## 学习统计
