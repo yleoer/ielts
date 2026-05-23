@@ -2,10 +2,19 @@
 
 本文说明 GitHub Actions 构建镜像成功后，自动登录云服务器更新 `typing-practice` 服务，并在健康检查失败时回滚到上一个镜像 tag。
 
+只有影响 Docker 镜像内容的文件变化才会触发构建和部署：
+
+- `typing-practice/backend/**`
+- `typing-practice/frontend/**`
+- `typing-practice/.dockerignore`
+
+只修改文档、compose、`.env.example` 或 GitHub Actions 部署脚本时，workflow 会跳过镜像构建和云服务器部署。
+
 ## 整体流程
 
 ```text
 push master
+  -> 检查是否修改了镜像相关文件
   -> GitHub Actions 构建 Docker 镜像
   -> 推送 yleoer/ielts-typing-practice:latest
   -> 推送 yleoer/ielts-typing-practice:<commit-sha>
