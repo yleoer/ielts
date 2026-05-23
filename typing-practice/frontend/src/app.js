@@ -23,6 +23,7 @@ createApp({
             currentWordStartedAt: 0,
             draftSaveTimer: null,
             draftStorageKey: 'typingPracticeDraftSession:v1',
+            practiceMode: 'normal',
             stealthMode: false,
             stats: {
                 total: 0,
@@ -64,6 +65,35 @@ createApp({
         },
         resultTotal() {
             return this.isPracticeAbandoned ? this.attemptedTotal : this.stats.total;
+        },
+        isMistakePractice() {
+            return this.practiceMode === 'mistakes';
+        },
+        mistakePracticeWords() {
+            const wordsByKey = new Map();
+            this.words.forEach((word) => {
+                const key = this.wordKey(word.word);
+                if (key && !wordsByKey.has(key)) {
+                    wordsByKey.set(key, this.cloneWord(word));
+                }
+            });
+
+            const reviewWords = [];
+            const seen = new Set();
+            this.stats.errors.forEach((error) => {
+                const source = error.wordData || wordsByKey.get(this.wordKey(error.word)) || {
+                    word: error.word,
+                    chinese_meaning: error.meaning
+                };
+                const word = this.cloneWord(source);
+                const key = this.wordKey(word.word);
+                if (!key || seen.has(key)) {
+                    return;
+                }
+                seen.add(key);
+                reviewWords.push(word);
+            });
+            return reviewWords;
         },
         cardClass() {
             if (this.isAdvancing) {
@@ -123,6 +153,24 @@ createApp({
         isValidAnswerInput(value) {
             const normalized = this.sanitizeInput(value).trim();
             return /^[a-zA-Z][a-zA-Z\s'-]*$/.test(normalized);
+        },
+
+        wordKey(value) {
+            return this.normalizeAnswer(value);
+        },
+
+        cloneWord(word) {
+            const source = word || {};
+            return {
+                id: source.id || 0,
+                word: String(source.word || ''),
+                chinese_meaning: String(source.chinese_meaning || source.meaning || ''),
+                part_of_speech: String(source.part_of_speech || ''),
+                phonetic: String(source.phonetic || ''),
+                example_en: String(source.example_en || ''),
+                example_cn: String(source.example_cn || ''),
+                category: String(source.category || '')
+            };
         },
 
         handleBeforeInput(event) {
@@ -265,6 +313,7 @@ createApp({
             this.currentIndex = 0;
             this.isFinished = false;
             this.isPracticeAbandoned = false;
+            this.practiceMode = 'normal';
             this.currentWordStartedAt = 0;
             this.stats = {
                 total: 0,
@@ -313,6 +362,7 @@ createApp({
             this.isLoadingWords = false;
             this.isAdvancing = false;
             this.wordsError = '';
+            this.practiceMode = this.normalizePracticeMode(draft.practiceMode);
             this.sessionId = draft.sessionId;
             this.sessionStartedAt = this.parseDraftDate(draft.sessionStartedAt) || new Date();
             this.currentWordStartedAt = performance.now() - elapsedSeconds * 1000;
@@ -360,6 +410,10 @@ createApp({
             };
         },
 
+        normalizePracticeMode(value) {
+            return value === 'mistakes' ? 'mistakes' : 'normal';
+        },
+
         scheduleDraftSave() {
             if (this.isRestoringDraft || this.isFinished || this.isAdvancing || !this.words.length || !this.sessionId) {
                 return;
@@ -389,6 +443,7 @@ createApp({
                 showAnswer: overrides.showAnswer ?? this.showAnswer,
                 isCorrect: overrides.isCorrect ?? this.isCorrect,
                 feedbackMessage: overrides.feedbackMessage ?? this.feedbackMessage,
+                practiceMode: this.practiceMode,
                 sessionId: this.sessionId,
                 sessionStartedAt: this.sessionStartedAt ? this.sessionStartedAt.toISOString() : new Date().toISOString(),
                 currentWordElapsedSeconds: overrides.currentWordElapsedSeconds ?? (this.getCurrentWordTimeSpent() || 0),
@@ -593,11 +648,13 @@ createApp({
                 this.recordAttempt(userInput, true, timeSpent, '');
             } else {
                 const errorType = this.analyzeErrorType(this.currentWord.word, userInput);
+                const wordData = this.cloneWord(this.currentWord);
                 this.stats.incorrect++;
                 this.stats.errors.push({
-                    word: this.currentWord.word,
-                    meaning: this.currentWord.chinese_meaning,
-                    user_input: userInput
+                    word: wordData.word,
+                    meaning: wordData.chinese_meaning,
+                    user_input: userInput,
+                    wordData
                 });
                 this.recordAttempt(userInput, false, timeSpent, errorType);
             }
@@ -662,11 +719,13 @@ createApp({
             if (this.showAnswer || this.isAdvancing || !this.currentWord) return;
 
             const timeSpent = this.getCurrentWordTimeSpent();
+            const wordData = this.cloneWord(this.currentWord);
             this.stats.incorrect++;
             this.stats.errors.push({
-                word: this.currentWord.word,
-                meaning: this.currentWord.chinese_meaning,
-                user_input: '(跳过)'
+                word: wordData.word,
+                meaning: wordData.chinese_meaning,
+                user_input: '(跳过)',
+                wordData
             });
             this.recordAttempt('', false, timeSpent, 'skipped');
 
@@ -695,7 +754,7 @@ createApp({
             this.isFinished = true;
             this.isPracticeAbandoned = abandoned;
             this.clearDraftSession();
-            if (submit) {
+            if (submit && !this.isMistakePractice) {
                 this.submitStats();
             }
         },
@@ -739,6 +798,18 @@ createApp({
         restartPractice() {
             this.clearDraftSession();
             this.fetchWords();
+        },
+
+        startMistakePractice() {
+            const reviewWords = this.mistakePracticeWords;
+            if (!reviewWords.length) {
+                return;
+            }
+
+            this.clearDraftSession();
+            this.words = reviewWords;
+            this.practiceMode = 'mistakes';
+            this.initializePracticeSession();
         },
 
         quitPractice() {
