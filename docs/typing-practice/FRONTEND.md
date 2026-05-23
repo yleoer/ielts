@@ -11,7 +11,6 @@
 
 - `typing-practice/frontend/src/app.js`：练习流程、输入处理、判分、会话提交
 - `typing-practice/frontend/src/stats.js`：图表数据加载和交互
-- `typing-practice/frontend/src/api/client.js`：旧版 API 客户端，保留作参考
 
 ## 运行依赖
 
@@ -29,6 +28,7 @@
 - 从 `/api/words` 获取练习单词。
 - 先显示中文含义和词性。
 - 只接受英文输入。
+- 每题答案在前端本地校验，不再逐题请求后端。
 - Enter 用于提交或进入下一题。
 - 空输入时，Space 用于跳过。
 - Esc 用于退出练习。

@@ -1,10 +1,7 @@
 package handlers
 
 import (
-	"database/sql"
-	"errors"
 	"net/http"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -36,8 +33,6 @@ func RegisterRoutes(router *gin.Engine, api *API) {
 	// 这里注册练习主流程相关接口；统计图表接口在 RegisterStatsRoutes 中注册。
 	router.GET("/api/health", api.Health)
 	router.GET("/api/words", api.GetWords)
-	router.POST("/api/check", api.CheckSpelling)
-	router.POST("/api/stats", api.SubmitStats)
 	router.GET("/api/config", api.GetConfig)
 	router.GET("/api/sync/status", api.GetSyncStatus)
 	router.POST("/api/sync/now", api.SyncNow)
@@ -104,67 +99,6 @@ func (api *API) smartPracticeWords(limit int, category string) ([]models.Word, e
 	}
 
 	return practice.SelectWords(pool, selectionStats, limit, time.Now().UTC(), nil), nil
-}
-
-func (api *API) CheckSpelling(c *gin.Context) {
-	// 根据 word_id 重新从 Anki 取 expected，而不是信任前端传来的答案。
-	api.ReaderMu.RLock()
-	defer api.ReaderMu.RUnlock()
-
-	if api.Reader == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"success": false,
-			"error":   "Anki database is not available",
-		})
-		return
-	}
-
-	var request models.CheckRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	word, err := api.Reader.GetWordByID(request.WordID)
-	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, os.ErrNotExist) {
-			status = http.StatusNotFound
-		}
-		c.JSON(status, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.CheckResponse{
-		Success:   true,
-		Correct:   utils.CheckSpelling(word.Word, request.UserInput),
-		Expected:  word.Word,
-		UserInput: request.UserInput,
-	})
-}
-
-func (api *API) SubmitStats(c *gin.Context) {
-	if api.Stats == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "stats database is not available"})
-		return
-	}
-
-	// 兼容旧前端的统计提交格式，但图表原始数据只保存到 SQLite。
-	var request models.StatsRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	if err := api.Stats.SaveSession(legacyStatsToSession(request)); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Statistics saved",
-	})
 }
 
 func (api *API) GetConfig(c *gin.Context) {

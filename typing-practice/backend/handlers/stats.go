@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"typing-practice/models"
 	"typing-practice/stats"
@@ -236,40 +235,4 @@ func unpracticedWordDetails(words []models.Word, selectionStats map[string]stats
 
 func normalizeWordKey(word string) string {
 	return strings.ToLower(strings.TrimSpace(word))
-}
-
-func legacyStatsToSession(request models.StatsRequest) stats.SessionRequest {
-	// 兼容旧版 POST /api/stats：旧接口只知道错题列表，
-	// 因此只能把错误单词写入 word_attempts，正确单词无法逐个还原。
-	now := time.Now().UTC()
-	attempts := make([]stats.AttemptRequest, 0, len(request.Errors))
-	for _, item := range request.Errors {
-		errorType := stats.AnalyzeErrorType(item.Word, item.UserInput)
-		attempts = append(attempts, stats.AttemptRequest{
-			Word:           item.Word,
-			ChineseMeaning: item.Meaning,
-			UserInput:      item.UserInput,
-			IsCorrect:      false,
-			ErrorType:      &errorType,
-		})
-	}
-
-	return stats.SessionRequest{
-		SessionID:       request.SessionID,
-		StartTime:       now.Add(-time.Duration(request.DurationSeconds) * time.Second),
-		EndTime:         &now,
-		TotalWords:      request.Total,
-		CorrectWords:    request.Correct,
-		IncorrectWords:  request.Total - request.Correct,
-		Accuracy:        float64(request.Correct) * 100 / float64(maxInt(request.Total, 1)),
-		DurationSeconds: request.DurationSeconds,
-		WordAttempts:    attempts,
-	}
-}
-
-func maxInt(left, right int) int {
-	if left > right {
-		return left
-	}
-	return right
 }
