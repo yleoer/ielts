@@ -62,7 +62,16 @@
                 <!-- Progress Bar -->
                 <div class="mb-6">
                     <div class="flex justify-between text-sm text-gray-600 mb-2">
-                        <span>进度: {{ progressCurrent }} / {{ words.length }}</span>
+                        <span>
+                            进度: {{ progressCurrent }} / {{ words.length }}
+                            <span
+                                v-if="isMistakePractice"
+                                class="ml-2 rounded bg-red-50 px-2 py-0.5 text-xs font-semibold"
+                                :class="stealthMode ? 'text-gray-700' : 'text-red-600'"
+                            >
+                                错词重练
+                            </span>
+                        </span>
                         <span>正确率: {{ accuracy }}%</span>
                     </div>
                     <div class="w-full bg-gray-200 rounded-full h-3">
@@ -207,7 +216,7 @@
 
                     <h2 class="text-3xl font-bold text-gray-800 mb-4">
                         <span v-if="stealthMode">{{ isPracticeAbandoned ? 'Practice Exited' : 'Practice Completed' }}</span>
-                        <span v-else>{{ isPracticeAbandoned ? '已退出练习' : '练习完成！' }}</span>
+                        <span v-else>{{ isPracticeAbandoned ? '已退出练习' : (isMistakePractice ? '错词重练完成！' : '练习完成！') }}</span>
                     </h2>
 
                     <div class="grid grid-cols-3 gap-4 mb-8">
@@ -270,14 +279,25 @@
                         </div>
                     </div>
 
-                    <button
-                        @click="restartPractice"
-                        class="font-bold py-3 px-8 rounded-xl transition-colors"
-                        :class="stealthMode ? 'bg-gray-700 hover:bg-gray-800 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'"
-                    >
-                        <span v-if="stealthMode">Restart</span>
-                        <span v-else>重新开始</span>
-                    </button>
+                    <div class="flex flex-col justify-center gap-3 sm:flex-row">
+                        <button
+                            v-if="mistakePracticeWords.length > 0"
+                            @click="startMistakePractice"
+                            class="font-bold py-3 px-8 rounded-xl transition-colors"
+                            :class="stealthMode ? 'bg-gray-700 hover:bg-gray-800 text-white' : 'bg-red-600 hover:bg-red-700 text-white'"
+                        >
+                            <span v-if="stealthMode">Review Mistakes</span>
+                            <span v-else>错词重练</span>
+                        </button>
+                        <button
+                            @click="restartPractice"
+                            class="font-bold py-3 px-8 rounded-xl transition-colors"
+                            :class="stealthMode ? 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100' : 'bg-indigo-600 hover:bg-indigo-700 text-white'"
+                        >
+                            <span v-if="stealthMode">Restart</span>
+                            <span v-else>重新开始</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -404,6 +424,6 @@
         </div>
     </div>
 
-    <script src="src/app.js?v=20260524-draft-session"></script>
+    <script src="src/app.js?v=20260524-mistake-practice"></script>
 </body>
 </html>
