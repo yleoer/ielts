@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"typing-practice/anki"
@@ -25,6 +26,10 @@ type API struct {
 	Reader *anki.Reader
 	// Stats 负责统计数据库；启动时必须初始化成功。
 	Stats *stats.Store
+	// ReaderMu 保护 Reader 在手动同步时被关闭和重新打开。
+	ReaderMu sync.RWMutex
+	// Sync 记录最近一次 Anki 数据同步结果。
+	Sync SyncStatus
 }
 
 func RegisterRoutes(router *gin.Engine, api *API) {
@@ -34,6 +39,8 @@ func RegisterRoutes(router *gin.Engine, api *API) {
 	router.POST("/api/check", api.CheckSpelling)
 	router.POST("/api/stats", api.SubmitStats)
 	router.GET("/api/config", api.GetConfig)
+	router.GET("/api/sync/status", api.GetSyncStatus)
+	router.POST("/api/sync/now", api.SyncNow)
 	api.RegisterStatsRoutes(router)
 }
 
@@ -46,6 +53,9 @@ func (api *API) Health(c *gin.Context) {
 
 func (api *API) GetWords(c *gin.Context) {
 	// 从 Anki 中读取“已学习”的单词，再结合统计库做分桶加权抽样。
+	api.ReaderMu.RLock()
+	defer api.ReaderMu.RUnlock()
+
 	if api.Reader == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"success": false,
@@ -98,6 +108,9 @@ func (api *API) smartPracticeWords(limit int, category string) ([]models.Word, e
 
 func (api *API) CheckSpelling(c *gin.Context) {
 	// 根据 word_id 重新从 Anki 取 expected，而不是信任前端传来的答案。
+	api.ReaderMu.RLock()
+	defer api.ReaderMu.RUnlock()
+
 	if api.Reader == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"success": false,
@@ -156,6 +169,9 @@ func (api *API) SubmitStats(c *gin.Context) {
 
 func (api *API) GetConfig(c *gin.Context) {
 	// 返回前端展示/诊断需要的运行配置，不暴露敏感信息。
+	api.ReaderMu.RLock()
+	defer api.ReaderMu.RUnlock()
+
 	totalLearned := 0
 	ankiAvailable := api.Reader != nil
 	deckID := api.Config.Anki.DeckID

@@ -23,6 +23,13 @@ createApp({
                 errors: [],
                 attempts: []
             },
+            syncModal: {
+                visible: false,
+                loading: false,
+                syncing: false,
+                error: '',
+                status: null
+            },
             apiBaseUrl: window.location.origin && window.location.origin.startsWith('http')
                 ? `${window.location.origin}/api`
                 : 'http://localhost:8080/api'
@@ -127,6 +134,58 @@ createApp({
                 // 使用模拟数据进行开发测试
                 this.loadMockData();
             }
+        },
+
+        async openSyncModal() {
+            this.syncModal.visible = true;
+            await this.loadSyncStatus();
+        },
+
+        closeSyncModal() {
+            this.syncModal.visible = false;
+        },
+
+        async loadSyncStatus() {
+            this.syncModal.loading = true;
+            this.syncModal.error = '';
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}/sync/status`);
+                this.syncModal.status = response.data.data || null;
+            } catch (error) {
+                console.error('Error loading sync status:', error);
+                this.syncModal.error = this.stealthMode ? 'Unable to load sync status' : '无法加载同步状态';
+            } finally {
+                this.syncModal.loading = false;
+            }
+        },
+
+        async syncNow() {
+            this.syncModal.syncing = true;
+            this.syncModal.error = '';
+            try {
+                const response = await axios.post(`${this.apiBaseUrl}/sync/now`);
+                this.syncModal.status = response.data.data || null;
+                await this.fetchWords();
+            } catch (error) {
+                console.error('Error syncing Anki collection:', error);
+                const message = error.response?.data?.error || (this.stealthMode ? 'Sync failed' : '同步失败');
+                this.syncModal.error = message;
+                if (error.response?.data?.data) {
+                    this.syncModal.status = error.response.data.data;
+                }
+            } finally {
+                this.syncModal.syncing = false;
+            }
+        },
+
+        formatSyncTime(value) {
+            if (!value) {
+                return this.stealthMode ? 'Never' : '暂无';
+            }
+            return new Date(value).toLocaleString('zh-CN', {
+                hour12: false,
+                timeZone: 'Asia/Shanghai'
+            });
         },
 
         loadMockData() {

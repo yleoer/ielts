@@ -85,7 +85,16 @@ Anki 客户端需要连接到 `anki-sync` 服务。默认账号来自 `.env`：
 /app/anki-cache/collection.anki2
 ```
 
+如果同步目录里同时存在 `collection.anki2-wal` 和 `collection.anki2-shm`，练习服务会把这两个 SQLite sidecar 文件一起复制，避免漏掉仍在 WAL 日志中的最新数据。
+
 第一次启动会等待 `ANKI_SYNC_INITIAL_WAIT_SECONDS` 秒后尝试复制，之后按 `ANKI_SYNC_INTERVAL_SECONDS` 周期刷新。
+
+练习页右上角的同步按钮可以查看上次同步时间、新增单词数和新增单词列表，也可以立刻触发一次同步。对应接口：
+
+```text
+GET  /api/sync/status
+POST /api/sync/now
+```
 
 ## Compose 结构
 

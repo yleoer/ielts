@@ -17,34 +17,73 @@ latest_collection() {
 		return 1
 	fi
 
-	find "$SOURCE_DIR" -type f -name collection.anki2 -size +0c -printf '%T@ %p\n' 2>/dev/null \
+	find "$SOURCE_DIR" -type f -name 'collection.anki2' -size +0c -printf '%T@ %p\n' 2>/dev/null \
 		| sort -nr \
 		| awk 'NR == 1 { sub(/^[^ ]+ /, ""); print }'
 }
 
+collection_group_stat() {
+	group_source="$1"
+	for suffix in "" "-wal" "-shm"; do
+		file="${group_source}${suffix}"
+		if [ -f "$file" ]; then
+			stat -c '%n:%s:%Y' "$file"
+		fi
+	done
+}
+
+copy_file_atomic() {
+	copy_source="$1"
+	copy_target="$2"
+	copy_tmp="${copy_target}.tmp"
+	cp "$copy_source" "$copy_tmp"
+	mv "$copy_tmp" "$copy_target"
+}
+
 copy_collection() {
-	src="$(latest_collection || true)"
-	if [ -z "$src" ] || [ ! -r "$src" ]; then
+	source_path="$(latest_collection || true)"
+	if [ -z "$source_path" ] || [ ! -r "$source_path" ]; then
 		return 1
 	fi
 
-	first_stat="$(stat -c '%s:%Y' "$src")"
+	first_stat="$(collection_group_stat "$source_path")"
 	sleep "$STABLE_SECONDS"
-	second_stat="$(stat -c '%s:%Y' "$src")"
+	second_stat="$(collection_group_stat "$source_path")"
 	if [ "$first_stat" != "$second_stat" ]; then
 		log "Anki collection is still changing; skipping this sync pass"
 		return 1
 	fi
 
 	mkdir -p "$(dirname "$TARGET")"
-	if [ -f "$TARGET" ] && cmp -s "$src" "$TARGET"; then
+
+	changed=0
+	if [ ! -f "$TARGET" ] || ! cmp -s "$source_path" "$TARGET"; then
+		changed=1
+	fi
+	for suffix in "-wal" "-shm"; do
+		if [ -f "${source_path}${suffix}" ]; then
+			if [ ! -f "${TARGET}${suffix}" ] || ! cmp -s "${source_path}${suffix}" "${TARGET}${suffix}"; then
+				changed=1
+			fi
+		elif [ -f "${TARGET}${suffix}" ]; then
+			changed=1
+		fi
+	done
+	if [ "$changed" -eq 0 ]; then
 		return 1
 	fi
 
-	tmp="${TARGET}.tmp"
-	cp "$src" "$tmp"
-	mv "$tmp" "$TARGET"
-	log "Copied Anki collection from $src to $TARGET"
+	copied="collection.anki2"
+	copy_file_atomic "$source_path" "$TARGET"
+	for suffix in "-wal" "-shm"; do
+		if [ -f "${source_path}${suffix}" ]; then
+			copy_file_atomic "${source_path}${suffix}" "${TARGET}${suffix}"
+			copied="${copied},collection.anki2${suffix}"
+		else
+			rm -f "${TARGET}${suffix}"
+		fi
+	done
+	log "Copied Anki collection group from $source_path to $TARGET files=$copied"
 	return 0
 }
 
