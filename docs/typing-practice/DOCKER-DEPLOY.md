@@ -1,222 +1,49 @@
-# IELTS 打字练习 - Docker 部署指南
+# Docker 部署
 
-当前部署使用 Docker Compose 启动两个服务：
+这是 `typing-practice` 的标准 Docker Compose 部署说明。
 
-- `anki-sync`：Anki 同步服务器，接收 Anki 客户端同步过来的数据。
-- `typing-practice`：打字练习服务，直接从 Docker Hub 拉取镜像，定时把同步数据复制到自己的缓存目录后读取。
+## 服务
 
-因此服务器上不再需要每次执行 `docker compose build`。
+- `anki-sync`：接收 Anki 客户端同步数据
+- `typing-practice`：提供练习页面和统计接口
 
-## 快速开始
+练习服务使用 Docker Hub 上的预构建镜像。
 
-### 1. 准备环境变量
+## 运行文件
 
-复制示例配置：
+- `typing-practice/.env.example`
+- `typing-practice/docker-compose.yml`
+- `typing-practice/data/anki-sync/`
+- `typing-practice/data/anki-cache/`
+- `typing-practice/data/stats/`
 
-```bash
-cd typing-practice
-cp .env.example .env
-```
+## 运行模型
 
-按需修改 `.env`：
+- Anki 数据先进入同步服务。
+- 练习服务再把同步结果复制到本地缓存。
+- 统计数据保存在 SQLite 中，容器重启后不丢失。
 
-```dotenv
-ANKI_SYNC_PORT=8081
-ANKI_SYNC_USER=ielts
-ANKI_SYNC_PASSWORD=ielts
-TYPING_PRACTICE_PORT=8080
-TYPING_PRACTICE_IMAGE_TAG=latest
-ANKI_SYNC_INTERVAL_SECONDS=300
-ANKI_SYNC_INITIAL_WAIT_SECONDS=60
-```
+## 常用接口
 
-两个服务的镜像在 `docker-compose.yml` 中配置：
+- `GET /api/config`
+- `GET /api/sync/status`
+- `POST /api/sync/now`
 
-- `afrima/anki-sync-server:latest`
-- `yleoer/ielts-typing-practice:${TYPING_PRACTICE_IMAGE_TAG:-latest}`
+## 常见检查
 
-### 2. 启动服务
+- 确认同步服务已有数据
+- 确认缓存里的 `collection.anki2` 存在
+- 确认练习容器能读到缓存和统计路径
+- 确认 `.env` 里的镜像标签是目标版本
 
-```bash
-cd typing-practice
-docker compose pull
-docker compose up -d
-```
+## 排障
 
-查看状态和日志：
+- 单词列表为空，通常是同步源还没就绪。
+- 统计数据缺失，通常是统计库路径或挂载不对。
+- 同步延迟，通常只是容器内的初始等待时间还没过。
 
-```bash
-docker compose ps
-docker compose logs -f anki-sync
-docker compose logs -f typing-practice
-```
+## 相关文档
 
-停止服务：
-
-```bash
-docker compose down
-```
-
-## 访问地址
-
-默认端口：
-
-```text
-打字练习：http://localhost:8080/
-统计页面：http://localhost:8080/stats.html
-健康检查：http://localhost:8080/api/config
-Anki 同步：http://localhost:8081/
-```
-
-服务器部署时，把 `localhost` 换成服务器 IP 或域名。
-
-## Anki 客户端同步
-
-Anki 客户端需要连接到 `anki-sync` 服务。默认账号来自 `.env`：
-
-```text
-用户名：ielts
-密码：ielts
-端口：8081
-```
-
-同步成功后，`typing-practice` 会从共享目录中定时复制最新的 `collection.anki2` 到：
-
-```text
-/app/anki-cache/collection.anki2
-```
-
-如果同步目录里同时存在 `collection.anki2-wal` 和 `collection.anki2-shm`，练习服务会把这两个 SQLite sidecar 文件一起复制，避免漏掉仍在 WAL 日志中的最新数据。
-
-练习服务启动后会由后端 Go 进程等待 `ANKI_SYNC_INITIAL_WAIT_SECONDS` 秒后尝试同步，之后按 `ANKI_SYNC_INTERVAL_SECONDS` 周期刷新。
-
-练习页右上角的同步按钮可以查看上次同步时间、新增单词数和同步历史。同步历史保存在统计库 `STATS_DB_PATH` 对应的 SQLite 数据库中；只有本次同步确实新增单词时才会记录历史，每条历史会记录同步时间和新增单词的中文含义。也可以立刻触发一次同步。对应接口：
-
-```text
-GET  /api/sync/status
-POST /api/sync/now
-```
-
-## Compose 结构
-
-`typing-practice/docker-compose.yml` 的关键结构：
-
-```yaml
-services:
-  anki-sync:
-    image: afrima/anki-sync-server:latest
-    ports:
-      - "${ANKI_SYNC_PORT:-8081}:8080"
-    volumes:
-      - ./data/anki-sync:/data
-    environment:
-      SYNC_USER1: "${ANKI_SYNC_USER:-ielts}:${ANKI_SYNC_PASSWORD:-ielts}"
-
-  typing-practice:
-    image: yleoer/ielts-typing-practice:${TYPING_PRACTICE_IMAGE_TAG:-latest}
-    user: "0:0"
-    ports:
-      - "${TYPING_PRACTICE_PORT:-8080}:8080"
-    volumes:
-      - ./data/anki-sync:/app/anki-sync:ro
-      - ./data/anki-cache:/app/anki-cache
-      - ./data/stats:/app/stats
-    environment:
-      ANKI_DB_PATH: /app/anki-cache/collection.anki2
-      STATS_DB_PATH: /app/stats/stats.db
-```
-
-- `./data/anki-sync`：保存 Anki 同步服务器的数据，同时只读挂载给练习服务。
-- `./data/anki-cache`：保存练习服务复制出来的 `collection.anki2`。
-- `./data/stats`：保存练习统计 SQLite 数据库和 Anki 同步历史，容器重建后不会丢失。
-
-`typing-practice` 服务在 Compose 中使用 `user: "0:0"`，这样在服务器用 root 拉取仓库时，容器可以直接写入这些相对路径数据目录。
-
-## 更新镜像
-
-GitHub Actions 会构建 `yleoer/ielts-typing-practice:latest` 并推送到 Docker Hub。服务器更新时执行：
-
-```bash
-cd typing-practice
-docker compose pull typing-practice
-docker compose up -d typing-practice
-```
-
-如果要在 GitHub Actions 构建成功后自动更新云服务器，并在健康检查失败时回滚，见 [自动部署和回滚](AUTO-DEPLOY.md)。
-
-如需同时更新 Anki 同步服务器镜像：
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-## 本地构建测试
-
-如果要在服务器 `172.0.14.17` 上直接验证代码改动，不等待 GitHub Actions 构建 Docker Hub 镜像，可以叠加本地 build 配置：
-
-```bash
-cd /root/me/ielts/typing-practice
-docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build --no-deps typing-practice
-```
-
-详细流程见 [本地服务器构建测试](LOCAL-BUILD.md)。
-
-## 统计数据备份
-
-统计数据保存在 `typing-practice/data/stats/stats.db`。备份示例：
-
-```bash
-cp data/stats/stats.db ./stats-backup.db
-```
-
-删除所有运行数据：
-
-```bash
-docker compose down
-rm -rf data/anki-sync/* data/anki-cache/* data/stats/*
-```
-
-## 常见问题
-
-### 访问不了打字练习页面
-
-检查容器状态和日志：
-
-```bash
-docker compose ps
-docker compose logs typing-practice
-```
-
-确认 `.env` 中的 `TYPING_PRACTICE_PORT` 没有和服务器上其他服务冲突。
-
-### `/api/words` 没有单词
-
-先确认 Anki 同步服务已经收到客户端数据，再检查练习服务缓存：
-
-```bash
-docker compose logs anki-sync
-docker compose exec typing-practice ls -l /app/anki-cache/collection.anki2
-```
-
-如果缓存文件不存在，通常是客户端还没有同步成功，或等待时间还没到。
-
-### 不想等待定时复制
-
-可以通过页面右上角的同步按钮立刻触发一次同步，也可以重启练习服务让 Go 后端按启动等待时间再次同步：
-
-```bash
-docker compose restart typing-practice
-```
-
-## 常用命令
-
-```bash
-docker compose pull
-docker compose up -d
-docker compose ps
-docker compose logs -f typing-practice
-docker compose logs -f anki-sync
-docker compose restart typing-practice
-docker compose down
-```
+- [系统概览](SPEC.md)
+- [自动部署](AUTO-DEPLOY.md)
+- [本地构建说明](LOCAL-BUILD.md)
