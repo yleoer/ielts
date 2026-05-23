@@ -88,9 +88,9 @@ Anki 客户端需要连接到 `anki-sync` 服务。默认账号来自 `.env`：
 
 如果同步目录里同时存在 `collection.anki2-wal` 和 `collection.anki2-shm`，练习服务会把这两个 SQLite sidecar 文件一起复制，避免漏掉仍在 WAL 日志中的最新数据。
 
-第一次启动会等待 `ANKI_SYNC_INITIAL_WAIT_SECONDS` 秒后尝试复制，之后按 `ANKI_SYNC_INTERVAL_SECONDS` 周期刷新。
+练习服务启动后会由后端 Go 进程等待 `ANKI_SYNC_INITIAL_WAIT_SECONDS` 秒后尝试同步，之后按 `ANKI_SYNC_INTERVAL_SECONDS` 周期刷新。
 
-练习页右上角的同步按钮可以查看上次同步时间、新增单词数和新增单词列表，也可以立刻触发一次同步。对应接口：
+练习页右上角的同步按钮可以查看上次同步时间、新增单词数和同步历史。同步历史保存在统计库 `STATS_DB_PATH` 对应的 SQLite 数据库中；只有本次同步确实新增单词时才会记录历史，每条历史会记录同步时间和新增单词的中文含义。也可以立刻触发一次同步。对应接口：
 
 ```text
 GET  /api/sync/status
@@ -128,7 +128,7 @@ services:
 
 - `./data/anki-sync`：保存 Anki 同步服务器的数据，同时只读挂载给练习服务。
 - `./data/anki-cache`：保存练习服务复制出来的 `collection.anki2`。
-- `./data/stats`：保存练习统计 SQLite 数据库，容器重建后不会丢失。
+- `./data/stats`：保存练习统计 SQLite 数据库和 Anki 同步历史，容器重建后不会丢失。
 
 `typing-practice` 服务在 Compose 中使用 `user: "0:0"`，这样在服务器用 root 拉取仓库时，容器可以直接写入这些相对路径数据目录。
 
@@ -203,7 +203,7 @@ docker compose exec typing-practice ls -l /app/anki-cache/collection.anki2
 
 ### 不想等待定时复制
 
-可以重启练习服务触发启动复制流程：
+可以通过页面右上角的同步按钮立刻触发一次同步，也可以重启练习服务让 Go 后端按启动等待时间再次同步：
 
 ```bash
 docker compose restart typing-practice
