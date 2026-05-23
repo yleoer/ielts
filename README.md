@@ -1,72 +1,70 @@
 # My IELTS Tools
 
-中文文档：[README.zh-CN.md](README.zh-CN.md)
+Personal IELTS vocabulary tooling built around Anki.
 
-This repository has two independent modules:
+This repository contains two small, independent projects:
 
-```text
-my-ielts/
-├── apkg-generator/      # Generate Anki .apkg packages
-├── typing-practice/     # Typing practice web app
-├── docs/                # Project documentation
-├── README.md
-└── README.zh-CN.md
-```
+- `apkg-generator`: builds an IELTS vocabulary Anki package from local word data, audio, and optional AI-enriched fields.
+- `typing-practice`: runs a web typing-practice app backed by an Anki `collection.anki2` file and a local statistics database.
 
-## APKG Generator
+中文说明: [README.zh-CN.md](README.zh-CN.md)
 
-Generate an Anki deck package from the IELTS vocabulary list, local word audio,
-and optional AI enrichment.
+## Why This Exists
 
-```powershell
-python apkg-generator\scripts\generate_anki_import.py --limit 20
-python apkg-generator\scripts\generate_anki_import.py
-```
+I use Anki as the source of truth for IELTS vocabulary. This repo keeps the surrounding workflow in one place: generate a deck, sync it to a server, practice spelling in the browser, and review learning statistics.
 
-Docs:
+The code is intentionally self-hostable and low ceremony. The typing app can run locally during development, while the server deployment uses Docker Compose and a prebuilt Docker image.
 
-- [APKG generator guide](docs/apkg-generator/README.md)
-- [APKG generator guide in Chinese](docs/apkg-generator/README.zh-CN.md)
-- [Anki card template notes](docs/apkg-generator/anki-card-template.md)
-- [Chinese documentation index](docs/README.zh-CN.md)
+## Projects
 
-## Typing Practice
+### APKG Generator
 
-Run a web app that reads words from Anki `collection.anki2`, provides typing
-practice, and records learning statistics. The recommended server deployment
-uses Docker Compose with an Anki sync server and the prebuilt Docker Hub image.
+Creates an Anki deck package from the vocabulary assets under `apkg-generator/`.
 
-```bash
-cd typing-practice
-cp .env.example .env
-docker compose pull
-docker compose up -d
-```
+Use it when the source vocabulary or card content changes and a new importable deck is needed.
 
-Then open:
+Key paths:
 
-```text
-http://localhost:8080/
-http://localhost:8080/stats.html
-```
+- `apkg-generator/scripts/generate_anki_import.py`
+- `apkg-generator/data/`
+- `apkg-generator/anki_export/`
 
 Docs:
 
-- [中文文档](README.zh-CN.md)
-- [Chinese documentation index](docs/README.zh-CN.md)
-- [Typing practice spec](docs/typing-practice/SPEC.md)
-- [Frontend guide](docs/typing-practice/FRONTEND.md)
-- [Word selection algorithm](docs/typing-practice/WORD-SELECTION.md)
-- [Docker deploy guide](docs/typing-practice/DOCKER-DEPLOY.md)
-- [Automatic deploy and rollback](docs/typing-practice/AUTO-DEPLOY.md)
-- [Local server build testing](docs/typing-practice/LOCAL-BUILD.md)
+- [APKG generator notes](docs/apkg-generator/README.md)
+- [Anki card design notes](docs/apkg-generator/anki-card-template.md)
+
+### Typing Practice
+
+Runs the web app for spelling practice and learning statistics.
+
+The app reads learned words from Anki, selects practice words with a weighted strategy, checks spelling, and stores session-level progress in SQLite.
+
+Key paths:
+
+- `typing-practice/backend/`
+- `typing-practice/frontend/`
+- `typing-practice/docker-compose.yml`
+- `typing-practice/data/`
+
+Docs:
+
+- [Typing practice overview](docs/typing-practice/SPEC.md)
+- [Frontend notes](docs/typing-practice/FRONTEND.md)
+- [Word selection](docs/typing-practice/WORD-SELECTION.md)
+- [Docker deployment](docs/typing-practice/DOCKER-DEPLOY.md)
 - [Statistics summary](docs/typing-practice/statistics/SUMMARY.md)
 
-## Resource Boundaries
+## Documentation
 
-- `apkg-generator/data/`: source vocabulary and word audio for APKG generation
-- `apkg-generator/anki_export/`: generated APKG/TSV files and reusable caches
-- `typing-practice/.env.example`: Docker Compose environment variable example
-- `typing-practice/data/anki-sync/`: Anki sync server data
-- `typing-practice/data/anki-cache/`: cached `collection.anki2` used by the app
-- `typing-practice/data/stats/`: learning statistics SQLite data
+The docs are written as a project knowledge base rather than full tutorials. Start from:
+
+- [Documentation index](docs/README.md)
+- [Chinese documentation index](docs/README.zh-CN.md)
+
+## Repository Boundaries
+
+- Generated Anki exports stay under `apkg-generator/anki_export/`.
+- Runtime typing-practice data stays under `typing-practice/data/`.
+- Deployment configuration lives in `typing-practice/`.
+- Long-term design notes live under `docs/`.
