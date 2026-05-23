@@ -14,6 +14,8 @@ createApp({
             isPracticeAbandoned: false,
             isComposing: false,
             isLoadingWords: false,
+            isAdvancing: false,
+            advanceTimer: null,
             wordsError: '',
             sessionId: '',
             sessionStartedAt: null,
@@ -61,6 +63,11 @@ createApp({
             return this.isPracticeAbandoned ? this.attemptedTotal : this.stats.total;
         },
         cardClass() {
+            if (this.isAdvancing) {
+                return this.stealthMode
+                    ? 'practice-card-success practice-card-success-muted border-2 border-gray-500'
+                    : 'practice-card-success border-2 border-green-400';
+            }
             if (this.showAnswer) {
                 if (this.stealthMode) {
                     return this.isCorrect ? 'border-2 border-gray-500' : 'border-2 border-gray-600';
@@ -70,6 +77,9 @@ createApp({
             return '';
         },
         inputClass() {
+            if (this.isAdvancing) {
+                return this.stealthMode ? 'border-gray-500 bg-gray-50 practice-input-success' : 'border-green-500 bg-green-50 practice-input-success';
+            }
             if (this.showAnswer) {
                 if (this.stealthMode) {
                     return this.isCorrect ? 'border-gray-500 bg-gray-50' : 'border-gray-600 bg-gray-100';
@@ -106,7 +116,11 @@ createApp({
         },
 
         handleBeforeInput(event) {
-            if (!event.data || this.showAnswer) {
+            if (!event.data) {
+                return;
+            }
+            if (this.showAnswer || this.isAdvancing) {
+                event.preventDefault();
                 return;
             }
             if (this.sanitizeInput(event.data) !== event.data) {
@@ -258,6 +272,11 @@ createApp({
         },
 
         handleKeydown(event) {
+            if (this.isAdvancing) {
+                event.preventDefault();
+                return;
+            }
+
             if (event.key === 'Enter') {
                 this.handleEnter(event);
                 return;
@@ -276,7 +295,7 @@ createApp({
 
         handleEnter(event) {
             event.preventDefault();
-            if (this.isComposing) {
+            if (this.isComposing || this.isAdvancing) {
                 return;
             }
             if (this.showAnswer) {
@@ -289,7 +308,7 @@ createApp({
         submitAnswer() {
             const trimmedInput = this.sanitizeInput(this.userInput).trim();
             this.userInput = trimmedInput;
-            if (!this.currentWord || !trimmedInput || this.isChecking || this.showAnswer) {
+            if (!this.currentWord || !trimmedInput || this.isChecking || this.showAnswer || this.isAdvancing) {
                 return;
             }
 
@@ -302,18 +321,17 @@ createApp({
             this.isCorrect = this.checkAnswerLocally();
             this.isChecking = false;
 
-            this.showAnswer = true;
             this.updateStats(trimmedInput, timeSpent);
+            if (this.isCorrect) {
+                this.feedbackMessage = '';
+                this.playSuccessAnimation();
+                this.startCorrectAdvance();
+                return;
+            }
+
+            this.showAnswer = true;
             this.displayFeedback();
             this.focusInput();
-
-            if (this.isCorrect) {
-                window.setTimeout(() => {
-                    if (this.showAnswer && this.isCorrect && !this.isFinished) {
-                        this.nextWord();
-                    }
-                }, 350);
-            }
         },
 
         checkAnswerLocally() {
@@ -420,10 +438,27 @@ createApp({
         },
 
         playSuccessAnimation() {
-            // 可以添加更复杂的动画效果
             if (navigator.vibrate) {
-                navigator.vibrate(100);
+                navigator.vibrate(35);
             }
+        },
+
+        startCorrectAdvance() {
+            this.isAdvancing = true;
+            this.advanceTimer = window.setTimeout(() => {
+                this.advanceTimer = null;
+                if (this.isAdvancing && !this.isFinished) {
+                    this.nextWord();
+                }
+            }, 180);
+        },
+
+        clearAdvanceTimer() {
+            if (this.advanceTimer) {
+                window.clearTimeout(this.advanceTimer);
+                this.advanceTimer = null;
+            }
+            this.isAdvancing = false;
         },
 
         playErrorAnimation() {
@@ -447,7 +482,7 @@ createApp({
         },
 
         skipWord() {
-            if (this.showAnswer || !this.currentWord) return;
+            if (this.showAnswer || this.isAdvancing || !this.currentWord) return;
 
             const timeSpent = this.getCurrentWordTimeSpent();
             this.stats.incorrect++;
@@ -462,6 +497,7 @@ createApp({
         },
 
         resetInputState() {
+            this.clearAdvanceTimer();
             this.userInput = '';
             this.isChecking = false;
             this.showAnswer = false;
@@ -478,6 +514,7 @@ createApp({
         },
 
         finishPractice({ submit = true, abandoned = false } = {}) {
+            this.clearAdvanceTimer();
             this.isFinished = true;
             this.isPracticeAbandoned = abandoned;
             if (submit) {
