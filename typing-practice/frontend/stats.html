@@ -274,6 +274,9 @@
                             <div v-if="detailModal.loading" class="py-10 text-center text-gray-500">
                                 加载中...
                             </div>
+                            <div v-else-if="detailModal.error" class="py-10 text-center text-red-600">
+                                {{ detailModal.error }}
+                            </div>
                             <div v-else-if="detailModal.items.length === 0" class="py-10 text-center text-gray-500">
                                 暂无单词
                             </div>
@@ -317,6 +320,6 @@
         </div>
     </div>
 
-    <script src="src/stats.js?v=20260523-heatmap-responsive"></script>
+    <script src="src/stats.js?v=20260524-visible-errors"></script>
 </body>
 </html>

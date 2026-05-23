@@ -14,6 +14,7 @@ createApp({
                 title: '',
                 subtitle: '',
                 type: '',
+                error: '',
                 items: []
             },
             apiBaseUrl: window.location.origin && window.location.origin.startsWith('http')
@@ -93,6 +94,7 @@ createApp({
                 title: label,
                 subtitle: `${count || 0} 个单词`,
                 type: 'mastery',
+                error: '',
                 items: []
             };
 
@@ -101,6 +103,9 @@ createApp({
                     params: { level, limit: 500 }
                 });
                 this.detailModal.items = response.data.data || [];
+            } catch (error) {
+                console.error('Error loading mastery words:', error);
+                this.detailModal.error = this.stealthMode ? 'Failed to load words' : '加载单词失败';
             } finally {
                 this.detailModal.loading = false;
             }
@@ -114,6 +119,7 @@ createApp({
                 title: label,
                 subtitle: `${count || 0} 次错误`,
                 type: 'error',
+                error: '',
                 items: []
             };
 
@@ -122,6 +128,9 @@ createApp({
                     params: { type: errorType, limit: 500 }
                 });
                 this.detailModal.items = response.data.data || [];
+            } catch (error) {
+                console.error('Error loading error type words:', error);
+                this.detailModal.error = this.stealthMode ? 'Failed to load words' : '加载单词失败';
             } finally {
                 this.detailModal.loading = false;
             }
@@ -139,9 +148,34 @@ createApp({
             const results = await Promise.allSettled(chartLoaders.map(([, load]) => load()));
             results.forEach((result, index) => {
                 if (result.status === 'rejected') {
-                    console.warn(`Failed to load stats chart: ${chartLoaders[index][0]}`, result.reason);
+                    const chartId = chartLoaders[index][0];
+                    console.warn(`Failed to load stats chart: ${chartId}`, result.reason);
+                    this.showChartError(chartId);
                 }
             });
+        },
+
+        showChartError(chartId) {
+            const container = document.getElementById(chartId);
+            if (!container) {
+                return;
+            }
+
+            if (typeof echarts !== 'undefined') {
+                const chart = echarts.getInstanceByDom(container);
+                if (chart) {
+                    chart.dispose();
+                }
+            }
+
+            const title = this.stealthMode ? 'Chart unavailable' : '图表加载失败';
+            const message = this.stealthMode ? 'Please try again later.' : '请稍后刷新页面重试。';
+            container.innerHTML = `
+                <div class="flex h-full min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 px-4 text-center">
+                    <p class="text-base font-semibold text-gray-700">${title}</p>
+                    <p class="mt-2 text-sm text-gray-500">${message}</p>
+                </div>
+            `;
         },
 
         async loadHeatmap() {
@@ -524,13 +558,13 @@ createApp({
                     itemStyle: { color: this.stealthMode ? '#6b7280' : '#F56C6C' }
                 },
                 {
-                    value: data.missing_letter,
+                    value: data.missing_letter || 0,
                     name: this.stealthMode ? 'Missing Letter' : '漏字母',
                     errorType: 'missing_letter',
                     itemStyle: { color: this.stealthMode ? '#9ca3af' : '#E6A23C' }
                 },
                 {
-                    value: data.extra_letter,
+                    value: data.extra_letter || 0,
                     name: this.stealthMode ? 'Extra Letter' : '多字母',
                     errorType: 'extra_letter',
                     itemStyle: { color: this.stealthMode ? '#d1d5db' : '#409EFF' }

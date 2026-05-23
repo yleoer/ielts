@@ -11,7 +11,10 @@ createApp({
             isCorrect: false,
             feedbackMessage: '',
             isFinished: false,
+            isPracticeAbandoned: false,
             isComposing: false,
+            isLoadingWords: false,
+            wordsError: '',
             sessionId: '',
             sessionStartedAt: null,
             currentWordStartedAt: 0,
@@ -41,11 +44,21 @@ createApp({
         },
         progressPercentage() {
             if (this.words.length === 0) return 0;
-            return ((this.currentIndex + 1) / this.words.length) * 100;
+            return (this.progressCurrent / this.words.length) * 100;
+        },
+        progressCurrent() {
+            if (this.words.length === 0) return 0;
+            return Math.min(this.currentIndex + 1, this.words.length);
         },
         accuracy() {
-            if (this.stats.total === 0) return 0;
-            return Math.round((this.stats.correct / this.stats.total) * 100);
+            if (this.attemptedTotal === 0) return 0;
+            return Math.round((this.stats.correct / this.attemptedTotal) * 100);
+        },
+        attemptedTotal() {
+            return this.stats.correct + this.stats.incorrect;
+        },
+        resultTotal() {
+            return this.isPracticeAbandoned ? this.attemptedTotal : this.stats.total;
         },
         cardClass() {
             if (this.showAnswer) {
@@ -118,21 +131,27 @@ createApp({
         },
 
         async fetchWords() {
+            this.isLoadingWords = true;
+            this.wordsError = '';
+            this.words = [];
+            this.resetPracticeSession();
+
             try {
                 const response = await axios.get(`${this.apiBaseUrl}/words`, {
                     params: { limit: 20 }
                 });
 
                 if (response.data.success) {
-                    this.words = response.data.data;
+                    this.words = Array.isArray(response.data.data) ? response.data.data : [];
                     this.initializePracticeSession();
                 } else {
-                    this.showError('获取单词失败');
+                    this.wordsError = response.data.error || '获取单词失败';
                 }
             } catch (error) {
                 console.error('Error fetching words:', error);
-                // 使用模拟数据进行开发测试
-                this.loadMockData();
+                this.wordsError = error.response?.data?.error || '无法连接后端服务';
+            } finally {
+                this.isLoadingWords = false;
             }
         },
 
@@ -192,54 +211,12 @@ createApp({
             return (this.syncModal.status && this.syncModal.status.history) || [];
         },
 
-        loadMockData() {
-            // 模拟数据，用于前端开发测试
-            this.words = [
-                {
-                    id: 1,
-                    word: 'atmosphere',
-                    phonetic: '/ˈætməsfɪə(r)/',
-                    part_of_speech: 'n.',
-                    chinese_meaning: '大气层；氛围'
-                },
-                {
-                    id: 2,
-                    word: 'catastrophic',
-                    phonetic: '/ˌkætəˈstrɒfɪk/',
-                    part_of_speech: 'adj.',
-                    chinese_meaning: '灾难性的'
-                },
-                {
-                    id: 3,
-                    word: 'phenomenon',
-                    phonetic: '/fəˈnɒmɪnən/',
-                    part_of_speech: 'n.',
-                    chinese_meaning: '现象'
-                },
-                {
-                    id: 4,
-                    word: 'longitude',
-                    phonetic: '/ˈlɒŋɡɪtjuːd/',
-                    part_of_speech: 'n.',
-                    chinese_meaning: '经度'
-                },
-                {
-                    id: 5,
-                    word: 'humanitarian',
-                    phonetic: '/hjuːˌmænɪˈteəriən/',
-                    part_of_speech: 'adj./n.',
-                    chinese_meaning: '人道主义的；人道主义者'
-                }
-            ];
-            this.initializePracticeSession();
-            console.log('使用模拟数据进行测试');
-        },
-
         initializePracticeSession() {
             this.sessionId = this.generateSessionId();
             this.sessionStartedAt = new Date();
             this.currentIndex = 0;
             this.isFinished = false;
+            this.isPracticeAbandoned = false;
             this.stats = {
                 total: this.words.length,
                 correct: 0,
@@ -250,6 +227,23 @@ createApp({
             this.resetInputState();
             this.beginCurrentWord();
             this.focusInput();
+        },
+
+        resetPracticeSession() {
+            this.sessionId = '';
+            this.sessionStartedAt = null;
+            this.currentIndex = 0;
+            this.isFinished = false;
+            this.isPracticeAbandoned = false;
+            this.currentWordStartedAt = 0;
+            this.stats = {
+                total: 0,
+                correct: 0,
+                incorrect: 0,
+                errors: [],
+                attempts: []
+            };
+            this.resetInputState();
         },
 
         beginCurrentWord() {
@@ -295,7 +289,7 @@ createApp({
         submitAnswer() {
             const trimmedInput = this.sanitizeInput(this.userInput).trim();
             this.userInput = trimmedInput;
-            if (!trimmedInput || this.isChecking || this.showAnswer) {
+            if (!this.currentWord || !trimmedInput || this.isChecking || this.showAnswer) {
                 return;
             }
 
@@ -323,24 +317,41 @@ createApp({
         },
 
         checkAnswerLocally() {
-            const expected = this.currentWord.word.toLowerCase().trim();
-            const input = this.userInput.toLowerCase().trim();
-            if (expected === input) {
-                return true;
-            }
-            return expected.split('/').some(candidate => candidate.trim() === input);
+            const input = this.normalizeAnswer(this.userInput);
+            return this.answerCandidates(this.currentWord.word).includes(input);
+        },
+
+        normalizeAnswer(value) {
+            return this.sanitizeInput(value).trim().toLowerCase();
+        },
+
+        answerCandidates(expected) {
+            return String(expected || '')
+                .split('/')
+                .map(candidate => this.normalizeAnswer(candidate))
+                .filter(Boolean);
         },
 
         analyzeErrorType(expected, input) {
-            const sanitizedInput = this.sanitizeInput(input).trim().toLowerCase();
-            const sanitizedExpected = this.sanitizeInput(expected).trim().toLowerCase();
+            const sanitizedInput = this.normalizeAnswer(input);
+            const candidates = this.answerCandidates(expected);
             if (!sanitizedInput) return 'skipped';
-            if (sanitizedInput === sanitizedExpected) return '';
+            if (candidates.includes(sanitizedInput)) return '';
 
-            const distance = this.levenshteinDistance(sanitizedExpected, sanitizedInput);
+            const bestMatch = candidates.reduce((best, candidate) => {
+                const distance = this.levenshteinDistance(candidate, sanitizedInput);
+                if (!best || distance < best.distance) {
+                    return { value: candidate, distance };
+                }
+                return best;
+            }, null);
+
+            if (!bestMatch) return 'completely_wrong';
+
+            const distance = bestMatch.distance;
             if (distance === 1) {
-                if (sanitizedInput.length < sanitizedExpected.length) return 'missing_letter';
-                if (sanitizedInput.length > sanitizedExpected.length) return 'extra_letter';
+                if (sanitizedInput.length < bestMatch.value.length) return 'missing_letter';
+                if (sanitizedInput.length > bestMatch.value.length) return 'extra_letter';
                 return 'spelling';
             }
             if (distance <= 3) return 'spelling';
@@ -436,7 +447,7 @@ createApp({
         },
 
         skipWord() {
-            if (this.showAnswer) return;
+            if (this.showAnswer || !this.currentWord) return;
 
             const timeSpent = this.getCurrentWordTimeSpent();
             this.stats.incorrect++;
@@ -466,9 +477,12 @@ createApp({
             });
         },
 
-        finishPractice() {
+        finishPractice({ submit = true, abandoned = false } = {}) {
             this.isFinished = true;
-            this.submitStats();
+            this.isPracticeAbandoned = abandoned;
+            if (submit) {
+                this.submitStats();
+            }
         },
 
         async submitStats() {
@@ -514,7 +528,7 @@ createApp({
         quitPractice() {
             const message = this.stealthMode ? 'Exit practice?' : '确定要退出练习吗？';
             if (confirm(message)) {
-                this.finishPractice();
+                this.finishPractice({ submit: false, abandoned: true });
             }
         },
 
