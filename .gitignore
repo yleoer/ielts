@@ -10,6 +10,7 @@ env/
 # Local environment
 .env
 .env.*
+CODEX_ENV.md
 .claude/
 
 # Generated Anki exports
