@@ -10,13 +10,18 @@ import re
 import sqlite3
 import tempfile
 import time
+import unicodedata
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 import requests
+
+try:
+    import eng_to_ipa
+except ImportError:
+    eng_to_ipa = None
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -35,9 +40,7 @@ DECK_NAME = "IELTS Vocabulary"
 MODEL_NAME = "IELTS Vocabulary Enhanced"
 FIELD_SEPARATOR = "\x1f"
 
-DICTIONARY_API = "https://api.dictionaryapi.dev/api/v2/entries/en"
-DATAMUSE_API = "https://api.datamuse.com/words"
-DICTIONARY_WORKERS = int(os.getenv("DICTIONARY_WORKERS", "8"))
+PHONETIC_WORKERS = int(os.getenv("PHONETIC_WORKERS", "8"))
 AI_BASE_URL = (os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or "https://api.openai.com/v1").rstrip("/")
 AI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("AI_API_KEY")
 AI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
@@ -822,93 +825,124 @@ def normalize_cache_key(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
-def parse_phonetic_payload(payload: Any) -> str:
-    if not isinstance(payload, list) or not payload:
+def ascii_fold(value: str) -> str:
+    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+
+
+def normalize_ipa(value: str) -> str:
+    value = value.strip().strip("/[]")
+    if not value or "*" in value:
         return ""
 
-    entry = payload[0]
-    if isinstance(entry, dict) and entry.get("phonetic"):
-        return str(entry["phonetic"]).strip()
-
-    phonetics = entry.get("phonetics", []) if isinstance(entry, dict) else []
-    if isinstance(phonetics, list):
-        for item in phonetics:
-            text = item.get("text") if isinstance(item, dict) else None
-            if text:
-                return str(text).strip()
-    return ""
-
-
-def parse_datamuse_phonetic(payload: Any, word: str) -> str:
-    if not isinstance(payload, list) or not payload:
-        return ""
-
-    expected = normalize_cache_key(word)
-    for entry in payload:
-        if not isinstance(entry, dict):
+    # CMU-derived converters can emit multiple primary stress marks for
+    # compounds. Keep the first primary stress and demote later ones.
+    seen_primary_stress = False
+    normalized: list[str] = []
+    for char in value:
+        if char == "ˈ":
+            if seen_primary_stress:
+                normalized.append("ˌ")
+            else:
+                normalized.append(char)
+                seen_primary_stress = True
             continue
-        if normalize_cache_key(str(entry.get("word", ""))) != expected:
-            continue
-        tags = entry.get("tags", [])
-        if not isinstance(tags, list):
-            continue
-        for tag in tags:
-            if isinstance(tag, str) and tag.startswith("ipa_pron:"):
-                ipa = tag.removeprefix("ipa_pron:").strip()
-                return f"/{ipa}/" if ipa and not ipa.startswith("/") else ipa
+        normalized.append(char)
+
+    value = "".join(normalized).strip()
+    return f"/{value}/" if value else ""
+
+
+def local_ipa_candidates(word: str) -> list[str]:
+    candidates = [word.strip()]
+    folded = ascii_fold(word).strip()
+    if folded and folded not in candidates:
+        candidates.append(folded)
+    if "-" in folded:
+        candidates.append(folded.replace("-", " "))
+
+    spelling_variants = {
+        "despatch": "dispatch",
+        "enrol": "enroll",
+        "fulfil": "fulfill",
+        "instalment": "installment",
+        "instil": "instill",
+        "maths": "mathematics",
+    }
+    if folded in spelling_variants:
+        candidates.append(spelling_variants[folded])
+    if "isation" in folded:
+        candidates.append(folded.replace("isation", "ization"))
+    if folded.endswith("iser"):
+        candidates.append(folded[:-4] + "izer")
+    if folded.endswith("ise"):
+        candidates.append(folded[:-3] + "ize")
+    if folded.endswith("yse"):
+        candidates.append(folded[:-3] + "yze")
+    if "our" in folded:
+        candidates.append(folded.replace("our", "or"))
+
+    compound_variants = {
+        "biorhythm": "bio rhythm",
+        "brickwork": "brick work",
+        "hydrosphere": "hydro sphere",
+        "interbreed": "inter breed",
+        "preposition": "pre position",
+        "slothful": "sloth full",
+        "takeaway": "take away",
+        "thermodynamic": "thermo dynamic",
+    }
+    if folded in compound_variants:
+        candidates.append(compound_variants[folded])
+
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in unique_candidates:
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
+def generate_local_phonetic(word: str) -> str:
+    for candidate in local_ipa_candidates(word):
+        phonetic = normalize_ipa(eng_to_ipa.convert(candidate))
+        if phonetic:
+            return phonetic
     return ""
 
 
 def fetch_one_phonetic(word: str) -> tuple[str, str]:
-    url = f"{DICTIONARY_API}/{quote(word)}"
-    for attempt in range(3):
-        try:
-            response = requests.get(url, timeout=12)
-            if response.status_code == 404:
-                break
-            response.raise_for_status()
-            phonetic = parse_phonetic_payload(response.json())
-            if phonetic:
-                return word, phonetic
-            break
-        except requests.RequestException:
-            if attempt == 2:
-                break
-            time.sleep(0.7 * (attempt + 1))
-
-    try:
-        response = requests.get(
-            DATAMUSE_API,
-            params={"sp": word, "md": "r", "ipa": "1", "max": 1},
-            timeout=12,
-        )
-        response.raise_for_status()
-        return word, parse_datamuse_phonetic(response.json(), word)
-    except requests.RequestException:
-        return word, ""
-    return word, ""
+    return word, generate_local_phonetic(word)
 
 
-def refresh_phonetics(records: list[dict[str, Any]]) -> dict[str, str]:
+def refresh_phonetics(records: list[dict[str, Any]], force: bool = False) -> dict[str, str]:
     cache: dict[str, str] = read_json(PHONETIC_CACHE, {})
     words = sorted({normalize_cache_key(str(record["primary_word"])) for record in records})
-    missing = [word for word in words if not cache.get(word)]
-    if not missing:
+    pending = words if force else [word for word in words if not cache.get(word)]
+    if not pending:
         return cache
 
-    print(f"Fetching phonetics from dictionaryapi.dev + Datamuse: {len(missing)} missing", flush=True)
+    if eng_to_ipa is None:
+        raise RuntimeError("Missing phonetic dependency. Install it with: pip install eng-to-ipa")
+
+    action = "Refreshing" if force else "Fetching"
+    print(f"{action} phonetics from eng-to-ipa: {len(pending)} words", flush=True)
     completed = 0
-    with ThreadPoolExecutor(max_workers=DICTIONARY_WORKERS) as pool:
-        futures = {pool.submit(fetch_one_phonetic, word): word for word in missing}
+    with ThreadPoolExecutor(max_workers=PHONETIC_WORKERS) as pool:
+        futures = {pool.submit(fetch_one_phonetic, word): word for word in pending}
         for future in as_completed(futures):
             word, phonetic = future.result()
             cache[word] = phonetic
             completed += 1
             write_json(PHONETIC_CACHE, cache)
-            if completed == 1 or completed % max(PROGRESS_EVERY, 1) == 0 or completed == len(missing):
-                progress("phonetics", completed, len(missing), word)
+            if completed == 1 or completed % max(PROGRESS_EVERY, 1) == 0 or completed == len(pending):
+                progress("phonetics", completed, len(pending), word)
 
     write_json(PHONETIC_CACHE, cache)
+    missing = [word for word in words if not cache.get(word)]
+    if missing:
+        print(
+            f"  eng-to-ipa did not return phonetics for {len(missing)} words: {', '.join(missing[:20])}",
+            flush=True,
+        )
     return cache
 
 
@@ -1388,6 +1422,7 @@ def write_apkg(notes: list[dict[str, Any]], media_sources: list[tuple[Path, str]
 def build_export(
     skip_ai: bool = False,
     phonetics_only: bool = False,
+    refresh_all_phonetics: bool = False,
     limit: int | None = None,
     cached_ai_only: bool = False,
     ai_tasks: set[str] | None = None,
@@ -1411,7 +1446,7 @@ def build_export(
         if not records:
             raise RuntimeError("No records have cached AI translations yet.")
 
-    phonetics = refresh_phonetics(records)
+    phonetics = refresh_phonetics(records, force=refresh_all_phonetics)
     if phonetics_only:
         return {"notes": len(records), "cards": 0, "media": 0, "missing_audio": 0}
 
@@ -1448,7 +1483,8 @@ def build_export(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-ai", action="store_true", help="Build with blank AI fields for missing cache entries.")
-    parser.add_argument("--phonetics-only", action="store_true", help="Only refresh dictionaryapi.dev phonetic cache.")
+    parser.add_argument("--phonetics-only", action="store_true", help="Only refresh phonetic cache.")
+    parser.add_argument("--refresh-phonetics", action="store_true", help="Regenerate all cached phonetics instead of only missing ones.")
     parser.add_argument("--limit", type=int, help="Only export the first N vocabulary records.")
     parser.add_argument(
         "--ai-task",
@@ -1471,6 +1507,7 @@ def main() -> None:
     summary = build_export(
         skip_ai=args.skip_ai,
         phonetics_only=args.phonetics_only,
+        refresh_all_phonetics=args.refresh_phonetics,
         limit=args.limit,
         cached_ai_only=args.cached_ai_only,
         ai_tasks=ai_tasks,

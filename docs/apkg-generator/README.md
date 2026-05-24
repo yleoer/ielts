@@ -31,13 +31,13 @@ The vocabulary source file `apkg-generator/data/vocabulary.txt` comes from the
 ## Requirements
 
 - Python 3.11+
-- Network access for phonetic lookup and AI enrichment
+- Network access for AI enrichment
 - OpenAI-compatible chat completions endpoint
 
 Python dependencies:
 
 ```powershell
-pip install requests
+pip install requests eng-to-ipa
 ```
 
 ## Environment Variables
@@ -54,7 +54,7 @@ Optional:
 ```powershell
 $env:OPENAI_MODEL='gpt-5.4-mini'
 $env:AI_REQUEST_DELAY='0.05'
-$env:DICTIONARY_WORKERS='8'
+$env:PHONETIC_WORKERS='8'
 $env:ANKI_PROGRESS_EVERY='10'
 ```
 
@@ -109,6 +109,8 @@ skipped, while cached etymology is used when available.
 The script is safe to stop and rerun.
 
 - Phonetics are cached in `anki_export/cache/phonetics.json`.
+- Phonetics are generated locally with `eng-to-ipa`; no phonetic API calls are
+  made.
 - AI translations and etymologies are cached in
   `anki_export/cache/ai_enrichment.json`.
 - Each successful API result is saved immediately.
@@ -150,6 +152,12 @@ Refresh phonetics only:
 
 ```powershell
 python apkg-generator\scripts\generate_anki_import.py --phonetics-only
+```
+
+Regenerate every cached phonetic:
+
+```powershell
+python apkg-generator\scripts\generate_anki_import.py --phonetics-only --refresh-phonetics
 ```
 
 Generate without AI for missing cached fields:
