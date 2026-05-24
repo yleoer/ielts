@@ -1,0 +1,6 @@
+services:
+  typing-practice:
+    image: yleoer/ielts-typing-practice:local
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.local

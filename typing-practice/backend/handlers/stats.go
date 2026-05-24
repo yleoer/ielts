@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
-	"time"
+	"strings"
 
 	"typing-practice/models"
 	"typing-practice/stats"
@@ -12,7 +12,7 @@ import (
 )
 
 func (api *API) RegisterStatsRoutes(router *gin.Engine) {
-	// 统计接口单独挂在 /api/stats 下，对应 STATISTICS-SPEC.md 中的 12 个端点。
+	// 统计接口单独挂在 /api/stats 下，对应统计文档中的端点。
 	group := router.Group("/api/stats")
 	group.POST("/sessions", api.SaveStatsSession)
 	group.GET("/heatmap", api.GetHeatmap)
@@ -20,10 +20,8 @@ func (api *API) RegisterStatsRoutes(router *gin.Engine) {
 	group.GET("/mastery-distribution", api.GetMasteryDistribution)
 	// 点击“单词掌握度分布”饼图时，前端会按 mastery_level 拉取对应单词明细。
 	group.GET("/mastery-words", api.GetMasteryWords)
-	group.GET("/top-errors", api.GetTopErrors)
 	group.GET("/speed-trend", api.GetSpeedTrend)
 	group.GET("/daily-duration", api.GetDailyDuration)
-	group.GET("/category-mastery", api.GetCategoryMastery)
 	group.GET("/streak", api.GetStreak)
 	group.GET("/error-types", api.GetErrorTypes)
 	// 点击“错误类型分布”饼图时，前端会按 error_type 拉取具体错误单词。
@@ -72,20 +70,40 @@ func (api *API) GetAccuracyTrend(c *gin.Context) {
 
 func (api *API) GetMasteryDistribution(c *gin.Context) {
 	api.respondStats(c, func() (any, error) {
-		return api.Stats.MasteryDistribution()
+		distribution, err := api.Stats.MasteryDistribution()
+		if err != nil {
+			return nil, err
+		}
+		selectionStats, err := api.Stats.SelectionStatsByWord()
+		if err != nil {
+			return nil, err
+		}
+		words, err := api.currentAnkiWordPool()
+		if err != nil || len(words) == 0 {
+			return distribution, nil
+		}
+		return mergeUnpracticedWords(distribution, words, selectionStats), nil
 	})
 }
 
 func (api *API) GetMasteryWords(c *gin.Context) {
 	// level 与 word_mastery.mastery_level 对齐：mastered/familiar/learning/weak/new。
 	api.respondStats(c, func() (any, error) {
-		return api.Stats.MasteryWords(c.Query("level"), queryInt(c, "limit", 200))
-	})
-}
+		level := c.Query("level")
+		limit := queryInt(c, "limit", 200)
+		if level != "new" {
+			return api.Stats.MasteryWords(level, limit)
+		}
 
-func (api *API) GetTopErrors(c *gin.Context) {
-	api.respondStats(c, func() (any, error) {
-		return api.Stats.TopErrors(queryInt(c, "limit", 10))
+		selectionStats, err := api.Stats.SelectionStatsByWord()
+		if err != nil {
+			return nil, err
+		}
+		words, err := api.currentAnkiWordPool()
+		if err != nil {
+			return nil, err
+		}
+		return unpracticedWordDetails(words, selectionStats, limit), nil
 	})
 }
 
@@ -98,12 +116,6 @@ func (api *API) GetSpeedTrend(c *gin.Context) {
 func (api *API) GetDailyDuration(c *gin.Context) {
 	api.respondStats(c, func() (any, error) {
 		return api.Stats.DailyDuration(queryInt(c, "days", 30))
-	})
-}
-
-func (api *API) GetCategoryMastery(c *gin.Context) {
-	api.respondStats(c, func() (any, error) {
-		return api.Stats.CategoryMastery()
 	})
 }
 
@@ -163,38 +175,64 @@ func queryInt(c *gin.Context, name string, defaultValue int) int {
 	return value
 }
 
-func legacyStatsToSession(request models.StatsRequest) stats.SessionRequest {
-	// 兼容旧版 POST /api/stats：旧接口只知道错题列表，
-	// 因此只能把错误单词写入 word_attempts，正确单词无法逐个还原。
-	now := time.Now().UTC()
-	attempts := make([]stats.AttemptRequest, 0, len(request.Errors))
-	for _, item := range request.Errors {
-		errorType := stats.AnalyzeErrorType(item.Word, item.UserInput)
-		attempts = append(attempts, stats.AttemptRequest{
-			Word:           item.Word,
-			ChineseMeaning: item.Meaning,
-			UserInput:      item.UserInput,
-			IsCorrect:      false,
-			ErrorType:      &errorType,
-		})
-	}
+func (api *API) currentAnkiWordPool() ([]models.Word, error) {
+	api.ReaderMu.RLock()
+	defer api.ReaderMu.RUnlock()
 
-	return stats.SessionRequest{
-		SessionID:       request.SessionID,
-		StartTime:       now.Add(-time.Duration(request.DurationSeconds) * time.Second),
-		EndTime:         &now,
-		TotalWords:      request.Total,
-		CorrectWords:    request.Correct,
-		IncorrectWords:  request.Total - request.Correct,
-		Accuracy:        float64(request.Correct) * 100 / float64(maxInt(request.Total, 1)),
-		DurationSeconds: request.DurationSeconds,
-		WordAttempts:    attempts,
+	if api.Reader == nil {
+		return nil, nil
 	}
+	return api.Reader.GetLearnedWordPool("all")
 }
 
-func maxInt(left, right int) int {
-	if left > right {
-		return left
+func mergeUnpracticedWords(distribution map[string]int, words []models.Word, selectionStats map[string]stats.SelectionStats) map[string]int {
+	data := make(map[string]int, len(distribution))
+	for level, count := range distribution {
+		data[level] = count
 	}
-	return right
+	data["new"] = len(unpracticedWordDetails(words, selectionStats, 0))
+	return data
+}
+
+func unpracticedWordDetails(words []models.Word, selectionStats map[string]stats.SelectionStats, limit int) []stats.MasteryWordDetail {
+	if limit <= 0 {
+		limit = len(words)
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	practiced := make(map[string]struct{}, len(selectionStats))
+	for word := range selectionStats {
+		practiced[normalizeWordKey(word)] = struct{}{}
+	}
+
+	details := make([]stats.MasteryWordDetail, 0)
+	seen := make(map[string]struct{}, len(words))
+	for _, word := range words {
+		key := normalizeWordKey(word.Word)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if _, ok := practiced[key]; ok {
+			continue
+		}
+
+		details = append(details, stats.MasteryWordDetail{
+			Word:           word.Word,
+			ChineseMeaning: word.ChineseMeaning,
+		})
+		if len(details) >= limit {
+			break
+		}
+	}
+	return details
+}
+
+func normalizeWordKey(word string) string {
+	return strings.ToLower(strings.TrimSpace(word))
 }

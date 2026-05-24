@@ -10,7 +10,6 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	_ "modernc.org/sqlite"
 )
 
 type Store struct {
@@ -55,8 +54,8 @@ func (s *Store) Close() error {
 
 func openSQLite(dsn string) (*sql.DB, error) {
 	var lastErr error
-	// 和 Anki reader 一样，优先 CGO 驱动，失败时回退纯 Go 驱动。
-	for _, driver := range []string{"sqlite3", "sqlite"} {
+	// 现在只面向本地服务器和 Docker 运行，统一使用 CGO sqlite3 驱动。
+	for _, driver := range []string{"sqlite3"} {
 		db, err := sql.Open(driver, dsn)
 		if err != nil {
 			lastErr = err

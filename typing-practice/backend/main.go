@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"typing-practice/anki"
@@ -64,6 +65,7 @@ func main() {
 	api := &handlers.API{Config: cfg, Reader: reader, Stats: statsStore}
 	handlers.RegisterRoutes(router, api)
 	registerFrontend(router)
+	api.StartAnkiSyncScheduler()
 
 	log.Printf("Listening on http://%s", cfg.Addr())
 	if err := router.Run(cfg.Addr()); err != nil {
@@ -92,6 +94,10 @@ func registerFrontend(router *gin.Engine) {
 	})
 	// 对未知 GET 路径返回前端入口，给未来前端路由预留空间。
 	router.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "not found"})
+			return
+		}
 		if c.Request.Method == http.MethodGet {
 			c.File(filepath.Join(frontendPath, "index.html"))
 			return
