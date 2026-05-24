@@ -27,13 +27,13 @@
 ## 环境要求
 
 - Python 3.11+
-- 可访问网络，用于查询音标和调用 AI
+- 可访问网络，用于调用 AI
 - OpenAI 兼容的 chat completions 接口
 
 安装 Python 依赖：
 
 ```powershell
-pip install requests
+pip install requests eng-to-ipa
 ```
 
 ## 环境变量
@@ -50,7 +50,7 @@ $env:OPENAI_API_BASE='http://localhost:8317/v1'
 ```powershell
 $env:OPENAI_MODEL='gpt-5.5'
 $env:AI_REQUEST_DELAY='0.05'
-$env:DICTIONARY_WORKERS='8'
+$env:PHONETIC_WORKERS='8'
 $env:ANKI_PROGRESS_EVERY='10'
 ```
 
@@ -58,7 +58,7 @@ $env:ANKI_PROGRESS_EVERY='10'
 
 - `OPENAI_MODEL`：使用的模型名称。
 - `AI_REQUEST_DELAY`：每次 AI 请求后的等待时间。
-- `DICTIONARY_WORKERS`：音标查询并发数。
+- `PHONETIC_WORKERS`：音标生成并发数。
 - `ANKI_PROGRESS_EVERY`：每隔多少条显示一次进度。
 
 ## 生成预览牌组
@@ -110,6 +110,7 @@ python apkg-generator\scripts\generate_anki_import.py --cached-ai-only
 脚本可以中断后重新运行。
 
 - 音标缓存：`anki_export/cache/phonetics.json`
+- 音标只使用 `eng-to-ipa` 在本地生成，不再调用音标查询 API。
 - AI 翻译和词根缓存：`anki_export/cache/ai_enrichment.json`
 - 每条 API 结果完成后都会立即写入缓存。
 
@@ -150,6 +151,12 @@ python apkg-generator\scripts\generate_anki_import.py --cached-ai-only
 
 ```powershell
 python apkg-generator\scripts\generate_anki_import.py --phonetics-only
+```
+
+重新生成全部已缓存音标：
+
+```powershell
+python apkg-generator\scripts\generate_anki_import.py --phonetics-only --refresh-phonetics
 ```
 
 缺失 AI 字段时跳过 AI，直接生成：
