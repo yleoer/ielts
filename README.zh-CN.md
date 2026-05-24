@@ -1,56 +1,77 @@
 # My IELTS Tools
 
-这个仓库现在拆成两个独立模块：
+这是一个围绕 Anki 搭建的个人 IELTS 词汇工具仓库。
 
-```text
-my-ielts/
-├── apkg-generator/      # 生成 Anki .apkg 牌组
-├── typing-practice/     # 打字练习 Web 应用
-├── docs/                # 项目文档
-├── README.md
-└── README.zh-CN.md
-```
+仓库包含两个相互独立的小项目：
 
-## APKG 生成器
+- `apkg-generator`：从本地词表、音频和可选 AI 补充内容生成 Anki 牌组包。
+- `typing-practice`：读取 Anki `collection.anki2`，提供浏览器打字练习和学习统计。
 
-用于从 IELTS 词表、本地单词音频和可选 AI 补充内容生成 Anki 牌组包。
+English README: [README.md](README.md)
 
-```powershell
-python apkg-generator\scripts\generate_anki_import.py --limit 20
-python apkg-generator\scripts\generate_anki_import.py
-```
+## 项目动机
 
-文档：
+Anki 是我的词汇数据源。这个仓库把周边流程放在一起：生成牌组、同步到服务器、在浏览器里练拼写、查看学习统计。
+
+整体设计偏向自用和可维护：本地开发简单，服务器部署使用 Docker Compose，练习服务可以直接拉取预构建镜像。
+
+## 子项目
+
+### APKG 生成器
+
+用于在词表或卡片内容变化后，重新生成可导入 Anki 的牌组包。
+
+关键路径：
+
+- `apkg-generator/scripts/generate_anki_import.py`
+- `apkg-generator/data/`
+- `apkg-generator/anki_export/`
+
+相关文档：
 
 - [APKG 生成器说明](docs/apkg-generator/README.zh-CN.md)
-- [APKG 生成器英文说明](docs/apkg-generator/README.md)
-- [Anki 卡片模板说明](docs/apkg-generator/anki-card-template.md)
+- [Anki 卡片设计说明](docs/apkg-generator/anki-card-template.md)
 
-## 打字练习
+### 打字练习
 
-用于读取本地 Anki `collection.anki2` 中的单词，提供拼写练习和学习统计。
+用于拼写练习和学习统计。
 
-```powershell
-cd typing-practice\backend
-go run .
-```
+应用从 Anki 读取已学习单词，通过加权策略选词，在浏览器本地完成拼写检查，并把普通练习会话写入 SQLite。
 
-访问：
+主要能力：
 
-```text
-http://localhost:8080/
-http://localhost:8080/stats.html
-```
+- 中文释义提示，英文拼写输入。
+- 前端本地判分，练习过程中不逐词请求后端。
+- 正确答案快速动画后自动进入下一题。
+- 自动保存草稿，刷新后可恢复当前练习。
+- 结束后可对本轮错词重练，错词重练不写入历史统计。
+- 当后端没有返回可练习单词时，页面展示空状态，不会停留在加载中。
 
-文档：
+关键路径：
 
-- [打字练习规格](docs/typing-practice/SPEC.md)
+- `typing-practice/backend/`
+- `typing-practice/frontend/`
+- `typing-practice/docker-compose.yml`
+- `typing-practice/data/`
+
+相关文档：
+
+- [打字练习概览](docs/typing-practice/SPEC.md)
 - [前端说明](docs/typing-practice/FRONTEND.md)
-- [Docker 部署说明](docs/typing-practice/DOCKER-DEPLOY.md)
+- [选词算法](docs/typing-practice/WORD-SELECTION.md)
+- [Docker 部署](docs/typing-practice/DOCKER-DEPLOY.md)
 - [统计功能总结](docs/typing-practice/statistics/SUMMARY.md)
 
-## 资源边界
+## 文档
 
-- `apkg-generator/data/`：APKG 生成器使用的源词表和单词音频
-- `apkg-generator/anki_export/`：APKG/TSV 输出和可复用缓存
-- `typing-practice/backend/data/`：打字练习服务运行时数据
+文档会尽量保持知识库风格：说明项目约定、边界和排障入口，不堆砌完整脚本或重复教程。
+
+- [文档索引](docs/README.zh-CN.md)
+- [英文文档索引](docs/README.md)
+
+## 仓库边界
+
+- Anki 导出产物放在 `apkg-generator/anki_export/`。
+- 打字练习运行数据放在 `typing-practice/data/`。
+- 部署配置放在 `typing-practice/`。
+- 长期设计说明放在 `docs/`。

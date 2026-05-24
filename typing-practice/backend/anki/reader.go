@@ -15,7 +15,6 @@ import (
 	"typing-practice/models"
 
 	_ "github.com/mattn/go-sqlite3"
-	_ "modernc.org/sqlite"
 )
 
 const fieldSeparator = "\x1f"
@@ -29,6 +28,7 @@ type Reader struct {
 	dbPath   string
 	deckName string
 	deckID   int64
+	deckIDs  []int64
 }
 
 func NewReader(cfg config.AnkiConfig) (*Reader, error) {
@@ -53,9 +53,11 @@ func NewReader(cfg config.AnkiConfig) (*Reader, error) {
 		deckID:   cfg.DeckID,
 	}
 
-	// deck_id 在不同导入环境可能会变化，所以优先用 deck_name 解析真实 ID。
-	if deckID, err := reader.resolveDeckID(); err == nil && deckID != 0 {
-		reader.deckID = deckID
+	if deckIDs, err := reader.resolveDeckIDs(); err == nil && len(deckIDs) > 0 {
+		reader.deckIDs = deckIDs
+		reader.deckID = deckIDs[0]
+	} else if reader.deckID != 0 {
+		reader.deckIDs = []int64{reader.deckID}
 	}
 
 	return reader, nil
@@ -63,10 +65,9 @@ func NewReader(cfg config.AnkiConfig) (*Reader, error) {
 
 func openSQLite(dbPath string) (*sql.DB, error) {
 	var lastErr error
-	// 优先使用 mattn/go-sqlite3；如果当前环境没有 CGO/gcc，则回退到纯 Go 驱动。
-	// 这样本地 Windows 和 Docker/Linux 都能尽量开箱即用。
+	// The app now runs on local Linux/Docker, so use the CGO sqlite3 driver only.
 	for _, dsn := range ankiDSNs(dbPath) {
-		for _, driver := range []string{"sqlite3", "sqlite"} {
+		for _, driver := range []string{"sqlite3"} {
 			db, err := sql.Open(driver, dsn)
 			if err != nil {
 				lastErr = err
@@ -88,12 +89,11 @@ func openSQLite(dbPath string) (*sql.DB, error) {
 
 func ankiDSNs(dbPath string) []string {
 	escapedPath := filepath.ToSlash(dbPath)
-	// immutable=1 告诉 SQLite 这个文件由外部管理且本连接绝不写入，
-	// 因此读取时不会再向 Anki 的 collection.anki2 申请锁。
-	// 如果某个运行环境不支持 immutable，再回退到普通 mode=ro 只读连接。
+	// 优先用普通只读连接，让 SQLite 能读取 collection.anki2-wal 中尚未 checkpoint 的数据。
+	// 如果没有 WAL 或某些环境只支持不可变只读，再回退到 immutable=1。
 	return []string{
-		fmt.Sprintf("file:%s?mode=ro&immutable=1&cache=shared&_busy_timeout=5000&_pragma=busy_timeout(5000)", escapedPath),
 		fmt.Sprintf("file:%s?mode=ro&cache=shared&_busy_timeout=5000&_pragma=busy_timeout(5000)", escapedPath),
+		fmt.Sprintf("file:%s?mode=ro&immutable=1&cache=shared&_busy_timeout=5000&_pragma=busy_timeout(5000)", escapedPath),
 	}
 }
 
@@ -147,17 +147,19 @@ func (r *Reader) GetLearnedWords(limit int, category string) ([]models.Word, err
 		}
 	}
 
-	rows, err := r.db.Query(`
+	deckIDs := r.learnedDeckIDs()
+	args := append(int64Args(deckIDs), queryLimit)
+	rows, err := r.db.Query(fmt.Sprintf(`
 SELECT n.id, n.flds
 FROM notes n
 WHERE n.id IN (
     SELECT DISTINCT c.nid
     FROM cards c
-    WHERE c.did = ?
+    WHERE c.did IN (%s)
       AND (c.type >= 1 OR c.queue >= 2)
 )
 ORDER BY RANDOM()
-LIMIT ?`, r.deckID, queryLimit)
+LIMIT ?`, placeholders(len(deckIDs))), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +190,54 @@ LIMIT ?`, r.deckID, queryLimit)
 	return words, rows.Err()
 }
 
+func (r *Reader) GetLearnedWordPool(category string) ([]models.Word, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("anki reader is not available")
+	}
+
+	category = strings.TrimSpace(category)
+	if category == "" {
+		category = "all"
+	}
+
+	deckIDs := r.learnedDeckIDs()
+	rows, err := r.db.Query(fmt.Sprintf(`
+SELECT n.id, n.flds
+FROM notes n
+WHERE n.id IN (
+    SELECT DISTINCT c.nid
+    FROM cards c
+    WHERE c.did IN (%s)
+      AND (c.type >= 1 OR c.queue >= 2)
+)
+ORDER BY n.id`, placeholders(len(deckIDs))), int64Args(deckIDs)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var words []models.Word
+	for rows.Next() {
+		var id int64
+		var fields string
+		if err := rows.Scan(&id, &fields); err != nil {
+			return nil, err
+		}
+
+		word, ok := ParseWord(id, fields)
+		if !ok {
+			continue
+		}
+		if !strings.EqualFold(category, "all") && !strings.EqualFold(word.Category, category) {
+			continue
+		}
+
+		words = append(words, word)
+	}
+
+	return words, rows.Err()
+}
+
 func (r *Reader) GetWordByID(id int64) (models.Word, error) {
 	if r == nil || r.db == nil {
 		return models.Word{}, errors.New("anki reader is not available")
@@ -212,11 +262,12 @@ func (r *Reader) CountLearned() (int, error) {
 	}
 
 	var total int
-	err := r.db.QueryRow(`
+	deckIDs := r.learnedDeckIDs()
+	err := r.db.QueryRow(fmt.Sprintf(`
 SELECT COUNT(DISTINCT c.nid)
 FROM cards c
-WHERE c.did = ?
-  AND (c.type >= 1 OR c.queue >= 2)`, r.deckID).Scan(&total)
+WHERE c.did IN (%s)
+  AND (c.type >= 1 OR c.queue >= 2)`, placeholders(len(deckIDs))), int64Args(deckIDs)...).Scan(&total)
 	return total, err
 }
 
@@ -264,81 +315,115 @@ func cleanField(value string) string {
 }
 
 func (r *Reader) resolveDeckID() (int64, error) {
-	// 新版 Anki 有独立 decks 表；旧版/导入包可能仍把 decks JSON 放在 col 表里。
-	// 两种都尝试，最后才回退到配置里的固定 deck_id。
+	deckIDs, err := r.resolveDeckIDs()
+	if err != nil || len(deckIDs) == 0 {
+		return 0, err
+	}
+	return deckIDs[0], nil
+}
+
+func (r *Reader) resolveDeckIDs() ([]int64, error) {
 	if r.deckName != "" {
-		if id, err := r.resolveDeckIDFromDecksTable(); err == nil && id != 0 {
-			return id, nil
+		if ids, err := r.resolveDeckIDsFromDecksTable(); err == nil && len(ids) > 0 {
+			return ids, nil
 		}
-		if id, err := r.resolveDeckIDFromLegacyCol(); err == nil && id != 0 {
-			return id, nil
+		if ids, err := r.resolveDeckIDsFromLegacyCol(); err == nil && len(ids) > 0 {
+			return ids, nil
 		}
 	}
 
 	if r.deckID != 0 {
-		return r.deckID, nil
+		return []int64{r.deckID}, nil
 	}
-	return 0, errors.New("deck not found")
+	return nil, errors.New("deck not found")
 }
 
 func (r *Reader) resolveDeckIDFromDecksTable() (int64, error) {
-	if ok, err := r.tableExists("decks"); err != nil || !ok {
+	ids, err := r.resolveDeckIDsFromDecksTable()
+	if err != nil || len(ids) == 0 {
 		return 0, err
+	}
+	return ids[0], nil
+}
+
+func (r *Reader) resolveDeckIDsFromDecksTable() ([]int64, error) {
+	if ok, err := r.tableExists("decks"); err != nil || !ok {
+		return nil, err
 	}
 
 	// 不在 SQL 里用 WHERE name = ?，因为 Anki 新库的 name 使用 unicase collation，
 	// 纯 Go SQLite 驱动未必认识这个 collation；读出来在 Go 里比较最稳。
 	rows, err := r.db.Query(`SELECT id, name FROM decks`)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
+	var exact []int64
+	var children []int64
 	for rows.Next() {
 		var id int64
 		var name string
 		if err := rows.Scan(&id, &name); err != nil {
-			return 0, err
+			return nil, err
 		}
 		if name == r.deckName {
-			return id, nil
+			exact = append(exact, id)
+			continue
+		}
+		if isChildDeck(name, r.deckName) {
+			children = append(children, id)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return 0, nil
+	return append(exact, children...), nil
 }
 
 func (r *Reader) resolveDeckIDFromLegacyCol() (int64, error) {
-	var raw sql.NullString
-	if err := r.db.QueryRow(`SELECT decks FROM col LIMIT 1`).Scan(&raw); err != nil {
+	ids, err := r.resolveDeckIDsFromLegacyCol()
+	if err != nil || len(ids) == 0 {
 		return 0, err
 	}
+	return ids[0], nil
+}
+
+func (r *Reader) resolveDeckIDsFromLegacyCol() ([]int64, error) {
+	var raw sql.NullString
+	if err := r.db.QueryRow(`SELECT decks FROM col LIMIT 1`).Scan(&raw); err != nil {
+		return nil, err
+	}
 	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
-		return 0, nil
+		return nil, nil
 	}
 
 	var decks map[string]struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal([]byte(raw.String), &decks); err != nil {
-		return 0, err
+		return nil, err
 	}
 
+	var exact []int64
+	var children []int64
 	for idText, deck := range decks {
-		if deck.Name != r.deckName {
+		if deck.Name != r.deckName && !isChildDeck(deck.Name, r.deckName) {
 			continue
 		}
 		var id int64
 		if _, err := fmt.Sscanf(idText, "%d", &id); err != nil {
-			return 0, err
+			return nil, err
 		}
-		return id, nil
+		if deck.Name == r.deckName {
+			exact = append(exact, id)
+		} else {
+			children = append(children, id)
+		}
 	}
 
-	return 0, nil
+	return append(exact, children...), nil
 }
 
 func (r *Reader) tableExists(tableName string) (bool, error) {
@@ -349,4 +434,34 @@ FROM sqlite_master
 WHERE type = 'table'
   AND name = ?`, tableName).Scan(&count)
 	return count > 0, err
+}
+
+func (r *Reader) learnedDeckIDs() []int64 {
+	if len(r.deckIDs) > 0 {
+		return r.deckIDs
+	}
+	if r.deckID != 0 {
+		return []int64{r.deckID}
+	}
+	return []int64{0}
+}
+
+func isChildDeck(name, parent string) bool {
+	parent = strings.TrimSpace(parent)
+	return parent != "" && strings.HasPrefix(name, parent+"::")
+}
+
+func placeholders(count int) string {
+	if count <= 1 {
+		return "?"
+	}
+	return strings.TrimRight(strings.Repeat("?,", count), ",")
+}
+
+func int64Args(values []int64) []any {
+	args := make([]any, len(values))
+	for index, value := range values {
+		args[index] = value
+	}
+	return args
 }

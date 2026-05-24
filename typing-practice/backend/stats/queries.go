@@ -8,19 +8,19 @@ import (
 func (s *Store) Heatmap(startDate, endDate string) ([]HeatmapPoint, error) {
 	// 热力图按天聚合 session 数量和平均正确率。
 	if startDate == "" {
-		startDate = time.Now().UTC().AddDate(0, 0, -365).Format("2006-01-02")
+		startDate = time.Now().In(time.Local).AddDate(0, 0, -365).Format("2006-01-02")
 	}
 	if endDate == "" {
-		endDate = time.Now().UTC().Format("2006-01-02")
+		endDate = time.Now().In(time.Local).Format("2006-01-02")
 	}
 
 	rows, err := s.db.Query(`
-SELECT date(start_time) AS practice_date,
+SELECT date(start_time, 'localtime') AS practice_date,
        COUNT(*) AS session_count,
        COALESCE(AVG(accuracy), 0) AS accuracy
 FROM practice_sessions
-WHERE date(start_time) BETWEEN ? AND ?
-GROUP BY date(start_time)
+WHERE date(start_time, 'localtime') BETWEEN ? AND ?
+GROUP BY date(start_time, 'localtime')
 ORDER BY practice_date`, startDate, endDate)
 	if err != nil {
 		return nil, err
@@ -41,12 +41,12 @@ ORDER BY practice_date`, startDate, endDate)
 func (s *Store) AccuracyTrend(days int) ([]AccuracyTrendPoint, error) {
 	// 正确率趋势用“总正确数 / 总单词数”计算，避免简单平均 session accuracy 造成偏差。
 	rows, err := s.db.Query(`
-SELECT date(start_time) AS practice_date,
+SELECT date(start_time, 'localtime') AS practice_date,
        COALESCE(SUM(correct_words) * 100.0 / NULLIF(SUM(total_words), 0), 0) AS accuracy,
        COALESCE(SUM(total_words), 0) AS total_words
 FROM practice_sessions
-WHERE date(start_time) >= date(?)
-GROUP BY date(start_time)
+WHERE date(start_time, 'localtime') >= date(?)
+GROUP BY date(start_time, 'localtime')
 ORDER BY practice_date`, sinceDate(days))
 	if err != nil {
 		return nil, err
@@ -104,16 +104,27 @@ func (s *Store) MasteryWords(level string, limit int) ([]MasteryWordDetail, erro
 	}
 
 	rows, err := s.db.Query(`
-SELECT word,
-       total_attempts,
-       correct_attempts,
-       incorrect_attempts,
-       COALESCE(correct_attempts * 100.0 / NULLIF(total_attempts, 0), 0) AS accuracy,
-       COALESCE(average_time, 0) AS average_time
-FROM word_mastery
-WHERE mastery_level = ?
+WITH latest_meaning AS (
+    SELECT word,
+           chinese_meaning,
+           ROW_NUMBER() OVER (PARTITION BY word ORDER BY attempt_time DESC, id DESC) AS row_number
+    FROM word_attempts
+    WHERE COALESCE(chinese_meaning, '') <> ''
+)
+SELECT wm.word,
+       COALESCE(lm.chinese_meaning, '') AS chinese_meaning,
+       wm.total_attempts,
+       wm.correct_attempts,
+       wm.incorrect_attempts,
+       COALESCE(wm.correct_attempts * 100.0 / NULLIF(wm.total_attempts, 0), 0) AS accuracy,
+       COALESCE(wm.average_time, 0) AS average_time
+FROM word_mastery wm
+LEFT JOIN latest_meaning lm
+  ON lm.word = wm.word
+ AND lm.row_number = 1
+WHERE wm.mastery_level = ?
 -- 优先展示最需要复习的词：错误多、练习多的排在前面。
-ORDER BY incorrect_attempts DESC, total_attempts DESC, word ASC
+ORDER BY wm.incorrect_attempts DESC, wm.total_attempts DESC, wm.word ASC
 LIMIT ?`, level, limit)
 	if err != nil {
 		return nil, err
@@ -125,6 +136,7 @@ LIMIT ?`, level, limit)
 		var item MasteryWordDetail
 		if err := rows.Scan(
 			&item.Word,
+			&item.ChineseMeaning,
 			&item.TotalAttempts,
 			&item.CorrectAttempts,
 			&item.IncorrectAttempts,
@@ -138,37 +150,53 @@ LIMIT ?`, level, limit)
 	return data, rows.Err()
 }
 
-func (s *Store) TopErrors(limit int) ([]TopErrorWord, error) {
-	// 错误排行榜按错误次数优先，再按总尝试次数排序，方便定位高频薄弱单词。
-	if limit <= 0 {
-		limit = 10
-	}
-	if limit > 100 {
-		limit = 100
-	}
-
+func (s *Store) SelectionStatsByWord() (map[string]SelectionStats, error) {
+	// 练习选词算法需要一个轻量索引：每个词的掌握度、错误次数、平均耗时和最近一次结果。
 	rows, err := s.db.Query(`
-SELECT word,
-       SUM(CASE WHEN is_correct = 0 THEN 1 ELSE 0 END) AS error_count,
-       COUNT(*) AS total_attempts,
-       COALESCE(MAX(chinese_meaning), '') AS chinese_meaning
-FROM word_attempts
-GROUP BY word
-HAVING error_count > 0
-ORDER BY error_count DESC, total_attempts DESC, word ASC
-LIMIT ?`, limit)
+WITH latest_attempt AS (
+    SELECT word,
+           is_correct,
+           attempt_time,
+           ROW_NUMBER() OVER (PARTITION BY word ORDER BY attempt_time DESC, id DESC) AS row_number
+    FROM word_attempts
+)
+SELECT wm.word,
+       wm.total_attempts,
+       wm.correct_attempts,
+       wm.incorrect_attempts,
+       wm.mastery_level,
+       COALESCE(wm.average_time, 0),
+       COALESCE(wm.last_attempt_time, ''),
+       COALESCE(la.is_correct, 1)
+FROM word_mastery wm
+LEFT JOIN latest_attempt la
+  ON la.word = wm.word
+ AND la.row_number = 1`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var data []TopErrorWord
+	data := make(map[string]SelectionStats)
 	for rows.Next() {
-		var item TopErrorWord
-		if err := rows.Scan(&item.Word, &item.ErrorCount, &item.TotalAttempts, &item.ChineseMeaning); err != nil {
+		var item SelectionStats
+		var lastAttempt string
+		var lastCorrect int
+		if err := rows.Scan(
+			&item.Word,
+			&item.TotalAttempts,
+			&item.CorrectAttempts,
+			&item.IncorrectAttempts,
+			&item.MasteryLevel,
+			&item.AverageTime,
+			&lastAttempt,
+			&lastCorrect,
+		); err != nil {
 			return nil, err
 		}
-		data = append(data, item)
+		item.LastAttemptTime = parseDBTime(lastAttempt)
+		item.LastAttemptCorrect = lastCorrect != 0
+		data[item.Word] = item
 	}
 	return data, rows.Err()
 }
@@ -177,13 +205,13 @@ func (s *Store) SpeedTrend(days int) ([]SpeedTrendPoint, error) {
 	// 打字速度趋势使用 word_attempts.time_spent 的每日平均值。
 	// 前端图表可以反转 Y 轴，让“时间越短越好”更直观。
 	rows, err := s.db.Query(`
-SELECT date(attempt_time) AS practice_date,
+SELECT date(attempt_time, 'localtime') AS practice_date,
        COALESCE(AVG(time_spent), 0) AS average_time,
        COUNT(*) AS word_count
 FROM word_attempts
 WHERE time_spent IS NOT NULL
-  AND date(attempt_time) >= date(?)
-GROUP BY date(attempt_time)
+  AND date(attempt_time, 'localtime') >= date(?)
+GROUP BY date(attempt_time, 'localtime')
 ORDER BY practice_date`, sinceDate(days))
 	if err != nil {
 		return nil, err
@@ -204,12 +232,12 @@ ORDER BY practice_date`, sinceDate(days))
 func (s *Store) DailyDuration(days int) ([]DailyDurationPoint, error) {
 	// 每日练习时长来自 session.duration_seconds，单位在 API 层转为分钟。
 	rows, err := s.db.Query(`
-SELECT date(start_time) AS practice_date,
+SELECT date(start_time, 'localtime') AS practice_date,
        COALESCE(SUM(duration_seconds), 0) / 60.0 AS duration_minutes,
        COUNT(*) AS session_count
 FROM practice_sessions
-WHERE date(start_time) >= date(?)
-GROUP BY date(start_time)
+WHERE date(start_time, 'localtime') >= date(?)
+GROUP BY date(start_time, 'localtime')
 ORDER BY practice_date`, sinceDate(days))
 	if err != nil {
 		return nil, err
@@ -227,38 +255,13 @@ ORDER BY practice_date`, sinceDate(days))
 	return data, rows.Err()
 }
 
-func (s *Store) CategoryMastery() ([]CategoryMasteryPoint, error) {
-	// 分类掌握度按 category 聚合正确率和去重单词数，用于雷达图。
-	rows, err := s.db.Query(`
-SELECT COALESCE(NULLIF(category, ''), '未分类') AS category_name,
-       COALESCE(SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) AS accuracy,
-       COUNT(DISTINCT word) AS word_count
-FROM word_attempts
-GROUP BY category_name
-ORDER BY word_count DESC, category_name ASC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var data []CategoryMasteryPoint
-	for rows.Next() {
-		var item CategoryMasteryPoint
-		if err := rows.Scan(&item.Category, &item.Accuracy, &item.WordCount); err != nil {
-			return nil, err
-		}
-		data = append(data, item)
-	}
-	return data, rows.Err()
-}
-
 func (s *Store) Streak() (StreakData, error) {
 	// 连续学习不看练习次数，只看某一天是否至少有一次 session。
 	dates, err := s.practiceDates()
 	if err != nil {
 		return StreakData{}, err
 	}
-	current, longest := calculateStreaks(dates, time.Now().UTC())
+	current, longest := calculateStreaks(dates, time.Now().In(time.Local))
 	return StreakData{
 		CurrentStreak: current,
 		LongestStreak: longest,
@@ -483,9 +486,9 @@ INSERT OR IGNORE INTO milestones (
 
 func (s *Store) practiceDates() ([]string, error) {
 	rows, err := s.db.Query(`
-SELECT DISTINCT date(start_time)
+SELECT DISTINCT date(start_time, 'localtime')
 FROM practice_sessions
-ORDER BY date(start_time) ASC`)
+ORDER BY date(start_time, 'localtime') ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +509,7 @@ func sinceDate(days int) string {
 	if days <= 0 {
 		days = 30
 	}
-	return time.Now().UTC().AddDate(0, 0, -days+1).Format("2006-01-02")
+	return time.Now().In(time.Local).AddDate(0, 0, -days+1).Format("2006-01-02")
 }
 
 func calculateStreaks(dateStrings []string, now time.Time) (int, int) {

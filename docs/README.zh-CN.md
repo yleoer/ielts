@@ -4,7 +4,7 @@
 
 ## APKG 生成器
 
-- [生成器概览](apkg-generator/README.md)
+- [生成器概览](apkg-generator/README.zh-CN.md)
 - [Anki 卡片设计说明](apkg-generator/anki-card-template.md)
 
 ## 打字练习

@@ -9,6 +9,122 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="assets/style.css">
+    <style>
+        .github-heatmap {
+            height: 100%;
+            color: #57606a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 12px;
+            --heatmap-gap: 2px;
+            --heatmap-weekday-width: 24px;
+        }
+
+        .github-heatmap-title {
+            color: #4338ca;
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 24px;
+            margin-bottom: 18px;
+            text-align: center;
+        }
+
+        .github-heatmap-scroll {
+            overflow-x: hidden;
+            padding-bottom: 8px;
+        }
+
+        .github-heatmap-months {
+            display: grid;
+            grid-template-columns: var(--heatmap-weekday-width) repeat(53, minmax(0, 1fr));
+            column-gap: var(--heatmap-gap);
+            width: 100%;
+            margin-bottom: 4px;
+        }
+
+        .github-heatmap-months span {
+            white-space: nowrap;
+        }
+
+        .github-heatmap-body {
+            display: grid;
+            grid-template-columns: var(--heatmap-weekday-width) minmax(0, 1fr);
+            column-gap: var(--heatmap-gap);
+            width: 100%;
+        }
+
+        .github-heatmap-weekdays {
+            display: grid;
+            grid-template-rows: repeat(7, 1fr);
+            row-gap: var(--heatmap-gap);
+            width: var(--heatmap-weekday-width);
+            font-size: 10px;
+            line-height: 1;
+            align-items: center;
+        }
+
+        .github-heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(53, minmax(0, 1fr));
+            column-gap: var(--heatmap-gap);
+            min-width: 0;
+        }
+
+        .github-heatmap-week {
+            display: grid;
+            grid-template-rows: repeat(7, auto);
+            row-gap: var(--heatmap-gap);
+            min-width: 0;
+        }
+
+        .github-heatmap-cell {
+            display: block;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            border-radius: 2px;
+            outline: 1px solid rgba(27, 31, 36, 0.06);
+            outline-offset: -1px;
+        }
+
+        .github-heatmap-level-0 {
+            background: #ebedf0;
+        }
+
+        .github-heatmap-level-1 {
+            background: #9be9a8;
+        }
+
+        .github-heatmap-level-2 {
+            background: #40c463;
+        }
+
+        .github-heatmap-level-3 {
+            background: #30a14e;
+        }
+
+        .github-heatmap-level-4 {
+            background: #216e39;
+        }
+
+        .github-heatmap-outside {
+            visibility: hidden;
+        }
+
+        .github-heatmap-footer {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            width: 100%;
+            margin-top: 12px;
+            font-size: 12px;
+        }
+
+        .github-heatmap-footer .github-heatmap-cell {
+            width: 10px;
+            height: 10px;
+            flex: 0 0 10px;
+        }
+    </style>
 </head>
 <body :class="stealthMode ? 'bg-gray-50' : 'bg-gradient-to-br from-blue-50 to-indigo-100'" class="min-h-screen">
     <div id="app">
@@ -117,24 +233,14 @@
                         <div id="mastery-pie" style="width: 100%; height: 300px;"></div>
                     </div>
 
-                    <!-- Chart 4: Top Errors -->
+                    <!-- Chart 4: Error Types -->
                     <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="top-errors" style="width: 100%; height: 300px;"></div>
+                        <div id="error-types" style="width: 100%; height: 300px;"></div>
                     </div>
 
                     <!-- Chart 5: Daily Duration -->
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
+                    <div class="rounded-lg shadow p-6 lg:col-span-2" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
                         <div id="daily-duration" style="width: 100%; height: 300px;"></div>
-                    </div>
-
-                    <!-- Chart 6: Category Radar -->
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="category-radar" style="width: 100%; height: 300px;"></div>
-                    </div>
-
-                    <!-- Chart 7: Error Types -->
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="error-types" style="width: 100%; height: 300px;"></div>
                     </div>
                 </div>
 
@@ -168,6 +274,9 @@
                             <div v-if="detailModal.loading" class="py-10 text-center text-gray-500">
                                 加载中...
                             </div>
+                            <div v-else-if="detailModal.error" class="py-10 text-center text-red-600">
+                                {{ detailModal.error }}
+                            </div>
                             <div v-else-if="detailModal.items.length === 0" class="py-10 text-center text-gray-500">
                                 暂无单词
                             </div>
@@ -179,9 +288,16 @@
                                     :class="stealthMode ? 'border-gray-200 bg-gray-50' : 'border-gray-100 bg-gray-50'"
                                 >
                                     <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                                        <div>
-                                            <p class="text-lg font-semibold text-gray-900">{{ item.word }}</p>
-                                            <p v-if="item.chinese_meaning" class="text-sm text-gray-600">{{ item.chinese_meaning }}</p>
+                                        <div class="min-w-0">
+                                            <p class="text-lg font-semibold leading-snug text-gray-900">
+                                                {{ item.chinese_meaning || item.word }}
+                                            </p>
+                                            <p
+                                                v-if="item.word"
+                                                class="mt-1 text-xs font-medium tracking-wide text-gray-500"
+                                            >
+                                                {{ (item.word || '').toLowerCase() }}
+                                            </p>
                                             <p v-if="item.category" class="text-xs text-gray-500">{{ item.category }}</p>
                                         </div>
                                         <div class="text-sm text-gray-600 md:text-right">
@@ -204,6 +320,6 @@
         </div>
     </div>
 
-    <script src="src/stats.js"></script>
+    <script src="src/stats.js?v=20260524-visible-errors"></script>
 </body>
 </html>

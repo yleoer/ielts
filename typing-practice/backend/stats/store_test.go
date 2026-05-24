@@ -94,8 +94,8 @@ func TestStoreWordDetailQueries(t *testing.T) {
 		Accuracy:        50,
 		DurationSeconds: 300,
 		WordAttempts: []AttemptRequest{
-			{Word: "atmosphere", UserInput: "atmosphere", IsCorrect: true},
-			{Word: "catastrophic", UserInput: "catastrofic", IsCorrect: false},
+			{Word: "atmosphere", ChineseMeaning: "大气层；氛围", UserInput: "atmosphere", IsCorrect: true},
+			{Word: "catastrophic", ChineseMeaning: "灾难性的", UserInput: "catastrofic", IsCorrect: false},
 		},
 	}
 
@@ -110,8 +110,8 @@ func TestStoreWordDetailQueries(t *testing.T) {
 		Accuracy:        50,
 		DurationSeconds: 300,
 		WordAttempts: []AttemptRequest{
-			{Word: "atmosphere", UserInput: "atmosphire", IsCorrect: false},
-			{Word: "evidence", UserInput: "evidence", IsCorrect: true},
+			{Word: "atmosphere", ChineseMeaning: "大气层；氛围", UserInput: "atmosphire", IsCorrect: false},
+			{Word: "evidence", ChineseMeaning: "证据", UserInput: "evidence", IsCorrect: true},
 		},
 	}
 
@@ -129,6 +129,9 @@ func TestStoreWordDetailQueries(t *testing.T) {
 	if len(masteryWords) == 0 {
 		t.Fatal("expected weak mastery words")
 	}
+	if masteryWords[0].ChineseMeaning == "" {
+		t.Fatalf("expected mastery word Chinese meaning, got %#v", masteryWords[0])
+	}
 
 	errorWords, err := store.ErrorTypeWords("spelling", 10)
 	if err != nil {
@@ -139,5 +142,14 @@ func TestStoreWordDetailQueries(t *testing.T) {
 	}
 	if errorWords[0].Word != "atmosphere" || errorWords[0].UserInput != "atmosphire" || errorWords[0].ErrorCount != 1 {
 		t.Fatalf("unexpected latest error detail: %#v", errorWords[0])
+	}
+
+	selectionStats, err := store.SelectionStatsByWord()
+	if err != nil {
+		t.Fatalf("SelectionStatsByWord() error = %v", err)
+	}
+	atmosphere := selectionStats["atmosphere"]
+	if atmosphere.Word != "atmosphere" || atmosphere.TotalAttempts != 2 || atmosphere.LastAttemptCorrect {
+		t.Fatalf("unexpected selection stats: %#v", atmosphere)
 	}
 }

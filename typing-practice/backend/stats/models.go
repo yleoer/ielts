@@ -41,6 +41,17 @@ type WordMastery struct {
 	AverageTime       float64
 }
 
+type SelectionStats struct {
+	Word               string
+	TotalAttempts      int
+	CorrectAttempts    int
+	IncorrectAttempts  int
+	MasteryLevel       string
+	AverageTime        float64
+	LastAttemptTime    time.Time
+	LastAttemptCorrect bool
+}
+
 type HeatmapPoint struct {
 	Date     string  `json:"date"`
 	Count    int     `json:"count"`
@@ -53,15 +64,9 @@ type AccuracyTrendPoint struct {
 	TotalWords int     `json:"total_words"`
 }
 
-type TopErrorWord struct {
-	Word           string `json:"word"`
-	ErrorCount     int    `json:"error_count"`
-	TotalAttempts  int    `json:"total_attempts"`
-	ChineseMeaning string `json:"chinese_meaning"`
-}
-
 type MasteryWordDetail struct {
 	Word              string  `json:"word"`
+	ChineseMeaning    string  `json:"chinese_meaning"`
 	TotalAttempts     int     `json:"total_attempts"`
 	CorrectAttempts   int     `json:"correct_attempts"`
 	IncorrectAttempts int     `json:"incorrect_attempts"`
@@ -88,12 +93,6 @@ type DailyDurationPoint struct {
 	Date            string  `json:"date"`
 	DurationMinutes float64 `json:"duration_minutes"`
 	SessionCount    int     `json:"session_count"`
-}
-
-type CategoryMasteryPoint struct {
-	Category  string  `json:"category"`
-	Accuracy  float64 `json:"accuracy"`
-	WordCount int     `json:"word_count"`
 }
 
 type StreakData struct {
