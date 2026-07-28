@@ -43,7 +43,7 @@ jobs:
             fi
           fi
 
-          if grep -Eq '^(typing-practice/backend/|typing-practice/frontend/|typing-practice/.dockerignore$)' changed-files.txt; then
+          if grep -Eq '^(typing-practice/backend/|typing-practice/frontend/|typing-practice/.dockerignore$|.github/workflows/docker-image.yml$)' changed-files.txt; then
             echo "image_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "image_changed=false" >> "$GITHUB_OUTPUT"
@@ -58,6 +58,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -77,6 +80,7 @@ jobs:
           tags: |
             yleoer/ielts-typing-practice:latest
             yleoer/ielts-typing-practice:${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
