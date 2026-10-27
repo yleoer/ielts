@@ -12,7 +12,7 @@ WORKDIR /app/backend
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/app.py backend/anki.py backend/config.py backend/practice.py backend/stats.py ./
+COPY backend/app.py backend/anki.py backend/config.py backend/practice.py backend/stats.py backend/sync.py ./
 RUN mkdir -p config
 COPY backend/config/config.yaml ./config/config.yaml
 COPY frontend ../frontend

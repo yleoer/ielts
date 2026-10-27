@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 from datetime import date, datetime, timedelta, timezone
@@ -48,14 +47,6 @@ CREATE TABLE IF NOT EXISTS word_mastery (
     average_time REAL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE IF NOT EXISTS milestones (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    milestone_type TEXT NOT NULL,
-    milestone_name TEXT NOT NULL,
-    description TEXT,
-    achieved_at DATETIME NOT NULL,
-    metadata TEXT
-);
 CREATE TABLE IF NOT EXISTS anki_sync_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     synced_at DATETIME NOT NULL,
@@ -85,7 +76,6 @@ CREATE INDEX IF NOT EXISTS idx_attempt_time ON word_attempts(attempt_time);
 CREATE INDEX IF NOT EXISTS idx_word_category ON word_attempts(category);
 CREATE INDEX IF NOT EXISTS idx_mastery_level ON word_mastery(mastery_level);
 CREATE INDEX IF NOT EXISTS idx_mastery_word ON word_mastery(word);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_milestone_type_unique ON milestones(milestone_type);
 CREATE INDEX IF NOT EXISTS idx_anki_sync_history_synced_at ON anki_sync_history(synced_at);
 CREATE INDEX IF NOT EXISTS idx_anki_sync_added_words_sync_id ON anki_sync_added_words(sync_id);
 """
@@ -235,7 +225,6 @@ class StatsStore:
                     ),
                 )
             self._rebuild_mastery()
-        self._check_milestones(payload, accuracy)
 
     def _rebuild_mastery(self) -> None:
         self.db.execute("DELETE FROM word_mastery")
@@ -254,28 +243,6 @@ class StatsStore:
                    VALUES(?,?,?,?,?,?,?)""",
                 (row["word"], row["total_attempts"], row["correct_attempts"], row["incorrect_attempts"], calculate_mastery_level(row["total_attempts"], row["correct_attempts"], row["incorrect_attempts"]), row["last_attempt_time"], row["average_time"]),
             )
-
-    def _check_milestones(self, payload: dict[str, Any], accuracy: float) -> None:
-        with self.lock, self.db:
-            session_count = self.db.execute("SELECT COUNT(*) FROM practice_sessions").fetchone()[0]
-            if session_count == 1:
-                self._create_milestone("first_practice", "首次练习", "开始你的学习之旅", "")
-            distinct_words = self.db.execute("SELECT COUNT(DISTINCT word) FROM word_attempts").fetchone()[0]
-            if distinct_words >= 100:
-                self._create_milestone("word_count_100", "百词斩", "累计练习 100 个单词", json.dumps({"word_count": distinct_words}, ensure_ascii=False))
-            if accuracy >= 90:
-                self._create_milestone("accuracy_90", "正确率达人", "首次正确率达到 90%", json.dumps({"accuracy": round(accuracy, 2)}))
-            if self.streak()["current_streak"] >= 7:
-                self._create_milestone("streak_7", "坚持不懈", "连续学习 7 天", json.dumps({"streak": self.streak()["current_streak"]}))
-            total_attempts = self.db.execute("SELECT COUNT(*) FROM word_attempts").fetchone()[0]
-            if total_attempts >= 1000:
-                self._create_milestone("total_1000", "千次练习", "累计完成 1000 次单词练习", json.dumps({"attempts": total_attempts}))
-
-    def _create_milestone(self, milestone_type: str, name: str, description: str, metadata: str) -> None:
-        self.db.execute(
-            "INSERT OR IGNORE INTO milestones(milestone_type,milestone_name,description,achieved_at,metadata) VALUES(?,?,?,?,?)",
-            (milestone_type, name, description, _time_text(datetime.now(timezone.utc)), metadata),
-        )
 
     def selection_stats(self) -> dict[str, dict[str, Any]]:
         with self.lock:
@@ -306,7 +273,9 @@ class StatsStore:
         end_date = end_date or today.isoformat()
         with self.lock:
             rows = self.db.execute(
-                """SELECT date(start_time,'localtime') date,COUNT(*) count,COALESCE(AVG(accuracy),0) accuracy
+                """SELECT date(start_time,'localtime') date,
+                          COALESCE(SUM(total_words),0) words,
+                          COALESCE(SUM(correct_words)*100.0/NULLIF(SUM(total_words),0),0) accuracy
                    FROM practice_sessions WHERE date(start_time,'localtime') BETWEEN ? AND ?
                    GROUP BY date(start_time,'localtime') ORDER BY date""", (start_date, end_date)
             ).fetchall()
@@ -344,25 +313,6 @@ class StatsStore:
                 FROM word_mastery wm LEFT JOIN latest_meaning lm ON lm.word=wm.word AND lm.row_number=1
                 WHERE wm.mastery_level=? ORDER BY wm.incorrect_attempts DESC,wm.total_attempts DESC,wm.word ASC LIMIT ?
                 """, (level, limit)
-            ).fetchall()
-        return [_row_dict(row) for row in rows]
-
-    def speed_trend(self, days: int = 30) -> list[dict[str, Any]]:
-        since = (date.today() - timedelta(days=max(days, 1))).isoformat()
-        with self.lock:
-            rows = self.db.execute(
-                """SELECT date(attempt_time,'localtime') date,COALESCE(AVG(time_spent),0) average_time,COUNT(*) word_count
-                   FROM word_attempts WHERE time_spent IS NOT NULL AND date(attempt_time,'localtime') >= date(?)
-                   GROUP BY date ORDER BY date""", (since,)
-            ).fetchall()
-        return [_row_dict(row) for row in rows]
-
-    def daily_duration(self, days: int = 30) -> list[dict[str, Any]]:
-        since = (date.today() - timedelta(days=max(days, 1))).isoformat()
-        with self.lock:
-            rows = self.db.execute(
-                """SELECT date(start_time,'localtime') date,COALESCE(SUM(duration_seconds),0)/60.0 duration_minutes,COUNT(*) session_count
-                   FROM practice_sessions WHERE date(start_time,'localtime') >= date(?) GROUP BY date ORDER BY date""", (since,)
             ).fetchall()
         return [_row_dict(row) for row in rows]
 
@@ -410,11 +360,6 @@ class StatsStore:
                 FROM ranked WHERE row_number=1 ORDER BY error_count DESC,last_attempt_at DESC,word ASC LIMIT ?
                 """, (error_type, limit)
             ).fetchall()
-        return [_row_dict(row) for row in rows]
-
-    def milestones(self) -> list[dict[str, Any]]:
-        with self.lock:
-            rows = self.db.execute("SELECT milestone_type,milestone_name,COALESCE(description,'') description,achieved_at,COALESCE(metadata,'') metadata FROM milestones ORDER BY achieved_at ASC").fetchall()
         return [_row_dict(row) for row in rows]
 
     def overview(self) -> dict[str, Any]:

@@ -88,6 +88,8 @@ class FlaskAppTest(unittest.TestCase):
         overview = client.get("/api/stats/overview").json["data"]
         self.assertEqual(overview["total_sessions"], 1)
         self.assertEqual(overview["total_words_practiced"], 2)
+        heatmap = client.get("/api/stats/heatmap?start_date=2026-10-27&end_date=2026-10-27").json["data"]
+        self.assertEqual(heatmap, [{"date": "2026-10-27", "words": 2, "accuracy": 50.0}])
         self.assertEqual(client.get("/api/stats/error-types").json["data"]["missing_letter"], 1)
         for endpoint in (
             "/api/stats/heatmap",
@@ -95,15 +97,38 @@ class FlaskAppTest(unittest.TestCase):
             "/api/stats/mastery-distribution",
             "/api/stats/mastery-words?level=learning",
             "/api/stats/mastery-words?level=new",
-            "/api/stats/speed-trend",
-            "/api/stats/daily-duration",
-            "/api/stats/streak",
             "/api/stats/error-type-words?type=missing_letter",
-            "/api/stats/milestones",
         ):
             result = client.get(endpoint)
             self.assertEqual(result.status_code, 200, endpoint)
             self.assertTrue(result.json["success"], endpoint)
+
+        for endpoint in (
+            "/api/stats/speed-trend",
+            "/api/stats/daily-duration",
+            "/api/stats/streak",
+            "/api/stats/milestones",
+        ):
+            self.assertEqual(client.get(endpoint).status_code, 404, endpoint)
+
+    def test_stats_failure_is_reported_instead_of_using_random_words(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        anki_path = root / "collection.anki2"
+        make_anki_db(anki_path)
+        app = create_app(make_config(root, str(anki_path)))
+        app.testing = True
+        self.addCleanup(app.extensions["typing_practice_state"].close)
+        state = app.extensions["typing_practice_state"]
+
+        def fail_selection():
+            raise OSError("stats database is unavailable")
+
+        state.stats.selection_stats = fail_selection
+        response = app.test_client().get("/api/words?limit=5")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json["error"], "Practice statistics are unavailable")
 
     def test_error_type_rules(self):
         self.assertEqual(analyze_error_type("abandon", ""), "skipped")
