@@ -1,63 +1,57 @@
-/* Custom Styles */
+/* 练习页公共样式：只保留与练习反馈直接相关的动效，避免全局 hover/scale 干扰注意力。 */
 
 /* Keyboard Key Style */
 .kbd {
     display: inline-block;
-    padding: 2px 8px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.875rem;
+    padding: 1px 6px;
+    font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: #374151;
-    background-color: #f3f4f6;
+    color: #4b5563;
+    background-color: #f9fafb;
     border: 1px solid #d1d5db;
+    border-bottom-width: 2px;
     border-radius: 4px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    user-select: none;
 }
 
-/* Input Focus Animation */
-input:focus {
-    transform: scale(1.02);
-    transition: transform 0.2s ease;
-}
-
-/* Success Animation */
-@keyframes successPulse {
-    0%, 100% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.05);
-    }
-}
-
-.border-green-500 {
-    animation: successPulse 0.5s ease;
-}
-
+/* 答对：卡片和输入框轻微上浮一次后自动进入下一题 */
 @keyframes correctAdvance {
     0% {
-        transform: translateY(0) scale(1);
+        transform: translateY(0);
         box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
     }
     55% {
-        transform: translateY(-2px) scale(1.01);
+        transform: translateY(-2px);
         box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.12);
     }
     100% {
-        transform: translateY(0) scale(1);
+        transform: translateY(0);
         box-shadow: 0 0 0 12px rgba(34, 197, 94, 0);
     }
 }
 
-@keyframes inputCorrectAdvance {
+@keyframes correctAdvanceMuted {
     0% {
-        transform: scale(1.02);
+        transform: translateY(0);
+        box-shadow: 0 0 0 0 rgba(107, 114, 128, 0);
     }
-    60% {
-        transform: scale(1.035);
+    55% {
+        transform: translateY(-2px);
+        box-shadow: 0 0 0 6px rgba(107, 114, 128, 0.12);
     }
     100% {
-        transform: scale(1.02);
+        transform: translateY(0);
+        box-shadow: 0 0 0 12px rgba(107, 114, 128, 0);
+    }
+}
+
+@keyframes inputCorrectAdvance {
+    0%, 100% {
+        transform: scale(1);
+    }
+    60% {
+        transform: scale(1.015);
     }
 }
 
@@ -69,106 +63,30 @@ input:focus {
     animation-name: correctAdvanceMuted;
 }
 
-@keyframes correctAdvanceMuted {
-    0% {
-        transform: translateY(0) scale(1);
-        box-shadow: 0 0 0 0 rgba(107, 114, 128, 0);
-    }
-    55% {
-        transform: translateY(-2px) scale(1.01);
-        box-shadow: 0 0 0 6px rgba(107, 114, 128, 0.12);
-    }
-    100% {
-        transform: translateY(0) scale(1);
-        box-shadow: 0 0 0 12px rgba(107, 114, 128, 0);
-    }
-}
-
 .practice-input-success {
     animation: inputCorrectAdvance 180ms ease-out;
     caret-color: transparent;
 }
 
-/* Error Shake Animation */
-@keyframes errorShake {
-    0%, 100% {
-        transform: translateX(0);
+/* 答错：输入框抖动一次，class 加上时只播放一遍 */
+@keyframes practiceShake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+}
+
+.practice-shake {
+    animation: practiceShake 320ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .practice-card-success,
+    .practice-input-success,
+    .practice-shake {
+        animation: none;
     }
-    25% {
-        transform: translateX(-10px);
-    }
-    75% {
-        transform: translateX(10px);
-    }
-}
-
-.border-red-500 {
-    animation: errorShake 0.5s ease;
-}
-
-/* Loading Spinner */
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.animate-spin {
-    animation: spin 1s linear infinite;
-}
-
-/* Progress Bar Animation */
-.bg-indigo-600 {
-    transition: width 0.3s ease-in-out;
-}
-
-/* Card Hover Effect */
-.bg-white {
-    transition: box-shadow 0.3s ease;
-}
-
-.bg-white:hover {
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-}
-
-/* Button Hover Effect */
-button {
-    transition: all 0.2s ease;
-}
-
-button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-}
-
-button:active {
-    transform: translateY(0);
-}
-
-/* Responsive Design */
-@media (max-width: 640px) {
-    .text-4xl {
-        font-size: 2rem;
-    }
-
-    .text-3xl {
-        font-size: 1.5rem;
-    }
-
-    .text-2xl {
-        font-size: 1.25rem;
-    }
-
-    input[type="text"] {
-        font-size: 1.25rem;
-    }
-}
-
-/* Smooth Transitions */
-* {
-    transition-property: background-color, border-color, color, fill, stroke;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 150ms;
 }
 
 /* Custom Scrollbar */
@@ -187,20 +105,4 @@ button:active {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
-}
-
-/* Disable text selection on UI elements */
-.text-center p,
-.text-sm,
-kbd {
-    user-select: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-}
-
-/* Input field should allow selection */
-input {
-    user-select: text;
-    -webkit-user-select: text;
 }

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import threading
 import time
 from datetime import datetime, timezone
@@ -17,6 +16,7 @@ from anki import AnkiReader
 from config import Config, load_config
 from practice import normalize_word, select_words
 from stats import StatsStore
+from sync import copy_collection_group, latest_collection, sync_configured, sync_target_path
 
 
 LOG = logging.getLogger(__name__)
@@ -59,13 +59,12 @@ class AppState:
         with self.lock:
             if not self.reader:
                 raise RuntimeError("Anki database is not available")
-            if not self.stats:
-                return self.reader.get_learned_words(limit, category)
             pool = self.reader.get_learned_word_pool(category)
             try:
                 selection = self.stats.selection_stats()
-            except Exception:
-                return self.reader.get_learned_words(limit, category)
+            except Exception as exc:
+                LOG.exception("Unable to load practice statistics")
+                raise RuntimeError("Practice statistics are unavailable") from exc
             return select_words(pool, selection, limit)
 
     def current_pool(self) -> list[dict[str, Any]]:
@@ -103,7 +102,7 @@ class AppState:
             status.setdefault("added_word_list", [])
             status.setdefault("success", False)
             status["sync_configured"] = sync_configured()
-            status["target_path"] = sync_target_path(self)
+            status["target_path"] = sync_target_path(self.config.anki.db_path)
             if self.reader and not status["after_words"]:
                 try:
                     status["after_words"] = self.reader.count_learned()
@@ -116,7 +115,7 @@ class AppState:
         with self.lock:
             status: dict[str, Any] = {
                 "last_sync_at": _now_text(),
-                "target_path": sync_target_path(self),
+                "target_path": sync_target_path(self.config.anki.db_path),
                 "sync_configured": sync_configured(),
                 "before_words": 0,
                 "after_words": 0,
@@ -137,7 +136,11 @@ class AppState:
                 if self.reader:
                     self.reader.close()
                     self.reader = None
-                status["copied_files"] = copy_collection_group(source, status["target_path"])
+                status["copied_files"] = copy_collection_group(
+                    source,
+                    status["target_path"],
+                    _env_seconds("ANKI_SYNC_STABLE_SECONDS", 2, 0),
+                )
                 self.reader = AnkiReader(self.config.anki.db_path, self.config.anki.deck_name, self.config.anki.deck_id)
                 after = self.reader.get_learned_word_pool("all")
                 status["after_words"] = len(after)
@@ -155,64 +158,6 @@ class AppState:
                 status["message"] = str(exc)
                 self.sync = status
                 return status, str(exc)
-
-
-def sync_configured() -> bool:
-    return bool(os.environ.get("ANKI_SYNC_SOURCE_DIR", "").strip() and os.environ.get("ANKI_SYNC_TARGET", "").strip())
-
-
-def sync_target_path(state: AppState) -> str:
-    return os.environ.get("ANKI_SYNC_TARGET", "").strip() or state.config.anki.db_path
-
-
-def latest_collection(source_dir: str) -> str:
-    root = Path(source_dir.strip())
-    if not source_dir.strip():
-        raise ValueError("ANKI_SYNC_SOURCE_DIR is not configured")
-    candidates = [path for path in root.rglob("collection.anki2") if path.is_file() and path.stat().st_size > 0]
-    if not candidates:
-        raise FileNotFoundError(f"no collection.anki2 found under {root}")
-    return str(max(candidates, key=lambda path: path.stat().st_mtime))
-
-
-def _group_stats(source: str) -> list[tuple[str, int, float]]:
-    result = []
-    for suffix in ("", "-wal", "-shm"):
-        path = Path(source + suffix)
-        if not path.exists():
-            if suffix:
-                continue
-            raise FileNotFoundError(path)
-        stat = path.stat()
-        result.append((str(path), stat.st_size, stat.st_mtime_ns))
-    return result
-
-
-def copy_collection_group(source: str, target: str) -> list[str]:
-    if not target.strip():
-        raise ValueError("ANKI_SYNC_TARGET is not configured")
-    first = _group_stats(source)
-    stable_seconds = _env_seconds("ANKI_SYNC_STABLE_SECONDS", 2, 0)
-    if stable_seconds:
-        time.sleep(stable_seconds)
-    if first != _group_stats(source):
-        raise RuntimeError("Anki collection files are changing; try again later")
-    target_path = Path(target)
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    copied: list[str] = []
-    for suffix in ("", "-wal", "-shm"):
-        src = Path(source + suffix)
-        dst = Path(str(target_path) + suffix)
-        if not src.exists():
-            if suffix:
-                dst.unlink(missing_ok=True)
-                continue
-            raise FileNotFoundError(src)
-        tmp = Path(str(dst) + ".tmp")
-        shutil.copyfile(src, tmp)
-        os.replace(tmp, dst)
-        copied.append(dst.name)
-    return copied
 
 
 def _int_query(name: str, default: int) -> int:
@@ -356,18 +301,6 @@ def create_app(config: Config | None = None) -> Flask:
             return _stats_response(lambda: state.stats.mastery_words(level, _int_query("limit", 200)))
         return _stats_response(lambda: _unpracticed_details(state.current_pool(), state.stats.selection_stats(), min(_int_query("limit", 200), 1000)))
 
-    @app.route("/api/stats/speed-trend")
-    def speed_trend():
-        return _stats_response(lambda: state.stats.speed_trend(_int_query("days", 30)))
-
-    @app.route("/api/stats/daily-duration")
-    def daily_duration():
-        return _stats_response(lambda: state.stats.daily_duration(_int_query("days", 30)))
-
-    @app.route("/api/stats/streak")
-    def streak():
-        return _stats_response(state.stats.streak)
-
     @app.route("/api/stats/error-types")
     def error_types():
         return _stats_response(state.stats.error_types)
@@ -375,10 +308,6 @@ def create_app(config: Config | None = None) -> Flask:
     @app.route("/api/stats/error-type-words")
     def error_type_words():
         return _stats_response(lambda: state.stats.error_type_words(request.args.get("type", "spelling"), _int_query("limit", 200)))
-
-    @app.route("/api/stats/milestones")
-    def milestones():
-        return _stats_response(state.stats.milestones)
 
     @app.route("/api/stats/overview")
     def overview():

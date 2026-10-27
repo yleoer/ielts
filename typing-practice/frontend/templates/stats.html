@@ -8,74 +8,47 @@
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/style.css?v=20261027-focus">
     <style>
+        /* GitHub 风格热力图：按周分列，格子宽度随容器自适应 */
         .github-heatmap {
-            height: 100%;
-            color: #57606a;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            font-size: 12px;
-            --heatmap-gap: 2px;
-            --heatmap-weekday-width: 24px;
+            color: #6b7280;
+            font-size: 11px;
+            --heatmap-gap: 3px;
+            --heatmap-weekday-width: 28px;
         }
-
-        .github-heatmap-title {
-            color: #4338ca;
-            font-size: 18px;
-            font-weight: 700;
-            line-height: 24px;
-            margin-bottom: 18px;
-            text-align: center;
-        }
-
-        .github-heatmap-scroll {
-            overflow-x: hidden;
-            padding-bottom: 8px;
-        }
-
         .github-heatmap-months {
             display: grid;
             grid-template-columns: var(--heatmap-weekday-width) repeat(53, minmax(0, 1fr));
             column-gap: var(--heatmap-gap);
-            width: 100%;
             margin-bottom: 4px;
         }
-
-        .github-heatmap-months span {
-            white-space: nowrap;
-        }
-
+        .github-heatmap-months span { white-space: nowrap; }
         .github-heatmap-body {
             display: grid;
             grid-template-columns: var(--heatmap-weekday-width) minmax(0, 1fr);
             column-gap: var(--heatmap-gap);
-            width: 100%;
         }
-
         .github-heatmap-weekdays {
             display: grid;
             grid-template-rows: repeat(7, 1fr);
             row-gap: var(--heatmap-gap);
-            width: var(--heatmap-weekday-width);
             font-size: 10px;
             line-height: 1;
             align-items: center;
         }
-
         .github-heatmap-grid {
             display: grid;
             grid-template-columns: repeat(53, minmax(0, 1fr));
             column-gap: var(--heatmap-gap);
             min-width: 0;
         }
-
         .github-heatmap-week {
             display: grid;
             grid-template-rows: repeat(7, auto);
             row-gap: var(--heatmap-gap);
             min-width: 0;
         }
-
         .github-heatmap-cell {
             display: block;
             width: 100%;
@@ -84,78 +57,42 @@
             outline: 1px solid rgba(27, 31, 36, 0.06);
             outline-offset: -1px;
         }
-
-        .github-heatmap-level-0 {
-            background: #ebedf0;
-        }
-
-        .github-heatmap-level-1 {
-            background: #9be9a8;
-        }
-
-        .github-heatmap-level-2 {
-            background: #40c463;
-        }
-
-        .github-heatmap-level-3 {
-            background: #30a14e;
-        }
-
-        .github-heatmap-level-4 {
-            background: #216e39;
-        }
-
-        .github-heatmap-outside {
-            visibility: hidden;
-        }
-
-        .github-heatmap-footer {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 4px;
-            width: 100%;
-            margin-top: 12px;
-            font-size: 12px;
-        }
-
-        .github-heatmap-footer .github-heatmap-cell {
+        .github-heatmap-today { outline: 1px solid #6b7280; }
+        .github-heatmap-level-0 { background: #ebedf0; }
+        .github-heatmap-level-1 { background: #9be9a8; }
+        .github-heatmap-level-2 { background: #40c463; }
+        .github-heatmap-level-3 { background: #30a14e; }
+        .github-heatmap-level-4 { background: #216e39; }
+        .heatmap-muted .github-heatmap-level-1 { background: #d1d5db; }
+        .heatmap-muted .github-heatmap-level-2 { background: #9ca3af; }
+        .heatmap-muted .github-heatmap-level-3 { background: #6b7280; }
+        .heatmap-muted .github-heatmap-level-4 { background: #374151; }
+        .github-heatmap-outside { visibility: hidden; }
+        .github-heatmap-legend .github-heatmap-cell {
             width: 10px;
             height: 10px;
             flex: 0 0 10px;
         }
     </style>
 </head>
-<body :class="stealthMode ? 'bg-gray-50' : 'bg-gradient-to-br from-blue-50 to-indigo-100'" class="min-h-screen">
-    <div id="app">
-        <div class="container mx-auto px-4 py-8">
+<body class="min-h-screen bg-slate-50">
+    <div id="app" class="min-h-screen" :class="stealthMode ? 'bg-gray-50' : 'bg-gradient-to-b from-slate-50 to-indigo-50'">
+        <div class="container mx-auto max-w-5xl px-4 py-8">
             <!-- Header -->
-            <header class="flex justify-between items-center mb-8">
-                <div>
-                    <h1 class="text-4xl font-bold mb-2" :class="stealthMode ? 'text-gray-800' : 'text-indigo-900'">
-                        <span v-if="stealthMode">Learning Statistics</span>
-                        <span v-else>学习统计</span>
-                    </h1>
-                    <p class="text-gray-600">
-                        <span v-if="stealthMode">Track your progress and performance</span>
-                        <span v-else>追踪你的学习进度和表现</span>
-                    </p>
-                </div>
-                <div class="flex gap-4">
-                    <!-- 统计页导航按钮与练习页保持一致：视觉上只放图标，语义说明放在无障碍属性里。 -->
+            <header class="mb-6 flex items-center justify-between">
+                <h1 class="text-2xl font-semibold" :class="stealthMode ? 'text-gray-800' : 'text-indigo-900'">
+                    {{ t('学习统计', 'Learning Statistics') }}
+                </h1>
+                <div class="flex gap-2">
                     <a
                         href="index.html"
-                        class="inline-flex h-11 w-11 items-center justify-center rounded-lg text-xl shadow-md transition-all"
-                        :class="stealthMode ? 'bg-gray-700 text-white hover:bg-gray-800' : 'bg-green-600 text-white hover:bg-green-700'"
-                        title="返回练习"
-                        aria-label="返回练习"
-                    >
-                        ←
-                    </a>
+                        class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-lg text-gray-600 shadow-sm hover:bg-gray-100"
+                        :title="t('返回练习', 'Back to practice')"
+                        :aria-label="t('返回练习', 'Back to practice')"
+                    >←</a>
                     <button
                         @click="toggleStealthMode"
-                        class="inline-flex h-11 w-11 items-center justify-center rounded-lg text-xl shadow-md transition-all"
-                        :class="stealthMode ? 'bg-white text-gray-700 hover:bg-gray-100' : 'bg-indigo-600 text-white hover:bg-indigo-700'"
+                        class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-lg text-gray-600 shadow-sm hover:bg-gray-100"
                         :title="stealthMode ? '切换工作模式' : '切换摸鱼模式'"
                         :aria-label="stealthMode ? '切换工作模式' : '切换摸鱼模式'"
                     >
@@ -165,161 +102,137 @@
                 </div>
             </header>
 
-            <!-- Loading State -->
-            <div v-if="loading" class="text-center py-20">
-                <div class="animate-spin rounded-full h-16 w-16 border-b-2 mx-auto" :class="stealthMode ? 'border-gray-600' : 'border-indigo-600'"></div>
-                <p class="mt-4 text-gray-600">
-                    <span v-if="stealthMode">Loading data...</span>
-                    <span v-else>加载中...</span>
-                </p>
+            <div v-if="loading" class="py-20 text-center">
+                <div class="mx-auto h-10 w-10 animate-spin rounded-full border-b-2" :class="stealthMode ? 'border-gray-600' : 'border-indigo-600'"></div>
+                <p class="mt-4 text-gray-500">{{ t('加载中...', 'Loading...') }}</p>
             </div>
 
-            <!-- Main Content -->
-            <div v-else>
-                <!-- Overview Cards -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <h3 class="text-gray-500 text-sm mb-2">
-                            <span v-if="stealthMode">Total Sessions</span>
-                            <span v-else>总练习次数</span>
-                        </h3>
-                        <p class="text-3xl font-bold" :class="stealthMode ? 'text-gray-800' : 'text-indigo-600'">
-                            {{ overview.total_sessions || 0 }}
-                        </p>
-                    </div>
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <h3 class="text-gray-500 text-sm mb-2">
-                            <span v-if="stealthMode">Total Words</span>
-                            <span v-else>总单词数</span>
-                        </h3>
-                        <p class="text-3xl font-bold" :class="stealthMode ? 'text-gray-800' : 'text-green-600'">
-                            {{ overview.total_words_practiced || 0 }}
-                        </p>
-                    </div>
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <h3 class="text-gray-500 text-sm mb-2">
-                            <span v-if="stealthMode">Overall Accuracy</span>
-                            <span v-else>整体正确率</span>
-                        </h3>
-                        <p class="text-3xl font-bold" :class="stealthMode ? 'text-gray-800' : 'text-blue-600'">
-                            {{ overview.overall_accuracy ? overview.overall_accuracy.toFixed(1) : 0 }}%
-                        </p>
-                    </div>
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <h3 class="text-gray-500 text-sm mb-2">
-                            <span v-if="stealthMode">Current Streak</span>
-                            <span v-else>连续学习</span>
-                        </h3>
-                        <p class="text-3xl font-bold" :class="stealthMode ? 'text-gray-800' : 'text-orange-600'">
-                            {{ overview.current_streak || 0 }} <span class="text-lg">{{ stealthMode ? 'days' : '天' }}</span>
+            <div v-else-if="loadError" class="rounded-xl border border-dashed border-gray-300 bg-white py-16 text-center">
+                <p class="font-semibold text-gray-700">{{ t('无法加载统计数据', 'Unable to load statistics') }}</p>
+                <p class="mt-2 text-sm text-gray-500">{{ t('请确认后端服务正在运行。', 'Make sure the backend is running.') }}</p>
+                <button
+                    @click="loadAllData"
+                    class="mt-5 rounded-lg px-5 py-2 text-sm font-semibold text-white"
+                    :class="stealthMode ? 'bg-gray-700 hover:bg-gray-800' : 'bg-indigo-600 hover:bg-indigo-700'"
+                >{{ t('重试', 'Retry') }}</button>
+            </div>
+
+            <div v-else class="space-y-5">
+                <!-- 概览：数字统一中性色，只用小标签区分含义 -->
+                <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <div v-for="card in overviewCards" :key="card.label" class="rounded-xl border border-gray-200 bg-white px-5 py-4">
+                        <p class="text-xs text-gray-500">{{ card.label }}</p>
+                        <p class="mt-1 text-2xl font-bold tabular-nums text-gray-800">
+                            {{ card.value }}<span v-if="card.unit" class="ml-1 text-sm font-medium text-gray-500">{{ card.unit }}</span>
                         </p>
                     </div>
                 </div>
 
-                <!-- Charts Grid -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <!-- Chart 1: Heatmap -->
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="heatmap" style="width: 100%; height: 300px;"></div>
+                <!-- 热力图 -->
+                <section class="rounded-xl border border-gray-200 bg-white p-5">
+                    <div class="mb-4 flex items-baseline justify-between">
+                        <h2 class="text-base font-semibold text-gray-800">{{ t('学习日历', 'Practice Calendar') }}</h2>
+                        <p class="text-xs text-gray-500">
+                            {{ t(`${heatmapYear} 年练习 ${heatmapActiveDays} 天`, `${heatmapActiveDays} active days in ${heatmapYear}`) }}
+                        </p>
                     </div>
+                    <div id="heatmap"></div>
+                </section>
 
-                    <!-- Chart 2: Accuracy Trend -->
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="accuracy-trend" style="width: 100%; height: 300px;"></div>
+                <!-- 近 30 天：练习量柱 + 正确率线，一张图看清量和质 -->
+                <section class="rounded-xl border border-gray-200 bg-white p-5">
+                    <div class="mb-2 flex items-baseline justify-between">
+                        <h2 class="text-base font-semibold text-gray-800">{{ t('近 30 天', 'Last 30 Days') }}</h2>
+                        <p class="text-xs text-gray-500">{{ t('柱：练习单词数 · 线：正确率', 'Bars: words · Line: accuracy') }}</p>
                     </div>
-
-                    <!-- Chart 3: Mastery Pie -->
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="mastery-pie" style="width: 100%; height: 300px;"></div>
+                    <div v-if="trendEmpty" class="flex h-64 items-center justify-center text-sm text-gray-400">
+                        {{ t('近 30 天暂无练习记录', 'No practice in the last 30 days') }}
                     </div>
+                    <div v-show="!trendEmpty" id="trend-chart" class="h-64 w-full"></div>
+                </section>
 
-                    <!-- Chart 4: Error Types -->
-                    <div class="rounded-lg shadow p-6" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="error-types" style="width: 100%; height: 300px;"></div>
-                    </div>
-
-                    <!-- Chart 5: Daily Duration -->
-                    <div class="rounded-lg shadow p-6 lg:col-span-2" :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'">
-                        <div id="daily-duration" style="width: 100%; height: 300px;"></div>
-                    </div>
-                </div>
-
-                <div
-                    v-if="detailModal.visible"
-                    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 px-4"
-                    @click.self="closeDetailModal"
-                >
-                    <!-- 图表详情弹窗：掌握度图和错误类型图共用结构，通过 detailModal.type 切换字段。 -->
-                    <div
-                        class="w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-lg shadow-xl"
-                        :class="stealthMode ? 'bg-white border border-gray-200' : 'bg-white'"
-                    >
-                        <div class="flex items-center justify-between border-b px-6 py-4">
-                            <div>
-                                <h2 class="text-xl font-bold" :class="stealthMode ? 'text-gray-800' : 'text-indigo-900'">
-                                    {{ detailModal.title }}
-                                </h2>
-                                <p class="text-sm text-gray-500">{{ detailModal.subtitle }}</p>
-                            </div>
-                            <button
-                                @click="closeDetailModal"
-                                class="rounded px-3 py-1 text-xl leading-none hover:bg-gray-100"
-                                :class="stealthMode ? 'text-gray-600' : 'text-gray-700'"
-                            >
-                                ×
-                            </button>
+                <!-- 掌握度 & 错误类型：横向条形，点击行查看具体单词 -->
+                <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                    <section v-for="panel in breakdownPanels" :key="panel.key" class="rounded-xl border border-gray-200 bg-white p-5">
+                        <div class="mb-4 flex items-baseline justify-between">
+                            <h2 class="text-base font-semibold text-gray-800">{{ panel.title }}</h2>
+                            <p class="text-xs text-gray-500">{{ panel.totalText }}</p>
                         </div>
-
-                        <div class="max-h-[62vh] overflow-y-auto p-6">
-                            <div v-if="detailModal.loading" class="py-10 text-center text-gray-500">
-                                加载中...
-                            </div>
-                            <div v-else-if="detailModal.error" class="py-10 text-center text-red-600">
-                                {{ detailModal.error }}
-                            </div>
-                            <div v-else-if="detailModal.items.length === 0" class="py-10 text-center text-gray-500">
-                                暂无单词
-                            </div>
-                            <div v-else class="space-y-3">
-                                <div
-                                    v-for="(item, index) in detailModal.items"
-                                    :key="index"
-                                    class="rounded-lg border p-4"
-                                    :class="stealthMode ? 'border-gray-200 bg-gray-50' : 'border-gray-100 bg-gray-50'"
+                        <p v-if="panel.error" class="py-8 text-center text-sm text-gray-400">{{ t('加载失败', 'Failed to load') }}</p>
+                        <p v-else-if="!panel.total" class="py-8 text-center text-sm text-gray-400">{{ t('暂无数据', 'No data yet') }}</p>
+                        <ul v-else class="space-y-1">
+                            <li v-for="row in panel.rows" :key="row.key">
+                                <button
+                                    type="button"
+                                    class="group w-full rounded-lg px-2 py-2 text-left hover:bg-gray-50 disabled:cursor-default disabled:hover:bg-transparent"
+                                    :disabled="!row.value"
+                                    @click="panel.open(row)"
+                                    :aria-label="`${row.label} ${row.value}`"
                                 >
-                                    <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                                        <div class="min-w-0">
-                                            <p class="text-lg font-semibold leading-snug text-gray-900">
-                                                {{ item.chinese_meaning || item.word }}
-                                            </p>
-                                            <p
-                                                v-if="item.word"
-                                                class="mt-1 text-xs font-medium tracking-wide text-gray-500"
-                                            >
-                                                {{ (item.word || '').toLowerCase() }}
-                                            </p>
-                                            <p v-if="item.category" class="text-xs text-gray-500">{{ item.category }}</p>
-                                        </div>
-                                        <div class="text-sm text-gray-600 md:text-right">
-                                            <template v-if="detailModal.type === 'mastery'">
-                                                <p>正确: {{ item.correct_attempts }} / {{ item.total_attempts }}</p>
-                                                <p>正确率: {{ formatPercent(item.accuracy) }}</p>
-                                            </template>
-                                            <template v-else>
-                                                <p>错误次数: {{ item.error_count }}</p>
-                                                <p v-if="item.user_input">最近输入: {{ item.user_input }}</p>
-                                            </template>
-                                        </div>
+                                    <div class="mb-1 flex items-center justify-between text-sm">
+                                        <span class="text-gray-700">{{ row.label }}</span>
+                                        <span class="tabular-nums text-gray-500">
+                                            <span class="font-semibold text-gray-800">{{ row.value }}</span>
+                                            <span class="ml-1 text-xs">{{ row.percent }}%</span>
+                                        </span>
                                     </div>
-                                </div>
-                            </div>
+                                    <div class="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                                        <div class="h-full rounded-full" :style="{ width: row.percent + '%', background: row.color }"></div>
+                                    </div>
+                                </button>
+                            </li>
+                        </ul>
+                    </section>
+                </div>
+            </div>
+
+            <!-- 单词详情弹窗：掌握度和错误类型共用 -->
+            <div
+                v-if="detailModal.visible"
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 px-4"
+                @click.self="closeDetailModal"
+            >
+                <div class="max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl" role="dialog" aria-modal="true">
+                    <div class="flex items-center justify-between border-b px-6 py-4">
+                        <div>
+                            <h2 class="text-lg font-bold text-gray-800">{{ detailModal.title }}</h2>
+                            <p class="text-sm text-gray-500">{{ detailModal.subtitle }}</p>
                         </div>
+                        <button
+                            @click="closeDetailModal"
+                            class="rounded px-3 py-1 text-xl leading-none text-gray-600 hover:bg-gray-100"
+                            :aria-label="t('关闭', 'Close')"
+                        >×</button>
+                    </div>
+
+                    <div class="max-h-[62vh] overflow-y-auto">
+                        <div v-if="detailModal.loading" class="py-10 text-center text-gray-500">{{ t('加载中...', 'Loading...') }}</div>
+                        <div v-else-if="detailModal.error" class="py-10 text-center text-red-600">{{ detailModal.error }}</div>
+                        <div v-else-if="detailModal.items.length === 0" class="py-10 text-center text-gray-500">{{ t('暂无单词', 'No words') }}</div>
+                        <ul v-else class="divide-y divide-gray-100">
+                            <li v-for="(item, index) in detailModal.items" :key="index" class="flex items-center justify-between gap-4 px-6 py-3">
+                                <div class="min-w-0">
+                                    <p class="font-mono font-semibold text-gray-800">{{ item.word }}</p>
+                                    <p class="truncate text-sm text-gray-500">{{ item.chinese_meaning }}</p>
+                                </div>
+                                <div class="shrink-0 text-right text-sm tabular-nums text-gray-600">
+                                    <template v-if="detailModal.type === 'mastery'">
+                                        <p>{{ item.correct_attempts }} / {{ item.total_attempts }}</p>
+                                        <p class="text-xs text-gray-400">{{ formatPercent(item.accuracy) }}</p>
+                                    </template>
+                                    <template v-else>
+                                        <p>× {{ item.error_count }}</p>
+                                        <p v-if="item.user_input" class="font-mono text-xs text-gray-400 line-through">{{ item.user_input }}</p>
+                                    </template>
+                                </div>
+                            </li>
+                        </ul>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="src/stats.js?v=20260524-visible-errors"></script>
+    <script src="src/stats.js?v=20261027-simple"></script>
 </body>
 </html>
