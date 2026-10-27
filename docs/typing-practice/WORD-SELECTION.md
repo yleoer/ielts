@@ -39,10 +39,10 @@
 
 ## 相关文件
 
-- `typing-practice/backend/handlers/api.go`
-- `typing-practice/backend/anki/reader.go`
-- `typing-practice/backend/practice/selector.go`
-- `typing-practice/backend/stats/queries.go`
+- `typing-practice/backend/app.py`
+- `typing-practice/backend/anki.py`
+- `typing-practice/backend/practice.py`
+- `typing-practice/backend/stats.py`
 
 ## 回退行为
 

@@ -36,7 +36,6 @@ services:
       ANKI_SYNC_INTERVAL_SECONDS: "${ANKI_SYNC_INTERVAL_SECONDS:-300}"
       ANKI_SYNC_INITIAL_WAIT_SECONDS: "${ANKI_SYNC_INITIAL_WAIT_SECONDS:-60}"
       STATS_DB_PATH: /app/stats/stats.db
-      GIN_MODE: release
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/config >/dev/null || exit 1"]
       interval: 30s

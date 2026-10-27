@@ -4,8 +4,8 @@
 
 ## 入口文件
 
-- `typing-practice/frontend/index.html`：练习页
-- `typing-practice/frontend/stats.html`：统计页
+- `typing-practice/frontend/templates/index.html`：练习页 Jinja2 模板
+- `typing-practice/frontend/templates/stats.html`：统计页 Jinja2 模板
 
 ## 主要脚本
 
@@ -21,7 +21,7 @@
 - Tailwind CSS
 - 统计页使用的 ECharts
 
-没有前端构建步骤。
+页面由 Flask/Jinja2 渲染，没有独立前端构建步骤。Vue 的 `{{ }}` 客户端绑定原样保留，Flask 将 Jinja2 变量分隔符设为 `[[ ]]`。
 
 ## 练习页行为
 
@@ -69,8 +69,8 @@
 
 ## 开发说明
 
-- 正式运行时，静态文件由后端托管。
-- 前后端按同一个镜像一起部署，不保留旧接口兼容逻辑。
+- 正式运行时，页面模板和静态文件由 Flask 同一个进程托管。
+- 前后端按同一个镜像一起部署，不需要单独启动前端开发服务器。
 - 直接打开页面只适合做静态查看；完整练习需要可用后端接口。
 
 ## 相关文档
