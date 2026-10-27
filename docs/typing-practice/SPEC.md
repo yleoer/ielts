@@ -10,10 +10,11 @@
 
 ## 组成部分
 
-- 后端：Go + Gin
+- 单体应用：Python 3.12 + Flask + Jinja2
 - 练习数据源：Anki `collection.anki2`
-- 统计存储：SQLite
-- 前端：Vue 3 + Tailwind CSS，由后端直接托管
+- 统计存储：Python 内置 `sqlite3` + SQLite
+- 页面：Jinja2 模板由 Flask 渲染，交互使用 Vue 3、JavaScript 和 CDN 资源
+- 部署：一个 Flask 进程同时提供页面、静态文件和 `/api` 接口
 
 ## 当前路由
 
@@ -96,14 +97,14 @@
 
 ## 前端文件
 
-- `frontend/index.html`：练习页
-- `frontend/stats.html`：统计页
+- `frontend/templates/index.html`：练习页 Jinja2 模板
+- `frontend/templates/stats.html`：统计页 Jinja2 模板
 - `frontend/src/app.js`：练习逻辑
 - `frontend/src/stats.js`：统计图表逻辑
 
 ## 运行约定
 
-- 前后端作为同一个应用一起打包和部署，不保留旧接口兼容层。
+- 页面、接口和数据访问作为同一个 Python 应用一起打包和部署，不需要独立前端构建步骤。
 - 前端依赖当前后端接口；接口不可用时展示错误或空状态，不回退到模拟数据。
 - 正式部署时，应用读取缓存的 Anki 数据库，而不是直接访问 Anki 客户端。
 - 统计库应当在容器重启后继续保留。
