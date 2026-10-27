@@ -13,6 +13,7 @@ from typing import Any
 from flask import Flask, current_app, jsonify, render_template, request, send_from_directory
 
 from anki import AnkiReader
+from auth import install_access_gate
 from config import Config, load_config
 from practice import normalize_word, select_words
 from stats import StatsStore
@@ -205,6 +206,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.jinja_env.variable_end_string = "]]"
     state = AppState(cfg)
     app.extensions["typing_practice_state"] = state
+    install_access_gate(app, cfg.access_password, cfg.stats.db_path)
 
     @app.teardown_appcontext
     def _close_on_shutdown(_exc):
