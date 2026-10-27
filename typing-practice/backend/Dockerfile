@@ -1,13 +1,4 @@
-FROM golang:1.21-bookworm AS builder
-WORKDIR /src/backend
-
-COPY backend/go.mod backend/go.sum ./
-RUN go mod download
-
-COPY backend/ ./
-RUN CGO_ENABLED=1 GOOS=linux go build -o /out/typing-practice .
-
-FROM debian:bookworm-slim
+FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tzdata wget \
@@ -17,7 +8,12 @@ RUN apt-get update \
 
 WORKDIR /app/backend
 
-COPY --from=builder /out/typing-practice ./typing-practice
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/app.py backend/anki.py backend/config.py backend/practice.py backend/stats.py ./
+RUN mkdir -p config
+COPY backend/config/config.yaml ./config/config.yaml
 COPY frontend ../frontend
 
 RUN mkdir -p /app/data /app/stats /app/anki-cache \
@@ -32,6 +28,6 @@ ENV SERVER_PORT=8080
 ENV TZ=Asia/Shanghai
 ENV ANKI_DB_PATH=/app/anki-cache/collection.anki2
 ENV STATS_DB_PATH=/app/stats/stats.db
-ENV GIN_MODE=release
+ENV PYTHONUNBUFFERED=1
 
-CMD ["./typing-practice"]
+CMD ["python", "app.py"]

@@ -56,9 +56,9 @@
 
 ## 关键文件
 
-- `typing-practice/backend/handlers/stats.go`
-- `typing-practice/backend/stats/`
-- `typing-practice/frontend/stats.html`
+- `typing-practice/backend/stats.py`
+- `typing-practice/backend/app.py`
+- `typing-practice/frontend/templates/stats.html`
 - `typing-practice/frontend/src/stats.js`
 
 ## 维护要点

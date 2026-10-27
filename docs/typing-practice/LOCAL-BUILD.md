@@ -12,6 +12,7 @@
 
 - 通过 `docker-compose.local-build.yml` 覆盖练习服务的构建方式
 - 只在服务器本地重建练习服务
+- 使用 `python:3.12-slim-bookworm` 构建 Flask 应用
 - 同步和统计数据保持不变
 
 ## 运行约定

@@ -94,11 +94,8 @@
 
 ## 相关文件
 
-- `typing-practice/backend/stats/schema.go`
-- `typing-practice/backend/stats/store.go`
-- `typing-practice/backend/stats/queries.go`
-- `typing-practice/backend/stats/error_analyzer.go`
-- `typing-practice/backend/handlers/stats.go`
+- `typing-practice/backend/stats.py`
+- `typing-practice/backend/app.py`
 
 ## 运行约定
 

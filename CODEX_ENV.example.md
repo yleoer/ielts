@@ -11,7 +11,7 @@
 test_mode: local-gcc
 gcc_path: C:\msys64\ucrt64\bin
 typing_practice_backend: typing-practice/backend
-test_command: go test ./...
+test_command: python -m unittest discover -s typing-practice/backend -p 'test_*.py'
 ```
 
 ## ssh-server
@@ -23,11 +23,10 @@ test_mode: ssh-server
 ssh_target: user@server-host
 repo_path: /path/to/my-ielts
 typing_practice_backend: typing-practice/backend
-test_command: go test ./...
+test_command: python -m unittest discover -s typing-practice/backend -p 'test_*.py'
 ```
 
 Codex 使用方式：
 
-- `local-gcc`：如果配置了 `gcc_path`，先把它加入本次命令的 `Path`，再在本机
-  `typing_practice_backend` 目录运行 `test_command`。
-- `ssh-server`：运行 `ssh <ssh_target> "cd <repo_path>/<typing_practice_backend> && <test_command>"`。
+- `local-gcc`：在本机运行 `test_command`；当前 Python 测试不需要 gcc。
+- `ssh-server`：运行 `ssh <ssh_target> "cd <repo_path> && <test_command>"`。
