@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 
 @dataclass
@@ -40,6 +41,7 @@ class Config:
     anki: AnkiConfig
     practice: PracticeConfig
     stats: StatsConfig
+    access_password: str = ""
 
 
 def discover_anki_db(anki_root: Path) -> str:
@@ -97,6 +99,7 @@ def _as_int(value: object, default: int) -> int:
 
 
 def load_config() -> Config:
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
     raw: dict = {}
     path = _config_path()
     if path:
@@ -124,6 +127,7 @@ def load_config() -> Config:
             enable_audio=bool(practice.get("enable_audio", False)),
         ),
         stats=StatsConfig(db_path=str(stats.get("db_path", "data/stats.db") or "data/stats.db")),
+        access_password=os.environ.get("ACCESS_PASSWORD", ""),
     )
 
     env = os.environ

@@ -27,6 +27,16 @@ $env:STATS_DB_PATH = (Join-Path (Get-Location) 'typing-practice\data\stats\stats
 
 默认访问 <http://127.0.0.1:8080>。页面、静态文件和 API 都由同一个 Flask 进程提供，不需要单独启动前端开发服务器。
 
+### 首次访问密码
+
+复制 `typing-practice/.env.example` 为同目录下的 `.env`，设置 `ACCESS_PASSWORD` 为自己的访问密码。Python 启动时自动读取该文件，Docker Compose 也使用同一文件；进程已有环境变量优先。`.env` 不提交到 Git。也可以在启动 Python 前设置 `$env:ACCESS_PASSWORD = '自己的密码'`。留空表示关闭访问验证。
+
+设置后，首次打开练习页或统计页会进入密码界面。验证成功后自动返回原页面，并用有效期 10 年的 HttpOnly Cookie 在浏览器本地保存凭证，不保存明文密码；同一浏览器后续访问无需再次输入。换浏览器、清除站点 Cookie 或使用无痕窗口时需要重新验证。
+
+修改密码并重启服务后，旧凭证会失效。服务会在统计数据库同目录生成私有 `.access-secret` 文件，需与数据库一起保留，保证重启后仍记住浏览器；删除该文件也会让已有凭证失效。该文件不提交到 Git。
+
+业务 API 未验证时返回 HTTP 401（`code: authentication_required`），外部脚本需先向 `/login` 提交 `password` 表单并保留响应 Cookie。`/api/health` 保持公开供容器健康检查使用。HTTPS 访问会为登录 Cookie 设置 Secure；公网部署应通过 HTTPS 访问。
+
 ### 从本地同步目录读取
 
 如果希望使用页面上的“同步 Anki”按钮，必须同时配置同步源和目标路径。同步源目录下需要存在 `collection.anki2`；Python 服务会把它复制到缓存目录后再读取。

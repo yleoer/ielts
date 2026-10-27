@@ -23,6 +23,7 @@ apkg-generator/anki_export/*.tsv
 apkg-generator/anki_export/*.csv
 
 # Runtime databases
+**/.access-secret
 typing-practice/backend/data/*.db
 typing-practice/backend/data/*.db-*
 typing-practice/data/*
