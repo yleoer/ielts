@@ -17,6 +17,10 @@ createApp({
             isAdvancing: false,
             isRestoringDraft: false,
             advanceTimer: null,
+            // 答错/跳过时记录原始输入，用于标出拼错的字母；跳过时为空字符串。
+            lastWrongInput: '',
+            shake: false,
+            shakeTimer: null,
             wordsError: '',
             sessionId: '',
             sessionStartedAt: null,
@@ -95,37 +99,82 @@ createApp({
             });
             return reviewWords;
         },
+        // 卡片始终保留 2px 边框，状态变化只换颜色，避免内容抖动。
         cardClass() {
             if (this.isAdvancing) {
                 return this.stealthMode
-                    ? 'practice-card-success practice-card-success-muted border-2 border-gray-500'
-                    : 'practice-card-success border-2 border-green-400';
+                    ? 'practice-card-success practice-card-success-muted border-gray-400'
+                    : 'practice-card-success border-green-400';
             }
             if (this.showAnswer) {
-                if (this.stealthMode) {
-                    return this.isCorrect ? 'border-2 border-gray-500' : 'border-2 border-gray-600';
-                }
-                return this.isCorrect ? 'border-4 border-green-500' : 'border-4 border-red-500';
+                return this.stealthMode ? 'border-gray-300' : 'border-red-200';
             }
-            return '';
+            return 'border-transparent';
         },
         inputClass() {
+            const classes = [];
             if (this.isAdvancing) {
-                return this.stealthMode ? 'border-gray-500 bg-gray-50 practice-input-success' : 'border-green-500 bg-green-50 practice-input-success';
+                classes.push(this.stealthMode ? 'border-gray-500 bg-gray-50 practice-input-success' : 'border-green-500 bg-green-50 practice-input-success');
+            } else if (this.showAnswer) {
+                classes.push(this.stealthMode ? 'border-gray-400 focus:border-gray-600' : 'border-red-300 focus:border-red-400');
+            } else {
+                classes.push(this.stealthMode ? 'border-gray-300 focus:border-gray-500' : 'border-gray-300 focus:border-indigo-500');
             }
-            if (this.showAnswer) {
-                if (this.stealthMode) {
-                    return this.isCorrect ? 'border-gray-500 bg-gray-50' : 'border-gray-600 bg-gray-100';
-                }
-                return this.isCorrect ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50';
+            if (this.shake) {
+                classes.push('practice-shake');
             }
-            return 'border-gray-300';
+            return classes.join(' ');
         },
         feedbackClass() {
-            if (this.stealthMode) {
-                return this.isCorrect ? 'text-gray-700' : 'text-gray-800';
+            return this.stealthMode ? 'text-gray-600' : 'text-red-600';
+        },
+        answerOkClass() {
+            return this.stealthMode ? 'text-gray-800' : 'text-indigo-700';
+        },
+        answerMissClass() {
+            // 颜色 + 下划线双重提示，不只依赖颜色区分。
+            return this.stealthMode
+                ? 'text-gray-900 underline decoration-2 underline-offset-4'
+                : 'text-red-600 underline decoration-2 underline-offset-4';
+        },
+        inputPlaceholder() {
+            return this.showAnswer
+                ? this.t('照着正确拼写再打一遍', 'Type the correct spelling')
+                : this.t('输入英文单词', 'Type the word...');
+        },
+        wrongInput() {
+            return this.lastWrongInput;
+        },
+        // 正确答案展示：选出和用户输入最接近的写法，逐字母标出漏写/写错的位置。
+        answerDisplay() {
+            if (!this.currentWord) {
+                return { segments: [], alternatives: '' };
             }
-            return this.isCorrect ? 'text-green-600' : 'text-red-600';
+            const rawCandidates = String(this.currentWord.word || '')
+                .split('/')
+                .map((item) => item.trim())
+                .filter(Boolean);
+            if (!rawCandidates.length) {
+                return { segments: [], alternatives: '' };
+            }
+
+            const input = this.normalizeAnswer(this.lastWrongInput);
+            let best = rawCandidates[0];
+            if (input) {
+                let bestDistance = Infinity;
+                rawCandidates.forEach((candidate) => {
+                    const distance = this.levenshteinDistance(this.normalizeAnswer(candidate), input);
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        best = candidate;
+                    }
+                });
+            }
+
+            return {
+                segments: this.alignAnswer(best, input),
+                alternatives: rawCandidates.filter((item) => item !== best).join(' / ')
+            };
         }
     },
     watch: {
@@ -142,10 +191,88 @@ createApp({
                 return;
             }
 
+            // 订正模式：照着正确拼写打对后自动进入下一题，不再计入统计。
+            if (this.showAnswer && !this.isAdvancing && !this.isComposing && this.isRetypeCorrect()) {
+                this.startRetypeAdvance();
+                return;
+            }
+
             this.scheduleDraftSave();
         }
     },
     methods: {
+        t(zh, en) {
+            return this.stealthMode ? en : zh;
+        },
+
+        isRetypeCorrect() {
+            if (!this.currentWord) {
+                return false;
+            }
+            const input = this.normalizeAnswer(this.userInput);
+            return Boolean(input) && this.answerCandidates(this.currentWord.word).includes(input);
+        },
+
+        startRetypeAdvance() {
+            this.feedbackMessage = '';
+            this.saveCorrectAdvanceDraft();
+            this.startCorrectAdvance();
+        },
+
+        // 基于最长公共子序列对齐：正确答案中没被用户输入覆盖到的字母标为 miss。
+        alignAnswer(expected, input) {
+            const chars = Array.from(expected);
+            if (!input) {
+                return chars.map((ch) => ({ ch, ok: true }));
+            }
+
+            const left = chars.map((ch) => ch.toLowerCase());
+            const right = Array.from(input);
+            const rows = left.length;
+            const cols = right.length;
+            const dp = Array.from({ length: rows + 1 }, () => new Array(cols + 1).fill(0));
+            for (let i = rows - 1; i >= 0; i--) {
+                for (let j = cols - 1; j >= 0; j--) {
+                    dp[i][j] = left[i] === right[j]
+                        ? dp[i + 1][j + 1] + 1
+                        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+                }
+            }
+
+            const matched = new Array(rows).fill(false);
+            let i = 0;
+            let j = 0;
+            while (i < rows && j < cols) {
+                if (left[i] === right[j]) {
+                    matched[i] = true;
+                    i++;
+                    j++;
+                } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+                    i++;
+                } else {
+                    j++;
+                }
+            }
+
+            return chars.map((ch, index) => ({
+                ch,
+                ok: matched[index] || !/[a-z]/i.test(ch)
+            }));
+        },
+
+        triggerShake() {
+            if (this.shakeTimer) {
+                window.clearTimeout(this.shakeTimer);
+            }
+            this.shake = false;
+            this.$nextTick(() => {
+                this.shake = true;
+                this.shakeTimer = window.setTimeout(() => {
+                    this.shake = false;
+                    this.shakeTimer = null;
+                }, 320);
+            });
+        },
         sanitizeInput(value) {
             return String(value || '').replace(/[^a-zA-Z\s'-]/g, '').replace(/\s+/g, ' ');
         },
@@ -177,7 +304,7 @@ createApp({
             if (!event.data) {
                 return;
             }
-            if (this.showAnswer || this.isAdvancing) {
+            if (this.isAdvancing) {
                 event.preventDefault();
                 return;
             }
@@ -347,6 +474,7 @@ createApp({
 
             const elapsedSeconds = Math.max(Number(draft.currentWordElapsedSeconds || 0), 0);
             const showAnswer = Boolean(draft.showAnswer) && !Boolean(draft.isCorrect);
+            this.lastWrongInput = showAnswer ? this.sanitizeInput(draft.lastWrongInput || '') : '';
 
             this.clearAdvanceTimer();
             this.isRestoringDraft = true;
@@ -356,7 +484,7 @@ createApp({
             this.isChecking = false;
             this.showAnswer = showAnswer;
             this.isCorrect = false;
-            this.feedbackMessage = showAnswer ? String(draft.feedbackMessage || '✗ 错误') : '';
+            this.feedbackMessage = showAnswer ? String(draft.feedbackMessage || this.t('拼写错误', 'Incorrect')) : '';
             this.isFinished = false;
             this.isPracticeAbandoned = false;
             this.isLoadingWords = false;
@@ -443,6 +571,7 @@ createApp({
                 showAnswer: overrides.showAnswer ?? this.showAnswer,
                 isCorrect: overrides.isCorrect ?? this.isCorrect,
                 feedbackMessage: overrides.feedbackMessage ?? this.feedbackMessage,
+                lastWrongInput: overrides.lastWrongInput ?? this.lastWrongInput,
                 practiceMode: this.practiceMode,
                 sessionId: this.sessionId,
                 sessionStartedAt: this.sessionStartedAt ? this.sessionStartedAt.toISOString() : new Date().toISOString(),
@@ -466,25 +595,13 @@ createApp({
         },
 
         saveCorrectAdvanceDraft() {
-            const nextIndex = this.currentIndex + 1;
-            if (nextIndex >= this.words.length) {
-                this.saveDraftSession({
-                    currentIndex: this.words.length,
-                    userInput: '',
-                    showAnswer: false,
-                    isCorrect: false,
-                    feedbackMessage: '',
-                    currentWordElapsedSeconds: 0
-                });
-                return;
-            }
-
             this.saveDraftSession({
-                currentIndex: nextIndex,
+                currentIndex: Math.min(this.currentIndex + 1, this.words.length),
                 userInput: '',
                 showAnswer: false,
                 isCorrect: false,
                 feedbackMessage: '',
+                lastWrongInput: '',
                 currentWordElapsedSeconds: 0
             });
         },
@@ -511,13 +628,14 @@ createApp({
                 return;
             }
 
-            // 处理空格键：只有在输入框为空且未显示答案时才跳过
+            // 空格键：输入框为空时，答题阶段 = 不会/看答案，订正阶段忽略；
+            // 输入框非空时保留空格，兼容词组。
             if (event.key === ' ' || event.code === 'Space') {
-                if (!this.userInput.trim() && !this.showAnswer) {
+                if (!this.userInput.trim()) {
                     event.preventDefault();
-                    this.skipWord();
-                } else if (this.showAnswer) {
-                    event.preventDefault();
+                    if (!this.showAnswer) {
+                        this.skipWord();
+                    }
                 }
             }
         },
@@ -528,7 +646,14 @@ createApp({
                 return;
             }
             if (this.showAnswer) {
-                this.nextWord();
+                // 订正阶段：空输入直接下一题；输入了但没打对则抖动提示继续订正。
+                if (!this.userInput.trim()) {
+                    this.nextWord();
+                } else if (this.isRetypeCorrect()) {
+                    this.startRetypeAdvance();
+                } else {
+                    this.triggerShake();
+                }
                 return;
             }
             this.submitAnswer();
@@ -559,10 +684,13 @@ createApp({
                 return;
             }
 
+            // 答错：清空输入框进入订正阶段，用户照着正确拼写再打一遍。
+            this.lastWrongInput = trimmedInput;
+            this.userInput = '';
             this.showAnswer = true;
             this.displayFeedback();
             this.focusInput();
-            this.saveDraftSession();
+            this.saveDraftSession({ userInput: '' });
         },
 
         checkAnswerLocally() {
@@ -661,13 +789,8 @@ createApp({
         },
 
         displayFeedback() {
-            if (this.isCorrect) {
-                this.feedbackMessage = '✓ 正确！';
-                this.playSuccessAnimation();
-            } else {
-                this.feedbackMessage = '✗ 错误';
-                this.playErrorAnimation();
-            }
+            this.feedbackMessage = this.t('拼写错误，正确答案：', 'Incorrect. Correct spelling:');
+            this.playErrorAnimation();
         },
 
         playSuccessAnimation() {
@@ -695,7 +818,7 @@ createApp({
         },
 
         playErrorAnimation() {
-            // 可以添加震动效果
+            this.triggerShake();
             if (navigator.vibrate) {
                 navigator.vibrate([100, 50, 100]);
             }
@@ -729,11 +852,20 @@ createApp({
             });
             this.recordAttempt('', false, timeSpent, 'skipped');
 
-            this.nextWord();
+            // 跳过不再直接切题：先展示答案，让用户照着打一遍形成记忆。
+            this.isCorrect = false;
+            this.lastWrongInput = '';
+            this.userInput = '';
+            this.showAnswer = true;
+            this.feedbackMessage = this.t('已跳过，正确答案：', 'Skipped. Correct spelling:');
+            this.focusInput();
+            this.saveDraftSession({ userInput: '' });
         },
 
         resetInputState() {
             this.clearAdvanceTimer();
+            this.lastWrongInput = '';
+            this.shake = false;
             this.userInput = '';
             this.isChecking = false;
             this.showAnswer = false;
@@ -849,10 +981,25 @@ createApp({
             if (e.code === 'Space' && e.target === document.body) {
                 e.preventDefault();
             }
+            if (e.key === 'Escape' && this.syncModal.visible) {
+                this.closeSyncModal();
+                return;
+            }
             // 输入框在提交时会短暂 disabled，浏览器可能把焦点丢到 body。
             // 这里做兜底：显示答案后，即使焦点不在输入框，Enter 也能进入下一题。
             if (e.key === 'Enter' && this.showAnswer && e.target === document.body) {
                 this.handleEnter(e);
+                return;
+            }
+            // 焦点意外丢失（点了空白处）时，直接敲字母自动回到输入框。
+            if (
+                e.target === document.body
+                && /^[a-zA-Z]$/.test(e.key)
+                && !e.ctrlKey && !e.metaKey && !e.altKey
+                && !this.isFinished
+                && !this.syncModal.visible
+            ) {
+                this.focusInput();
             }
         });
 

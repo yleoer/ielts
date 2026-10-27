@@ -7,7 +7,7 @@
 - `anki-sync`：接收 Anki 客户端同步数据
 - `typing-practice`：提供练习页面和统计接口
 
-练习服务使用 Docker Hub 上的预构建镜像。
+练习服务使用 Docker Hub 上的预构建镜像，镜像内运行 Python Flask 单体应用。
 
 ## 运行文件
 
@@ -22,6 +22,7 @@
 - Anki 数据先进入同步服务。
 - 练习服务再把同步结果复制到本地缓存。
 - 统计数据保存在 SQLite 中，容器重启后不丢失。
+- Flask 同时提供 Jinja2 页面、静态资源和 `/api` 接口。
 
 ## 常用接口
 

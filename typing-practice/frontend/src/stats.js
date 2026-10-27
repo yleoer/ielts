@@ -1,13 +1,37 @@
 const { createApp } = Vue;
 
+// 掌握度从好到差排列；颜色走“绿 → 黄 → 红”，一眼能看出好坏。
+const MASTERY_LEVELS = [
+    { key: 'mastered', zh: '已掌握', en: 'Mastered', color: '#16a34a', muted: '#374151' },
+    { key: 'familiar', zh: '熟悉', en: 'Familiar', color: '#4ade80', muted: '#6b7280' },
+    { key: 'learning', zh: '学习中', en: 'Learning', color: '#facc15', muted: '#9ca3af' },
+    { key: 'weak', zh: '薄弱', en: 'Weak', color: '#ef4444', muted: '#4b5563' },
+    { key: 'new', zh: '未学习', en: 'New', color: '#d1d5db', muted: '#e5e7eb' }
+];
+
+const ERROR_TYPES = [
+    { key: 'spelling', zh: '拼写错误', en: 'Typo' },
+    { key: 'missing_letter', zh: '漏字母', en: 'Missing letter' },
+    { key: 'extra_letter', zh: '多字母', en: 'Extra letter' },
+    { key: 'completely_wrong', zh: '完全错误', en: 'Completely wrong' },
+    { key: 'skipped', zh: '不会/跳过', en: 'Skipped' }
+];
+
 createApp({
     data() {
         return {
             loading: true,
+            loadError: false,
             stealthMode: false,
             overview: {},
-            charts: {},
-            // 图表详情弹窗共用这一份状态：掌握度和错误类型点击后只切换 type/items。
+            mastery: null,
+            masteryError: false,
+            errorTypes: null,
+            errorTypesError: false,
+            heatmapData: [],
+            heatmapYear: new Date().getFullYear(),
+            trendData: [],
+            trendChart: null,
             detailModal: {
                 visible: false,
                 loading: false,
@@ -19,63 +43,390 @@ createApp({
             },
             apiBaseUrl: window.location.origin && window.location.origin.startsWith('http')
                 ? `${window.location.origin}/api`
-                : 'http://localhost:8080/api',
-            useMockData: false
+                : 'http://localhost:8080/api'
         };
+    },
+    computed: {
+        overviewCards() {
+            const o = this.overview || {};
+            const minutes = Number(o.total_time_minutes || 0);
+            const time = minutes >= 60
+                ? { value: (minutes / 60).toFixed(1), unit: this.t('小时', 'h') }
+                : { value: Math.round(minutes), unit: this.t('分钟', 'min') };
+            return [
+                { label: this.t('累计练习单词', 'Words practiced'), value: o.total_words_practiced || 0, unit: '' },
+                { label: this.t('整体正确率', 'Accuracy'), value: Number(o.overall_accuracy || 0).toFixed(1), unit: '%' },
+                { label: this.t('连续学习', 'Streak'), value: o.current_streak || 0, unit: this.t('天', 'days') },
+                { label: this.t('累计时长', 'Total time'), value: time.value, unit: time.unit }
+            ];
+        },
+        heatmapActiveDays() {
+            return this.heatmapData.filter((item) => Number(item.words || 0) > 0).length;
+        },
+        trendEmpty() {
+            return !this.trendData.some((item) => item.words > 0);
+        },
+        breakdownPanels() {
+            return [this.masteryPanel(), this.errorTypePanel()];
+        }
     },
     mounted() {
         this.loadStealthMode();
         this.loadAllData();
 
         window.addEventListener('resize', () => {
-            Object.values(this.charts).forEach(chart => {
-                if (chart && chart.resize) {
-                    chart.resize();
-                }
-            });
+            if (this.trendChart) {
+                this.trendChart.resize();
+            }
+            // 热力图是纯 CSS 网格，自适应无需重绘。
+        });
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && this.detailModal.visible) {
+                this.closeDetailModal();
+            }
         });
     },
     methods: {
+        t(zh, en) {
+            return this.stealthMode ? en : zh;
+        },
+
         loadStealthMode() {
-            const saved = localStorage.getItem('stealthMode');
-            this.stealthMode = saved === 'true';
+            this.stealthMode = localStorage.getItem('stealthMode') === 'true';
         },
 
         toggleStealthMode() {
             this.stealthMode = !this.stealthMode;
             localStorage.setItem('stealthMode', this.stealthMode);
-            this.reloadAllCharts();
-        },
-
-        async reloadAllCharts() {
-            Object.values(this.charts).forEach(chart => {
-                if (chart && chart.dispose) {
-                    chart.dispose();
-                }
-            });
-            this.charts = {};
-            await this.initCharts();
+            this.renderHeatmap();
+            this.renderTrend();
         },
 
         async loadAllData() {
             this.loading = true;
+            this.loadError = false;
             try {
-                await this.loadOverview();
+                const response = await axios.get(`${this.apiBaseUrl}/stats/overview`);
+                this.overview = response.data.data || {};
             } catch (error) {
                 console.error('Error loading overview:', error);
                 this.loading = false;
-                alert('无法加载统计数据，请确保后端服务正在运行');
+                this.loadError = true;
                 return;
             }
 
+            // 各模块独立加载，单个失败不影响其它模块。
+            await Promise.allSettled([
+                this.loadHeatmap(),
+                this.loadTrend(),
+                this.loadMastery(),
+                this.loadErrorTypes()
+            ]);
+
             this.loading = false;
             await this.$nextTick();
-            await this.initCharts();
+            this.renderHeatmap();
+            this.renderTrend();
         },
 
-        async loadOverview() {
-            const response = await axios.get(`${this.apiBaseUrl}/stats/overview`);
-            this.overview = response.data.data;
+        async loadHeatmap() {
+            const year = this.heatmapYear;
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}/stats/heatmap`, {
+                    params: { start_date: `${year}-01-01`, end_date: `${year}-12-31` }
+                });
+                this.heatmapData = response.data.data || [];
+            } catch (error) {
+                console.warn('Failed to load heatmap', error);
+                this.heatmapData = [];
+            }
+        },
+
+        async loadTrend() {
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}/stats/accuracy-trend`, { params: { days: 30 } });
+                const byDate = new Map((response.data.data || []).map((item) => [item.date, item]));
+                // 补齐没有练习的日期，x 轴是连续的 30 天，断档一目了然。
+                this.trendData = this.lastNDays(30).map((date) => {
+                    const item = byDate.get(date);
+                    const words = item ? Number(item.total_words || 0) : 0;
+                    return {
+                        date,
+                        words,
+                        accuracy: words > 0 ? Number(item.accuracy || 0) : null
+                    };
+                });
+            } catch (error) {
+                console.warn('Failed to load trend', error);
+                this.trendData = [];
+            }
+        },
+
+        async loadMastery() {
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}/stats/mastery-distribution`);
+                this.mastery = response.data.data || {};
+                this.masteryError = false;
+            } catch (error) {
+                console.warn('Failed to load mastery', error);
+                this.masteryError = true;
+            }
+        },
+
+        async loadErrorTypes() {
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}/stats/error-types`);
+                this.errorTypes = response.data.data || {};
+                this.errorTypesError = false;
+            } catch (error) {
+                console.warn('Failed to load error types', error);
+                this.errorTypesError = true;
+            }
+        },
+
+        lastNDays(days) {
+            const result = [];
+            const today = new Date();
+            for (let offset = days - 1; offset >= 0; offset--) {
+                const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
+                result.push(this.formatLocalDate(d));
+            }
+            return result;
+        },
+
+        formatLocalDate(d) {
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        },
+
+        buildRows(defs, data, colorFor) {
+            const total = defs.reduce((sum, def) => sum + Number(data[def.key] || 0), 0);
+            const rows = defs.map((def) => {
+                const value = Number(data[def.key] || 0);
+                return {
+                    key: def.key,
+                    label: this.t(def.zh, def.en),
+                    value,
+                    percent: total ? Math.round((value * 1000) / total) / 10 : 0,
+                    color: colorFor(def)
+                };
+            });
+            return { rows, total };
+        },
+
+        masteryPanel() {
+            const data = this.mastery || {};
+            // “未学习”在当前统计口径下通常为 0，为 0 时不占一行。
+            const defs = MASTERY_LEVELS.filter((def) => def.key !== 'new' || Number(data.new || 0) > 0);
+            const { rows, total } = this.buildRows(defs, data, (def) => (this.stealthMode ? def.muted : def.color));
+            return {
+                key: 'mastery',
+                title: this.t('单词掌握度', 'Word Mastery'),
+                totalText: this.t(`共 ${total} 个单词 · 点击查看`, `${total} words · click to view`),
+                error: this.masteryError,
+                total,
+                rows,
+                open: (row) => this.openMasteryWords(row.key, row.label, row.value)
+            };
+        },
+
+        errorTypePanel() {
+            const data = this.errorTypes || {};
+            const color = this.stealthMode ? '#6b7280' : '#f87171';
+            const { rows, total } = this.buildRows(ERROR_TYPES, data, () => color);
+            // 错误类型没有天然顺序，按次数从多到少排，最该关注的放最上面。
+            rows.sort((a, b) => b.value - a.value);
+            return {
+                key: 'errors',
+                title: this.t('错误类型', 'Error Types'),
+                totalText: this.t(`共 ${total} 次 · 点击查看`, `${total} errors · click to view`),
+                error: this.errorTypesError,
+                total,
+                rows,
+                open: (row) => this.openErrorTypeWords(row.key, row.label, row.value)
+            };
+        },
+
+        renderTrend() {
+            const container = document.getElementById('trend-chart');
+            if (!container || typeof echarts === 'undefined' || this.trendEmpty) {
+                return;
+            }
+            if (!this.trendChart || this.trendChart.isDisposed()) {
+                this.trendChart = echarts.init(container);
+            }
+
+            const barColor = this.stealthMode ? '#d1d5db' : '#c7d2fe';
+            const lineColor = this.stealthMode ? '#374151' : '#4f46e5';
+            const dates = this.trendData.map((item) => item.date.slice(5));
+            const t = this.t.bind(this);
+
+            this.trendChart.setOption({
+                animation: false,
+                grid: { left: 40, right: 44, top: 16, bottom: 28 },
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' },
+                    formatter: (params) => {
+                        const item = this.trendData[params[0].dataIndex];
+                        if (!item.words) {
+                            return `${item.date}<br/>${t('未练习', 'No practice')}`;
+                        }
+                        return `${item.date}<br/>${t('单词', 'Words')}: ${item.words}<br/>${t('正确率', 'Accuracy')}: ${item.accuracy.toFixed(1)}%`;
+                    }
+                },
+                xAxis: {
+                    type: 'category',
+                    data: dates,
+                    axisTick: { show: false },
+                    axisLine: { lineStyle: { color: '#e5e7eb' } },
+                    axisLabel: { color: '#9ca3af', fontSize: 11, interval: 6 }
+                },
+                yAxis: [
+                    {
+                        type: 'value',
+                        minInterval: 1,
+                        splitLine: { lineStyle: { color: '#f3f4f6' } },
+                        axisLabel: { color: '#9ca3af', fontSize: 11 }
+                    },
+                    {
+                        type: 'value',
+                        min: 0,
+                        max: 100,
+                        interval: 25,
+                        splitLine: { show: false },
+                        axisLabel: { color: '#9ca3af', fontSize: 11, formatter: '{value}%' }
+                    }
+                ],
+                series: [
+                    {
+                        name: t('单词', 'Words'),
+                        type: 'bar',
+                        data: this.trendData.map((item) => item.words),
+                        barMaxWidth: 14,
+                        itemStyle: { color: barColor, borderRadius: [3, 3, 0, 0] }
+                    },
+                    {
+                        name: t('正确率', 'Accuracy'),
+                        type: 'line',
+                        yAxisIndex: 1,
+                        data: this.trendData.map((item) => item.accuracy),
+                        connectNulls: false,
+                        symbol: 'circle',
+                        symbolSize: 5,
+                        lineStyle: { width: 2, color: lineColor },
+                        itemStyle: { color: lineColor }
+                    }
+                ]
+            }, true);
+        },
+
+        renderHeatmap() {
+            const container = document.getElementById('heatmap');
+            if (!container) {
+                return;
+            }
+
+            const year = this.heatmapYear;
+            const countsByDate = new Map(this.heatmapData.map((item) => [
+                item.date,
+                { words: Number(item.words || 0), accuracy: Number(item.accuracy || 0) }
+            ]));
+            const maxWords = Math.max(0, ...this.heatmapData.map((item) => Number(item.words || 0)));
+            const weeks = this.buildHeatmapWeeks(year);
+            const monthLabels = this.buildHeatmapMonthLabels(year, weeks);
+            const today = this.formatLocalDate(new Date());
+
+            container.innerHTML = `
+                <div class="github-heatmap${this.stealthMode ? ' heatmap-muted' : ''}">
+                    <div class="github-heatmap-months" aria-hidden="true">
+                        <span></span>
+                        ${monthLabels.map((m) => `<span style="grid-column:${m.column};">${m.label}</span>`).join('')}
+                    </div>
+                    <div class="github-heatmap-body">
+                        <div class="github-heatmap-weekdays" aria-hidden="true">
+                            <span></span><span>${this.t('一', 'Mon')}</span><span></span>
+                            <span>${this.t('三', 'Wed')}</span><span></span>
+                            <span>${this.t('五', 'Fri')}</span><span></span>
+                        </div>
+                        <div class="github-heatmap-grid" role="img" aria-label="${this.t('学习日历', 'Practice calendar')}">
+                    ${weeks.map((week) => `
+                                <div class="github-heatmap-week">
+                            ${week.map((date) => this.renderHeatmapCell(date, countsByDate, maxWords, year, today)).join('')}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="github-heatmap-legend mt-3 flex items-center justify-end gap-1">
+                        <span class="mr-1">${this.t('少', 'Less')}</span>
+                        ${[0, 1, 2, 3, 4].map((level) => `<span class="github-heatmap-cell github-heatmap-level-${level}"></span>`).join('')}
+                        <span class="ml-1">${this.t('多', 'More')}</span>
+                    </div>
+                </div>
+            `;
+        },
+
+        renderHeatmapCell(date, countsByDate, maxWords, year, today) {
+            const dateText = date.toISOString().slice(0, 10);
+            const inYear = date.getUTCFullYear() === year;
+            const item = countsByDate.get(dateText) || { words: 0, accuracy: 0 };
+            const level = inYear ? this.heatmapLevel(item.words, maxWords) : 0;
+            const text = item.words
+                ? this.t(`${dateText}：${item.words} 个单词，正确率 ${item.accuracy.toFixed(1)}%`,
+                    `${dateText}: ${item.words} words, ${item.accuracy.toFixed(1)}% accuracy`)
+                : this.t(`${dateText}：未练习`, `${dateText}: no practice`);
+            const classes = [
+                'github-heatmap-cell',
+                `github-heatmap-level-${level}`,
+                inYear ? '' : 'github-heatmap-outside',
+                dateText === today ? 'github-heatmap-today' : ''
+            ].filter(Boolean).join(' ');
+            return `<span class="${classes}" title="${text}"></span>`;
+        },
+
+        buildHeatmapWeeks(year) {
+            const start = new Date(Date.UTC(year, 0, 1));
+            start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+            const end = new Date(Date.UTC(year, 11, 31));
+            end.setUTCDate(end.getUTCDate() + (6 - end.getUTCDay()));
+
+            const weeks = [];
+            for (let cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 7)) {
+                const week = [];
+                for (let day = 0; day < 7; day++) {
+                    const date = new Date(cursor);
+                    date.setUTCDate(cursor.getUTCDate() + day);
+                    week.push(date);
+                }
+                weeks.push(week);
+            }
+            return weeks;
+        },
+
+        buildHeatmapMonthLabels(year, weeks) {
+            const names = this.stealthMode
+                ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                : ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+            const labels = [];
+            const seen = new Set();
+            weeks.forEach((week, index) => {
+                const first = week.find((date) => date.getUTCFullYear() === year && date.getUTCDate() <= 7);
+                if (first && !seen.has(first.getUTCMonth())) {
+                    seen.add(first.getUTCMonth());
+                    labels.push({ label: names[first.getUTCMonth()], column: index + 2 });
+                }
+            });
+            return labels;
+        },
+
+        heatmapLevel(count, maxCount) {
+            if (!count) return 0;
+            if (maxCount <= 4) return Math.min(4, count);
+            const ratio = count / maxCount;
+            if (ratio <= 0.25) return 1;
+            if (ratio <= 0.5) return 2;
+            if (ratio <= 0.75) return 3;
+            return 4;
         },
 
         formatPercent(value) {
@@ -86,544 +437,37 @@ createApp({
             this.detailModal.visible = false;
         },
 
-        async openMasteryWords(level, label, count) {
-            // 先打开弹窗并展示 loading，再异步请求具体单词，避免用户点击后没有反馈。
-            this.detailModal = {
-                visible: true,
-                loading: true,
-                title: label,
-                subtitle: `${count || 0} 个单词`,
+        async openDetail({ type, title, subtitle, url, params }) {
+            this.detailModal = { visible: true, loading: true, title, subtitle, type, error: '', items: [] };
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}${url}`, { params });
+                this.detailModal.items = response.data.data || [];
+            } catch (error) {
+                console.error('Error loading detail words:', error);
+                this.detailModal.error = this.t('加载单词失败', 'Failed to load words');
+            } finally {
+                this.detailModal.loading = false;
+            }
+        },
+
+        openMasteryWords(level, label, count) {
+            return this.openDetail({
                 type: 'mastery',
-                error: '',
-                items: []
-            };
-
-            try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/mastery-words`, {
-                    params: { level, limit: 500 }
-                });
-                this.detailModal.items = response.data.data || [];
-            } catch (error) {
-                console.error('Error loading mastery words:', error);
-                this.detailModal.error = this.stealthMode ? 'Failed to load words' : '加载单词失败';
-            } finally {
-                this.detailModal.loading = false;
-            }
-        },
-
-        async openErrorTypeWords(errorType, label, count) {
-            // 错误类型详情展示的是“最近一次错误输入”和错误次数，便于直接定位问题。
-            this.detailModal = {
-                visible: true,
-                loading: true,
                 title: label,
-                subtitle: `${count || 0} 次错误`,
+                subtitle: this.t(`${count || 0} 个单词`, `${count || 0} words`),
+                url: '/stats/mastery-words',
+                params: { level, limit: 500 }
+            });
+        },
+
+        openErrorTypeWords(errorType, label, count) {
+            return this.openDetail({
                 type: 'error',
-                error: '',
-                items: []
-            };
-
-            try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/error-type-words`, {
-                    params: { type: errorType, limit: 500 }
-                });
-                this.detailModal.items = response.data.data || [];
-            } catch (error) {
-                console.error('Error loading error type words:', error);
-                this.detailModal.error = this.stealthMode ? 'Failed to load words' : '加载单词失败';
-            } finally {
-                this.detailModal.loading = false;
-            }
-        },
-
-        async initCharts() {
-            const chartLoaders = [
-                ['heatmap', () => this.loadHeatmap()],
-                ['accuracy-trend', () => this.loadAccuracyTrend()],
-                ['mastery-pie', () => this.loadMasteryPie()],
-                ['daily-duration', () => this.loadDailyDuration()],
-                ['error-types', () => this.loadErrorTypes()]
-            ];
-
-            const results = await Promise.allSettled(chartLoaders.map(([, load]) => load()));
-            results.forEach((result, index) => {
-                if (result.status === 'rejected') {
-                    const chartId = chartLoaders[index][0];
-                    console.warn(`Failed to load stats chart: ${chartId}`, result.reason);
-                    this.showChartError(chartId);
-                }
+                title: label,
+                subtitle: this.t(`${count || 0} 次错误`, `${count || 0} errors`),
+                url: '/stats/error-type-words',
+                params: { type: errorType, limit: 500 }
             });
-        },
-
-        showChartError(chartId) {
-            const container = document.getElementById(chartId);
-            if (!container) {
-                return;
-            }
-
-            if (typeof echarts !== 'undefined') {
-                const chart = echarts.getInstanceByDom(container);
-                if (chart) {
-                    chart.dispose();
-                }
-            }
-
-            const title = this.stealthMode ? 'Chart unavailable' : '图表加载失败';
-            const message = this.stealthMode ? 'Please try again later.' : '请稍后刷新页面重试。';
-            container.innerHTML = `
-                <div class="flex h-full min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 px-4 text-center">
-                    <p class="text-base font-semibold text-gray-700">${title}</p>
-                    <p class="mt-2 text-sm text-gray-500">${message}</p>
-                </div>
-            `;
-        },
-
-        async loadHeatmap() {
-            const container = document.getElementById('heatmap');
-            const year = new Date().getFullYear();
-
-            const response = await axios.get(`${this.apiBaseUrl}/stats/heatmap`, {
-                params: {
-                    start_date: `${year}-01-01`,
-                    end_date: `${year}-12-31`
-                }
-            });
-
-            this.renderHeatmap(container, response.data.data || [], year);
-        },
-
-        renderHeatmap(container, data, year) {
-            if (!container) {
-                return;
-            }
-
-            const countsByDate = new Map(data.map((item) => [
-                item.date,
-                {
-                    count: Number(item.count || 0),
-                    accuracy: Number(item.accuracy || 0)
-                }
-            ]));
-
-            const maxCount = Math.max(0, ...data.map((item) => Number(item.count || 0)));
-            const monthLabels = this.buildHeatmapMonthLabels(year);
-            const weeks = this.buildHeatmapWeeks(year);
-            const title = this.stealthMode ? 'Practice Heatmap' : '学习热力图';
-            const less = this.stealthMode ? 'Less' : '少';
-            const more = this.stealthMode ? 'More' : '多';
-            const titleColor = this.stealthMode ? '#374151' : '#4338ca';
-
-            container.innerHTML = `
-                <div class="github-heatmap">
-                    <div class="github-heatmap-title" style="color: ${titleColor};">${title}</div>
-                    <div class="github-heatmap-scroll">
-                        <div class="github-heatmap-months">
-                            <span></span>
-                            ${monthLabels.map((month) => `<span style="grid-column:${month.column};">${month.label}</span>`).join('')}
-                        </div>
-                        <div class="github-heatmap-body">
-                            <div class="github-heatmap-weekdays" aria-hidden="true">
-                                <span></span>
-                                <span>${this.stealthMode ? 'Mon' : '周一'}</span>
-                                <span></span>
-                                <span>${this.stealthMode ? 'Wed' : '周三'}</span>
-                                <span></span>
-                                <span>${this.stealthMode ? 'Fri' : '周五'}</span>
-                                <span></span>
-                            </div>
-                            <div class="github-heatmap-grid" role="grid" aria-label="${title}">
-                                ${weeks.map((week) => `
-                                    <div class="github-heatmap-week" role="row">
-                                        ${week.map((date) => this.renderHeatmapCell(date, countsByDate, maxCount, year)).join('')}
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="github-heatmap-footer">
-                        <span>${less}</span>
-                        ${[0, 1, 2, 3, 4].map((level) => `<span class="github-heatmap-cell github-heatmap-level-${level}"></span>`).join('')}
-                        <span>${more}</span>
-                    </div>
-                </div>
-            `;
-        },
-
-        renderHeatmapCell(date, countsByDate, maxCount, year) {
-            const dateText = this.formatHeatmapDate(date);
-            const item = countsByDate.get(dateText) || { count: 0, accuracy: 0 };
-            const isCurrentYear = date.getUTCFullYear() === year;
-            const level = isCurrentYear ? this.heatmapLevel(item.count, maxCount) : 0;
-            const text = this.stealthMode
-                ? `${dateText}: ${item.count} practice sessions, ${item.accuracy.toFixed(1)}% accuracy`
-                : `${dateText}: ${item.count} 次练习，正确率 ${item.accuracy.toFixed(1)}%`;
-
-            return `<span
-                class="github-heatmap-cell github-heatmap-level-${level}${isCurrentYear ? '' : ' github-heatmap-outside'}"
-                role="gridcell"
-                aria-label="${text}"
-                title="${text}"
-            ></span>`;
-        },
-
-        buildHeatmapWeeks(year) {
-            const start = new Date(Date.UTC(year, 0, 1));
-            start.setUTCDate(start.getUTCDate() - start.getUTCDay());
-
-            const end = new Date(Date.UTC(year, 11, 31));
-            end.setUTCDate(end.getUTCDate() + (6 - end.getUTCDay()));
-
-            const weeks = [];
-            for (let cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 7)) {
-                const week = [];
-                for (let day = 0; day < 7; day += 1) {
-                    const date = new Date(cursor);
-                    date.setUTCDate(cursor.getUTCDate() + day);
-                    week.push(date);
-                }
-                weeks.push(week);
-            }
-            return weeks;
-        },
-
-        buildHeatmapMonthLabels(year) {
-            const labels = [];
-            const seen = new Set();
-            const weeks = this.buildHeatmapWeeks(year);
-            const monthNames = this.stealthMode
-                ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                : ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
-
-            weeks.forEach((week, index) => {
-                const firstInMonth = week.find((date) => date.getUTCFullYear() === year && date.getUTCDate() <= 7);
-                if (!firstInMonth) {
-                    return;
-                }
-                const month = firstInMonth.getUTCMonth();
-                if (!seen.has(month)) {
-                    seen.add(month);
-                    labels.push({
-                        label: monthNames[month],
-                        column: index + 2
-                    });
-                }
-            });
-
-            return labels;
-        },
-
-        heatmapLevel(count, maxCount) {
-            if (!count) {
-                return 0;
-            }
-            if (maxCount <= 4) {
-                return Math.min(4, count);
-            }
-            if (count <= maxCount * 0.25) {
-                return 1;
-            }
-            if (count <= maxCount * 0.5) {
-                return 2;
-            }
-            if (count <= maxCount * 0.75) {
-                return 3;
-            }
-            return 4;
-        },
-
-        formatHeatmapDate(date) {
-            return date.toISOString().slice(0, 10);
-        },
-
-        async loadAccuracyTrend() {
-            const chart = echarts.init(document.getElementById('accuracy-trend'));
-
-            const response = await axios.get(`${this.apiBaseUrl}/stats/accuracy-trend`, {
-                params: { days: 30 }
-            });
-
-            const data = response.data.data || [];
-            const dates = data.map(item => item.date);
-            const accuracies = data.map(item => item.accuracy);
-            const totals = data.map(item => item.total_words);
-            this.renderAccuracyTrend(chart, dates, accuracies, totals);
-        },
-
-        renderAccuracyTrend(chart, dates, accuracies, totals) {
-            const option = {
-                title: {
-                    text: this.stealthMode ? 'Accuracy Trend' : '正确率趋势',
-                    left: 'center',
-                    textStyle: {
-                        color: this.stealthMode ? '#374151' : '#4338ca'
-                    }
-                },
-                tooltip: {
-                    trigger: 'axis',
-                    formatter: (params) => {
-                        const index = params[0].dataIndex;
-                        const accuracy = Number(params[0].value || 0).toFixed(1);
-                        return `${params[0].axisValue}<br/>正确率: ${accuracy}%<br/>练习单词: ${totals[index] || 0}`;
-                    }
-                },
-                xAxis: {
-                    type: 'category',
-                    data: dates,
-                    axisLabel: {
-                        rotate: 45,
-                        interval: Math.floor(dates.length / 10)
-                    }
-                },
-                yAxis: {
-                    type: 'value',
-                    min: 0,
-                    max: 100,
-                    axisLabel: { formatter: '{value}%' }
-                },
-                series: [{
-                    name: '正确率',
-                    type: 'line',
-                    data: accuracies,
-                    smooth: true,
-                    itemStyle: {
-                        color: this.stealthMode ? '#6b7280' : '#5470c6'
-                    },
-                    areaStyle: {
-                        opacity: 0.3
-                    }
-                }]
-            };
-
-            chart.setOption(option);
-            this.charts.accuracyTrend = chart;
-        },
-
-        async loadMasteryPie() {
-            const chart = echarts.init(document.getElementById('mastery-pie'));
-
-            const response = await axios.get(`${this.apiBaseUrl}/stats/mastery-distribution`);
-            const data = response.data.data || { mastered: 0, familiar: 0, learning: 0, weak: 0, new: 0 };
-            this.renderMasteryPie(chart, data);
-        },
-
-        renderMasteryPie(chart, data) {
-            // level 字段不参与 ECharts 展示，但点击扇区时会用它请求后端明细接口。
-            const pieData = [
-                {
-                    value: data.mastered,
-                    name: this.stealthMode ? 'Mastered' : '已掌握',
-                    level: 'mastered',
-                    itemStyle: { color: this.stealthMode ? '#6b7280' : '#67C23A' }
-                },
-                {
-                    value: data.familiar,
-                    name: this.stealthMode ? 'Familiar' : '熟悉',
-                    level: 'familiar',
-                    itemStyle: { color: this.stealthMode ? '#9ca3af' : '#409EFF' }
-                },
-                {
-                    value: data.learning,
-                    name: this.stealthMode ? 'Learning' : '学习中',
-                    level: 'learning',
-                    itemStyle: { color: this.stealthMode ? '#d1d5db' : '#E6A23C' }
-                },
-                {
-                    value: data.weak,
-                    name: this.stealthMode ? 'Weak' : '薄弱',
-                    level: 'weak',
-                    itemStyle: { color: this.stealthMode ? '#4b5563' : '#F56C6C' }
-                },
-                {
-                    value: data.new,
-                    name: this.stealthMode ? 'New' : '未学习',
-                    level: 'new',
-                    itemStyle: { color: this.stealthMode ? '#e5e7eb' : '#909399' }
-                }
-            ];
-
-            const option = {
-                title: {
-                    text: this.stealthMode ? 'Word Mastery Distribution' : '单词掌握度分布',
-                    left: 'center',
-                    textStyle: {
-                        color: this.stealthMode ? '#374151' : '#4338ca'
-                    }
-                },
-                tooltip: {
-                    trigger: 'item',
-                    formatter: '{b}: {c} ({d}%)'
-                },
-                legend: {
-                    orient: 'vertical',
-                    left: 'left',
-                    top: 'middle'
-                },
-                series: [{
-                    type: 'pie',
-                    radius: '60%',
-                    data: pieData,
-                    emphasis: {
-                        itemStyle: {
-                            shadowBlur: 10,
-                            shadowOffsetX: 0,
-                            shadowColor: 'rgba(0, 0, 0, 0.5)'
-                        }
-                    }
-                }]
-            };
-
-            chart.setOption(option);
-            // 切换摸鱼模式会重新渲染图表，先解绑旧 click，避免重复打开弹窗。
-            chart.off('click');
-            chart.on('click', (params) => {
-                if (params.data && params.data.level) {
-                    this.openMasteryWords(params.data.level, params.data.name, params.data.value);
-                }
-            });
-            this.charts.masteryPie = chart;
-        },
-
-        async loadDailyDuration() {
-            const chart = echarts.init(document.getElementById('daily-duration'));
-
-            const response = await axios.get(`${this.apiBaseUrl}/stats/daily-duration`, {
-                params: { days: 30 }
-            });
-
-            const data = response.data.data || [];
-            const dates = data.map(item => item.date);
-            const durations = data.map(item => item.duration_minutes);
-            const sessions = data.map(item => item.session_count);
-            this.renderDailyDuration(chart, dates, durations, sessions);
-        },
-
-        renderDailyDuration(chart, dates, durations, sessions) {
-            const option = {
-                title: {
-                    text: this.stealthMode ? 'Daily Practice Duration' : '每日练习时长',
-                    left: 'center',
-                    textStyle: {
-                        color: this.stealthMode ? '#374151' : '#4338ca'
-                    }
-                },
-                tooltip: {
-                    trigger: 'axis',
-                    formatter: (params) => {
-                        const index = params[0].dataIndex;
-                        const minutes = Number(params[0].value || 0).toFixed(1);
-                        return `${params[0].axisValue}<br/>时长: ${minutes} 分钟<br/>练习次数: ${sessions[index] || 0}`;
-                    }
-                },
-                xAxis: {
-                    type: 'category',
-                    data: dates,
-                    axisLabel: {
-                        rotate: 45,
-                        interval: Math.floor(dates.length / 10)
-                    }
-                },
-                yAxis: {
-                    type: 'value',
-                    axisLabel: { formatter: '{value} min' }
-                },
-                series: [{
-                    name: this.stealthMode ? 'Duration' : '时长',
-                    type: 'bar',
-                    data: durations,
-                    itemStyle: {
-                        color: this.stealthMode ? '#6b7280' : '#E6A23C'
-                    }
-                }]
-            };
-
-            chart.setOption(option);
-            this.charts.dailyDuration = chart;
-        },
-
-        async loadErrorTypes() {
-            const chart = echarts.init(document.getElementById('error-types'));
-
-            const response = await axios.get(`${this.apiBaseUrl}/stats/error-types`);
-            const data = response.data.data || {};
-            this.renderErrorTypes(chart, data);
-        },
-
-        renderErrorTypes(chart, data) {
-            // errorType 字段保留后端枚举值，点击饼图时按枚举值查询具体错误单词。
-            const pieData = [
-                {
-                    value: data.spelling || 0,
-                    name: this.stealthMode ? 'Typo' : '拼写错误',
-                    errorType: 'spelling',
-                    itemStyle: { color: this.stealthMode ? '#6b7280' : '#F56C6C' }
-                },
-                {
-                    value: data.missing_letter || 0,
-                    name: this.stealthMode ? 'Missing Letter' : '漏字母',
-                    errorType: 'missing_letter',
-                    itemStyle: { color: this.stealthMode ? '#9ca3af' : '#E6A23C' }
-                },
-                {
-                    value: data.extra_letter || 0,
-                    name: this.stealthMode ? 'Extra Letter' : '多字母',
-                    errorType: 'extra_letter',
-                    itemStyle: { color: this.stealthMode ? '#d1d5db' : '#409EFF' }
-                },
-                {
-                    value: data.completely_wrong || 0,
-                    name: this.stealthMode ? 'Completely Wrong' : '完全错误',
-                    errorType: 'completely_wrong',
-                    itemStyle: { color: this.stealthMode ? '#4b5563' : '#909399' }
-                },
-                {
-                    value: data.skipped || 0,
-                    name: this.stealthMode ? 'Skipped' : '跳过',
-                    errorType: 'skipped',
-                    itemStyle: { color: this.stealthMode ? '#e5e7eb' : '#67C23A' }
-                }
-            ];
-
-            const option = {
-                title: {
-                    text: this.stealthMode ? 'Error Type Distribution' : '错误类型分布',
-                    left: 'center',
-                    textStyle: {
-                        color: this.stealthMode ? '#374151' : '#4338ca'
-                    }
-                },
-                tooltip: {
-                    trigger: 'item',
-                    formatter: '{b}: {c} ({d}%)'
-                },
-                legend: {
-                    orient: 'vertical',
-                    left: 'left',
-                    top: 'middle'
-                },
-                series: [{
-                    type: 'pie',
-                    radius: ['40%', '70%'],
-                    avoidLabelOverlap: false,
-                    data: pieData,
-                    emphasis: {
-                        itemStyle: {
-                            shadowBlur: 10,
-                            shadowOffsetX: 0,
-                            shadowColor: 'rgba(0, 0, 0, 0.5)'
-                        }
-                    }
-                }]
-            };
-
-            chart.setOption(option);
-            // 与掌握度图一致，重新渲染前清理旧监听器，保持每次点击只发起一次请求。
-            chart.off('click');
-            chart.on('click', (params) => {
-                if (params.data && params.data.errorType) {
-                    this.openErrorTypeWords(params.data.errorType, params.data.name, params.data.value);
-                }
-            });
-            this.charts.errorTypes = chart;
         }
     }
 }).mount('#app');

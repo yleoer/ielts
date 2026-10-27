@@ -1,6 +1,6 @@
 # 统计页说明
 
-这是 `frontend/stats.html` 的前端说明。
+这是 `frontend/templates/stats.html` 的前端说明。
 
 ## 技术栈
 
@@ -42,7 +42,7 @@
 
 ## 相关文件
 
-- `typing-practice/frontend/stats.html`
+- `typing-practice/frontend/templates/stats.html`
 - `typing-practice/frontend/src/stats.js`
-- `typing-practice/backend/handlers/stats.go`
-- `typing-practice/backend/stats/queries.go`
+- `typing-practice/backend/app.py`
+- `typing-practice/backend/stats.py`
