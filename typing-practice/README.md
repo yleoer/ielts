@@ -27,9 +27,9 @@ $env:STATS_DB_PATH = (Join-Path (Get-Location) 'typing-practice\data\stats\stats
 
 默认访问 <http://127.0.0.1:8080>。页面、静态文件和 API 都由同一个 Flask 进程提供，不需要单独启动前端开发服务器。
 
-### 插图与发音
+### 插图
 
-卡片依次显示 200px 圆角插图、同一行的词性与中文含义、播放发音按钮，然后显示输入框。发音只在点击按钮时播放，优先英音 `AudioUK`，为空时使用美音 `AudioUS`；切换单词或退出练习会停止播放。插图缺失或加载失败时隐藏，音频字段为空时按钮禁用，播放失败时给出提示。
+卡片依次显示 200px 圆角插图、同一行的词性与中文含义，然后显示输入框。插图缺失或加载失败时隐藏。浏览器练习页不提供发音按钮、不加载音频；Word Atlas 音频字段保留在原始 22 字段结构中，但练习接口不读取或返回它们。
 
 直接读取 Anki 时，媒体目录默认为数据库旁的 `collection.media/`。如数据库是复制的缓存，需指定原始媒体目录，例如：
 
@@ -37,7 +37,7 @@ $env:STATS_DB_PATH = (Join-Path (Get-Location) 'typing-practice\data\stats\stats
 $env:ANKI_MEDIA_DIR = "$env:APPDATA\Anki2\账户 1\collection.media"
 ```
 
-也可以在 YAML 的 `anki.media_dir` 设置路径；环境变量优先。媒体通过受访问密码保护的 `/api/media/<note_id>/illustration` 和 `/api/media/<note_id>/audio` 提供，只返回该笔记引用的本地图片或音频，不执行字段内的 HTML。
+也可以在 YAML 的 `anki.media_dir` 设置路径；环境变量优先。插图通过受访问密码保护的 `/api/media/<note_id>/illustration` 提供，只返回该笔记引用的本地图片，不执行字段内的 HTML。音频媒体路径返回 404。
 
 ### 首次访问密码
 
@@ -104,9 +104,10 @@ Invoke-RestMethod 'http://127.0.0.1:8080/api/words?limit=20'
 | `ExampleEN` / `ExampleZH` | `example_en` / `example_cn` |
 | `Topic` | `category` |
 | `Illustration` 的 `<img src>` | `illustration_url` |
-| `AudioUK`（为空时使用 `AudioUS`）的 `[sound:...]` | `audio_url` |
 
-词条文字中的 HTML 排版会转换为纯文本。页面去掉可见的“IELTS 打字练习”标题；浏览器标签分别为“打字练习”和“学习统计”。插图、词性与释义、发音按钮按参考卡片顺序排列，保留现有页面配色和答题流程。
+词条文字中的 HTML 排版会转换为纯文本。网站名称为“词间”，统一使用纸色、墨绿的中文界面与原色插画，不再提供黑白纯英文模式或读取旧 `stealthMode` 偏好；浏览器标签为“词间 · 练习”和“词间 · 统计”。练习页去掉页首标题、可见输入标签、输入占位提示、提交与看答案按钮，以及底部快捷键提示，只保留进度、插图、词性释义和输入框等必要内容。Enter 提交、空输入 Space 看答案、Esc 退出及订正流程继续保留；统计页去掉两处“点击查看”，明细仍可点击。
+
+前端样式按 [Impeccable](https://github.com/pbakaus/impeccable) 的 Operate 与 craft-floor 规范重做，设计约束见根目录 `PRODUCT.md` / `DESIGN.md`。样式和 SVG 图标均为本地资源，不再加载 Tailwind CDN；Vue、Axios、统计页 ECharts 仍沿用现有 CDN。网页图标采用纸色底、墨绿双页与赭色书签，和“词间”的衬线品牌字搭配。提供 `frontend/assets/favicon.svg`、多尺寸 `favicon.ico` 和 180px `app-icon.png`，练习、统计与访问密码页共用。
 
 正式版草稿使用 `typingPracticeDraftSession:wordAtlas:v2`，保留媒体链接，避免恢复缺少媒体字段的旧草稿及本地演示数据；历史统计保留。测试命令为：
 

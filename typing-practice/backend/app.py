@@ -227,11 +227,11 @@ def create_app(config: Config | None = None) -> Flask:
     @app.route("/")
     @app.route("/index.html")
     def index():
-        return render_template("index.html", page_title="打字练习")
+        return render_template("index.html", page_title="词间 · 练习")
 
     @app.route("/stats.html")
     def stats_page():
-        return render_template("stats.html", page_title="学习统计")
+        return render_template("stats.html", page_title="词间 · 统计")
 
     @app.route("/assets/<path:filename>")
     def assets(filename: str):
@@ -263,7 +263,7 @@ def create_app(config: Config | None = None) -> Flask:
 
     @app.route("/api/media/<int:note_id>/<kind>")
     def word_media(note_id: int, kind: str):
-        if kind not in {"illustration", "audio"}:
+        if kind != "illustration":
             abort(404)
         with state.lock:
             filename = state.reader.get_media_filename(note_id, kind) if state.reader else ""
