@@ -5,6 +5,8 @@
 
 下面的命令默认在仓库根目录执行。
 
+另有基于本地 Word Atlas 词库和 `genanki` 的 [完整牌组](word-atlas.md)，含 7,298 词、14,596 张卡、插画与离线英美发音，正式牌组名为 Word Atlas，无需 AI 接口。以下仍是原词表生成流程。
+
 ## 文件说明
 
 - `docs/apkg-generator/anki-card-template.md` - 卡片设计方案和模板参考。

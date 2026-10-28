@@ -1,0 +1,27 @@
+<main class="atlas-card atlas-answer">
+  <div id="answer"></div>
+  <section class="atlas-definition-grid">
+    <div class="atlas-definition">
+      <div class="atlas-word-heading"><h1 class="atlas-word" lang="en">{{Word}}</h1><span class="atlas-meta">{{Topic}} <b class="atlas-level">{{CEFR}}</b></span></div>
+      <div class="atlas-pronunciations">
+        {{#UK}}<span class="atlas-pronunciation"><small>UK</small><span lang="en">{{UK}}</span>{{AudioUK}}</span>{{/UK}}
+        {{#US}}<span class="atlas-pronunciation"><small>US</small><span lang="en">{{US}}</span>{{AudioUS}}</span>{{/US}}
+      </div>
+      <div class="atlas-meaning"><span class="atlas-pos">{{PartOfSpeech}}</span><h2>{{MeaningZH}}</h2></div>
+      <p class="atlas-english-definition" lang="en">{{MeaningEN}}</p>
+      {{#MoreSenses}}<section class="atlas-more-senses" aria-label="其他义项">{{MoreSenses}}</section>{{/MoreSenses}}
+    </div>
+    {{#Illustration}}<figure class="atlas-illustration">{{Illustration}}</figure>{{/Illustration}}
+  </section>
+  <div class="atlas-study-grid">
+    <section class="atlas-examples">
+      <h2 class="atlas-section-heading">在语境里记住</h2>
+      {{#ExampleEN}}<div class="atlas-example"><div class="atlas-example-label"><span>日常表达</span>{{AudioExample}}</div><p class="atlas-sentence" lang="en">{{ExampleEN}}</p><p class="atlas-translation">{{ExampleZH}}</p></div>{{/ExampleEN}}
+      {{#IELTSExampleEN}}<div class="atlas-example atlas-example-ielts"><div class="atlas-example-label"><span>雅思语境</span>{{AudioIELTS}}</div><p class="atlas-sentence" lang="en">{{IELTSExampleEN}}</p><p class="atlas-translation">{{IELTSExampleZH}}</p></div>{{/IELTSExampleEN}}
+    </section>
+    <aside class="atlas-usage">
+      {{#Collocations}}<section><h2 class="atlas-section-heading">常用搭配</h2><ul class="atlas-collocations">{{Collocations}}</ul></section>{{/Collocations}}
+      {{#Tip}}<section class="atlas-tip"><h2 class="atlas-section-heading">用法提醒</h2><p>{{Tip}}</p></section>{{/Tip}}
+    </aside>
+  </div>
+</main>

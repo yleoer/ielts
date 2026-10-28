@@ -1,0 +1,5 @@
+# Dependencies of the local D:/me/genanki source; no AI or network calls at build time.
+cached-property==2.0.1
+frozendict==2.4.7
+chevron==0.14.0
+PyYAML==6.0.3
