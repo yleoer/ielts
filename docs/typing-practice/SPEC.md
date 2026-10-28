@@ -8,6 +8,8 @@
 
 它从 Anki 读取已学习单词，先显示中文，再要求用户输入英文单词。普通练习结果会写入 SQLite，用于统计和后续选词；临时巩固类练习只在前端完成。
 
+数据源默认是 `Word Atlas`（生成时 ID `1958430017`），优先按名称解析实际牌组和子牌组。只支持 Word Atlas 的固定 22 字段结构：`Word`、`UK`/`US`、`PartOfSpeech`、`MeaningZH`、`ExampleEN`/`ExampleZH`、`Topic` 分别映射到单词、音标、词性、中文释义、双语例句及分类接口字段。`Illustration`、`AudioUK`/`AudioUS` 提供插图和手动发音，英音优先。字段数量不符的笔记跳过，不按旧牌组布局猜测解析。文字 HTML 先移除真实标签，再解码实体，保留纯文本中的比较符号。
+
 ## 组成部分
 
 - 单体应用：Python 3.12 + Flask + Jinja2
@@ -22,6 +24,8 @@
 
 - `GET /api/health`
 - `GET /api/words`
+- `GET /api/media/<note_id>/illustration`
+- `GET /api/media/<note_id>/audio`
 - `GET /api/config`
 - `GET /api/sync/status`
 - `POST /api/sync/now`
@@ -45,7 +49,7 @@
 
 1. 前端加载。
 2. 页面优先恢复本地草稿；没有可用草稿时，向 `/api/words` 请求练习单词。
-3. 用户根据中文含义输入英文单词。
+3. 页面依次显示插图、同行的词性与中文含义、手动发音按钮，用户在下方输入英文单词。
 4. 前端直接用已返回的单词数据做本地校验，不逐词请求后端。
 5. 答对后播放快速过渡动画并自动进入下一题。
 6. 答错或跳过时展示正确答案，并记录本轮错误。
@@ -57,6 +61,7 @@
 - `data: []` 且 `success: true` 时，页面进入“暂无可练习单词”状态。
 - 输入内容、题号、错误展示、统计进度和练习模式会保存为本地草稿。
 - 草稿保存在浏览器 `localStorage`，有效期为 7 天。
+- 正式版草稿键为 `typingPracticeDraftSession:wordAtlas:v2`，保留媒体链接，不恢复缺少媒体字段的旧草稿或本地演示数据；历史练习统计不清空。
 - 练习完成、重新开始、重新拉词时会清理草稿。
 - 正确答案的自动跳转期间会提前保存下一题位置，刷新后不会重复上一题。
 
@@ -85,6 +90,7 @@
 
 - 监听地址
 - Anki 数据库路径
+- Anki 媒体目录（`ANKI_MEDIA_DIR` / `anki.media_dir`，默认数据库旁的 `collection.media/`）
 - 统计数据库路径
 - 练习词数量限制
 - 部署模式下的同步源和缓存路径

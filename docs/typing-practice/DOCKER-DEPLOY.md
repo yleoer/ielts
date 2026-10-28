@@ -15,6 +15,7 @@
 - `typing-practice/docker-compose.yml`
 - `typing-practice/data/anki-sync/`
 - `typing-practice/data/anki-cache/`
+- `typing-practice/data/anki-media/`：从 Anki `collection.media/` 复制的插图和音频，保留原文件名；只读挂载到 `/app/anki-media`
 - `typing-practice/data/stats/`
 
 ## 运行模型
@@ -23,6 +24,7 @@
 - 练习服务再把同步结果复制到本地缓存。
 - 统计数据保存在 SQLite 中，容器重启后不丢失。
 - Flask 同时提供 Jinja2 页面、静态资源和 `/api` 接口。
+- `ANKI_MEDIA_DIR=/app/anki-media` 提供 Word Atlas 的插图和发音。数据库同步不会自动复制媒体文件，需单独维护 `data/anki-media/`；媒体不提交 Git。
 
 ## 常用接口
 
@@ -34,6 +36,7 @@
 
 - 确认同步服务已有数据
 - 确认缓存里的 `collection.anki2` 存在
+- 确认 `data/anki-media/` 中有笔记引用的 `wa_*.webp`、`wa_*.mp3` 等原始文件
 - 确认练习容器能读到缓存和统计路径
 - 确认 `.env` 里的镜像标签是目标版本
 

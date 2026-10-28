@@ -1,4 +1,4 @@
-"""Single-process Flask application for IELTS typing practice."""
+"""Single-process Flask application for Word Atlas typing practice."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, current_app, jsonify, render_template, request, send_from_directory
+from flask import Flask, abort, current_app, jsonify, render_template, request, send_from_directory
 
 from anki import AnkiReader
 from auth import install_access_gate
@@ -227,11 +227,11 @@ def create_app(config: Config | None = None) -> Flask:
     @app.route("/")
     @app.route("/index.html")
     def index():
-        return render_template("index.html", page_title="IELTS 打字练习")
+        return render_template("index.html", page_title="打字练习")
 
     @app.route("/stats.html")
     def stats_page():
-        return render_template("stats.html", page_title="学习统计 - IELTS 打字练习")
+        return render_template("stats.html", page_title="学习统计")
 
     @app.route("/assets/<path:filename>")
     def assets(filename: str):
@@ -260,6 +260,20 @@ def create_app(config: Config | None = None) -> Flask:
     @app.route("/api/config")
     def config_endpoint():
         return jsonify(state.config_payload())
+
+    @app.route("/api/media/<int:note_id>/<kind>")
+    def word_media(note_id: int, kind: str):
+        if kind not in {"illustration", "audio"}:
+            abort(404)
+        with state.lock:
+            filename = state.reader.get_media_filename(note_id, kind) if state.reader else ""
+        if not filename:
+            abort(404)
+        media_dir = Path(cfg.anki.media_dir or Path(cfg.anki.db_path).parent / "collection.media").expanduser().resolve()
+        media_path = (media_dir / filename).resolve()
+        if media_path.parent != media_dir or not media_path.is_file():
+            abort(404)
+        return send_from_directory(media_dir, filename, conditional=True)
 
     @app.route("/api/sync/status")
     def sync_status_endpoint():
@@ -318,7 +332,7 @@ def create_app(config: Config | None = None) -> Flask:
     @app.errorhandler(404)
     def not_found(_error):
         if request.method == "GET" and not request.path.startswith("/api/"):
-            return render_template("index.html", page_title="IELTS 打字练习")
+            return render_template("index.html", page_title="打字练习")
         return jsonify(success=False, error="not found"), 404
 
     if sync_configured() and not app.testing:

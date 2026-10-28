@@ -7,7 +7,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="assets/style.css?v=20261027-focus">
+    <link rel="stylesheet" href="assets/style.css?v=20261028-media">
 </head>
 <body class="min-h-screen bg-slate-50">
     <!-- 背景色绑定放在 Vue 挂载点内部，body 上的 :class 不会被 Vue 处理。 -->
@@ -37,13 +37,6 @@
                     <span v-else>🕶️</span>
                 </button>
             </div>
-
-            <!-- Header：缩小标题，把视觉重心留给题目卡片 -->
-            <header class="mb-6 text-center">
-                <h1 class="text-2xl font-semibold" :class="stealthMode ? 'text-gray-800' : 'text-indigo-900'">
-                    {{ t('IELTS 打字练习', 'English Vocabulary Practice') }}
-                </h1>
-            </header>
 
             <!-- Main Content -->
             <div v-if="!isFinished" class="mx-auto max-w-2xl">
@@ -81,8 +74,48 @@
                     :class="cardClass"
                 >
                     <div v-if="currentWord" class="text-center">
-                        <p class="text-3xl font-bold leading-snug text-gray-800">{{ currentWord.chinese_meaning }}</p>
-                        <p v-if="currentWord.part_of_speech" class="mt-2 text-sm text-gray-400">{{ currentWord.part_of_speech }}</p>
+                        <img
+                            v-if="currentWord.illustration_url && !illustrationFailed"
+                            :key="currentWord.id"
+                            :src="currentWord.illustration_url"
+                            :alt="t('词义插图', 'Meaning illustration')"
+                            @error="illustrationFailed = true"
+                            width="200"
+                            height="200"
+                            class="practice-illustration"
+                        >
+                        <p class="practice-meaning text-gray-800">
+                            <span
+                                v-if="currentWord.part_of_speech"
+                                class="practice-part-of-speech"
+                                :class="stealthMode ? 'text-gray-500' : 'text-orange-700'"
+                            >{{ currentWord.part_of_speech }}</span>
+                            <span>{{ currentWord.chinese_meaning }}</span>
+                        </p>
+                        <button
+                            type="button"
+                            @click="playPronunciation"
+                            :disabled="!currentWord.audio_url || isAudioLoading"
+                            :aria-label="t('播放发音', 'Play pronunciation')"
+                            class="practice-audio-button mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11 5 6 9H3v6h3l5 4V5Z"/>
+                                <path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>
+                            </svg>
+                            {{ !currentWord.audio_url ? t('暂无发音', 'No audio') : isAudioLoading ? t('加载中…', 'Loading…') : isAudioPlaying ? t('重新播放', 'Replay') : t('播放发音', 'Play pronunciation') }}
+                        </button>
+                        <audio
+                            v-if="currentWord.audio_url"
+                            ref="pronunciationAudio"
+                            :src="currentWord.audio_url"
+                            preload="none"
+                            @playing="isAudioPlaying = true; isAudioLoading = false"
+                            @pause="isAudioPlaying = false"
+                            @ended="isAudioPlaying = false"
+                            @error="handleAudioError"
+                        ></audio>
+                        <p v-if="audioError" role="status" class="mt-2 text-sm text-gray-500">{{ audioError }}</p>
 
                         <!-- Input：关闭拼写检查/自动纠正/自动大写，避免浏览器替你“答题” -->
                         <div class="mt-8">
@@ -336,6 +369,6 @@
         </div>
     </div>
 
-    <script src="src/app.js?v=20261027-retype"></script>
+    <script src="src/app.js?v=20261028-media"></script>
 </body>
 </html>

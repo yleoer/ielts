@@ -4,8 +4,9 @@ server:
 
 anki:
   db_path: ""
-  deck_name: "IELTS Vocabulary"
-  deck_id: 2055274336
+  deck_name: "Word Atlas"
+  deck_id: 1958430017
+  media_dir: ""
 
 practice:
   default_limit: 20

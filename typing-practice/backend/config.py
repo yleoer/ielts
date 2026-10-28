@@ -9,6 +9,9 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+DEFAULT_DECK_NAME = "Word Atlas"
+DEFAULT_DECK_ID = 1958430017
+
 
 @dataclass
 class ServerConfig:
@@ -19,8 +22,9 @@ class ServerConfig:
 @dataclass
 class AnkiConfig:
     db_path: str = ""
-    deck_name: str = "IELTS Vocabulary"
-    deck_id: int = 2055274336
+    deck_name: str = DEFAULT_DECK_NAME
+    deck_id: int = DEFAULT_DECK_ID
+    media_dir: str = ""
 
 
 @dataclass
@@ -118,8 +122,9 @@ def load_config() -> Config:
         ),
         anki=AnkiConfig(
             db_path=str(anki.get("db_path", "") or ""),
-            deck_name=str(anki.get("deck_name", "IELTS Vocabulary") or "IELTS Vocabulary"),
-            deck_id=_as_int(anki.get("deck_id", 2055274336), 2055274336),
+            deck_name=str(anki.get("deck_name", DEFAULT_DECK_NAME) or DEFAULT_DECK_NAME),
+            deck_id=_as_int(anki.get("deck_id", DEFAULT_DECK_ID), DEFAULT_DECK_ID),
+            media_dir=str(anki.get("media_dir", "") or ""),
         ),
         practice=PracticeConfig(
             default_limit=_as_int(practice.get("default_limit", 20), 20),
@@ -141,6 +146,8 @@ def load_config() -> Config:
         cfg.anki.deck_name = env["ANKI_DECK_NAME"].strip()
     if env.get("ANKI_DECK_ID", "").strip():
         cfg.anki.deck_id = _as_int(env["ANKI_DECK_ID"], cfg.anki.deck_id)
+    if env.get("ANKI_MEDIA_DIR", "").strip():
+        cfg.anki.media_dir = env["ANKI_MEDIA_DIR"].strip()
     if env.get("PRACTICE_DEFAULT_LIMIT", "").strip():
         cfg.practice.default_limit = _as_int(env["PRACTICE_DEFAULT_LIMIT"], cfg.practice.default_limit)
     if env.get("PRACTICE_MAX_LIMIT", "").strip():
