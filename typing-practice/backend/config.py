@@ -31,7 +31,6 @@ class AnkiConfig:
 class PracticeConfig:
     default_limit: int = 20
     max_limit: int = 100
-    enable_audio: bool = False
 
 
 @dataclass
@@ -129,7 +128,6 @@ def load_config() -> Config:
         practice=PracticeConfig(
             default_limit=_as_int(practice.get("default_limit", 20), 20),
             max_limit=_as_int(practice.get("max_limit", 100), 100),
-            enable_audio=bool(practice.get("enable_audio", False)),
         ),
         stats=StatsConfig(db_path=str(stats.get("db_path", "data/stats.db") or "data/stats.db")),
         access_password=os.environ.get("ACCESS_PASSWORD", ""),

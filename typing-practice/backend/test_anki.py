@@ -38,12 +38,12 @@ class WordAtlasFieldTest(unittest.TestCase):
             "part_of_speech": "n.", "chinese_meaning": "图书馆；藏书室",
             "example_en": "I borrowed books from the library.",
             "example_cn": "我从图书馆借了书。", "category": "教育",
-            "illustration_url": "/api/media/101/illustration", "audio_url": "/api/media/101/audio",
+            "illustration_url": "/api/media/101/illustration",
         })
 
-    def test_media_references_are_local_and_us_audio_is_a_fallback(self):
+    def test_media_references_are_local_and_only_illustrations_are_exposed(self):
         values = dict(zip(WORD_ATLAS_FIELDS, atlas_fields(AudioUK="").split(FIELD_SEPARATOR)))
-        self.assertEqual(media_filename(values, "audio"), "wa_library_us.mp3")
+        self.assertEqual(media_filename(values, "audio"), "")
         self.assertEqual(media_filename(values, "illustration"), "wa_library_img.webp")
         for reference in ("../outside.webp", "..\\outside.webp", "https://example.com/a.webp", "C:\\a.webp", "file.svg"):
             with self.subTest(reference=reference):
@@ -51,7 +51,7 @@ class WordAtlasFieldTest(unittest.TestCase):
                 self.assertEqual(word["illustration_url"], "")
         word = parse_word(101, atlas_fields(Illustration="", AudioUK="", AudioUS=""))
         self.assertEqual(word["illustration_url"], "")
-        self.assertEqual(word["audio_url"], "")
+        self.assertNotIn("audio_url", word)
 
     def test_only_accepts_the_22_field_word_atlas_layout(self):
         old = FIELD_SEPARATOR.join(["library", "/ipa/", "n.", "图书馆", "Example", "译文", "", "core"])
@@ -119,7 +119,7 @@ class WordAtlasReaderTest(unittest.TestCase):
                 self.assertEqual(reader.get_learned_words(10, "教育")[0]["word"], "library")
                 self.assertEqual(reader.get_word_by_id(103)["part_of_speech"], "v.")
                 self.assertEqual(reader.get_media_filename(101, "illustration"), "wa_library_img.webp")
-                self.assertEqual(reader.get_media_filename(101, "audio"), "wa_library_uk.mp3")
+                self.assertEqual(reader.get_media_filename(101, "audio"), "")
                 self.assertEqual(reader.get_media_filename(999, "audio"), "")
             finally:
                 reader.close()

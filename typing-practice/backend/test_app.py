@@ -45,7 +45,7 @@ def make_anki_db(path: Path) -> None:
 
 
 class FlaskAppTest(unittest.TestCase):
-    def test_media_api_serves_referenced_files_and_audio_ranges(self):
+    def test_media_api_serves_illustrations_and_rejects_audio(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             collection = root / "collection.anki2"
@@ -63,10 +63,8 @@ class FlaskAppTest(unittest.TestCase):
                 with client.get(word["illustration_url"]) as response:
                     self.assertEqual(response.data, image_content)
                     self.assertEqual(response.mimetype, "image/webp")
-                with client.get(word["audio_url"], headers={"Range": "bytes=0-2"}) as response:
-                    self.assertEqual(response.status_code, 206)
-                    self.assertEqual(response.data, audio_content[:3])
-                    self.assertEqual(response.mimetype, "audio/mpeg")
+                self.assertNotIn("audio_url", word)
+                self.assertEqual(client.get("/api/media/101/audio").status_code, 404)
                 for path in ("/api/media/999/audio", "/api/media/101/private", "/api/media/101/../collection.anki2"):
                     self.assertEqual(client.get(path).status_code, 404, path)
                 (media / "wa_abandon_img.webp").unlink()
@@ -106,11 +104,15 @@ class FlaskAppTest(unittest.TestCase):
         self.assertEqual(client.get("/api/health").json, {"success": True, "status": "ok"})
         self.assertEqual(client.get("/").status_code, 200)
         self.assertIn(b"vue@3.4.21", client.get("/").data)
+        self.assertNotIn(b"<audio", client.get("/").data)
+        self.assertNotIn(b"playPronunciation", client.get("/").data)
+        self.assertIn(b"currentWord.illustration_url", client.get("/").data)
         self.assertNotIn("IELTS 打字练习".encode(), client.get("/").data)
         self.assertNotIn(b"English Vocabulary Practice", client.get("/").data)
         self.assertNotIn("IELTS 打字练习".encode(), client.get("/stats.html").data)
         self.assertNotIn("IELTS 打字练习".encode(), client.get("/practice").data)
-        self.assertIn("<title>打字练习</title>".encode(), client.get("/").data)
+        self.assertIn("<title>词间 · 练习</title>".encode(), client.get("/").data)
+        self.assertIn("<title>词间 · 统计</title>".encode(), client.get("/stats.html").data)
         self.assertEqual(client.get("/stats.html").status_code, 200)
         assets_response = client.get("/assets/style.css")
         source_response = client.get("/src/app.js")

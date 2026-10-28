@@ -38,14 +38,6 @@ def media_filename(values: dict[str, str], kind: str) -> str:
     if kind == "illustration":
         filename = _IllustrationParser(values.get("Illustration", "")).filename
         extensions = {".webp", ".png", ".jpg", ".jpeg", ".gif", ".avif"}
-    elif kind == "audio":
-        filename = ""
-        for field in ("AudioUK", "AudioUS"):
-            match = re.search(r"\[sound:([^\]]+)\]", values.get(field, ""))
-            if match:
-                filename = html.unescape(match.group(1))
-                break
-        extensions = {".mp3", ".ogg", ".wav", ".m4a"}
     else:
         return ""
     if not filename or filename.startswith(".") or any(char in filename for char in "/\\:\x00"):
@@ -75,7 +67,6 @@ def parse_word(note_id: int, raw_fields: str) -> dict[str, Any] | None:
         "example_cn": clean_field(values["ExampleZH"]),
         "category": clean_field(values["Topic"]),
         "illustration_url": f"/api/media/{note_id}/illustration" if media_filename(values, "illustration") else "",
-        "audio_url": f"/api/media/{note_id}/audio" if media_filename(values, "audio") else "",
     }
     if not word["word"] or not word["chinese_meaning"]:
         return None

@@ -4,371 +4,90 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>[[ page_title ]]</title>
-    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="assets/style.css?v=20261028-media">
+    {% include '_appearance.html' %}
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
+    <script src="/src/app.js?v=20261028-cijian" defer></script>
 </head>
-<body class="min-h-screen bg-slate-50">
-    <!-- 背景色绑定放在 Vue 挂载点内部，body 上的 :class 不会被 Vue 处理。 -->
-    <div id="app" class="min-h-screen" :class="stealthMode ? 'bg-gray-50' : 'bg-gradient-to-b from-slate-50 to-indigo-50'">
-        <div class="container mx-auto px-4 py-8">
-            <!-- 顶部工具按钮：中性配色，避免在练习时抢视线。 -->
-            <div class="fixed top-4 right-4 z-40 flex gap-2">
-                <a
-                    href="stats.html"
-                    class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-lg text-gray-600 shadow-sm hover:bg-gray-100"
-                    :title="t('查看统计', 'Statistics')"
-                    :aria-label="t('查看统计', 'Statistics')"
-                >📊</a>
-                <button
-                    @click="openSyncModal"
-                    class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-lg text-gray-600 shadow-sm hover:bg-gray-100"
-                    :title="t('同步 Anki', 'Sync')"
-                    :aria-label="t('同步 Anki', 'Sync')"
-                >🔄</button>
-                <button
-                    @click="toggleStealthMode"
-                    class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-lg text-gray-600 shadow-sm hover:bg-gray-100"
-                    :title="stealthMode ? '切换工作模式' : '切换摸鱼模式'"
-                    :aria-label="stealthMode ? '切换工作模式' : '切换摸鱼模式'"
-                >
-                    <span v-if="stealthMode">👔</span>
-                    <span v-else>🕶️</span>
-                </button>
+<body>
+    <a class="skip-link" href="#main-content">跳到内容</a>
+    <div id="app" v-cloak>
+      <div class="app-shell">
+        {% set active_page = 'practice' %}
+        {% include '_header.html' %}
+        <main id="main-content" class="practice-workspace">
+            <div v-if="isMistakePractice" class="page-heading">
+                <span class="session-label" v-if="isMistakePractice">{{ t('错词重练', 'Review') }}</span>
             </div>
-
-            <!-- Main Content -->
-            <div v-if="!isFinished" class="mx-auto max-w-2xl">
-                <!-- Progress -->
-                <div class="mb-4">
-                    <div class="mb-1.5 flex items-center justify-between text-sm text-gray-500">
-                        <span class="tabular-nums">
-                            {{ progressCurrent }} / {{ words.length }}
-                            <span
-                                v-if="isMistakePractice"
-                                class="ml-2 rounded px-2 py-0.5 text-xs font-semibold"
-                                :class="stealthMode ? 'bg-gray-100 text-gray-700' : 'bg-red-50 text-red-600'"
-                            >{{ t('错词重练', 'Review') }}</span>
-                        </span>
-                        <span class="tabular-nums">{{ t('正确率', 'Accuracy') }} {{ accuracy }}%</span>
+            <template v-if="!isFinished">
+                <div class="session-progress">
+                    <span class="progress-count">{{ progressCurrent }} <span class="muted">/ {{ words.length }}</span></span>
+                    <div class="progress-track" role="progressbar" :aria-label="t('练习进度', 'Session progress')" :aria-valuenow="progressCurrent" aria-valuemin="0" :aria-valuemax="words.length">
+                        <div :style="{ width: progressPercentage + '%' }"></div>
                     </div>
-                    <div
-                        class="h-1.5 w-full overflow-hidden rounded-full bg-gray-200"
-                        role="progressbar"
-                        :aria-valuenow="progressCurrent"
-                        aria-valuemin="0"
-                        :aria-valuemax="words.length"
-                    >
-                        <div
-                            class="h-full rounded-full transition-[width] duration-300"
-                            :class="stealthMode ? 'bg-gray-500' : 'bg-indigo-500'"
-                            :style="{ width: progressPercentage + '%' }"
-                        ></div>
-                    </div>
+                    <span class="progress-accuracy">{{ t('正确率', 'Accuracy') }} <strong>{{ accuracy }}%</strong></span>
                 </div>
-
-                <!-- Word Card：常驻 2px 边框，状态切换时只换颜色，不会造成布局跳动 -->
-                <div
-                    class="mb-5 rounded-2xl border-2 bg-white p-8 shadow-sm transition-colors duration-200 sm:p-10"
-                    :class="cardClass"
-                >
-                    <div v-if="currentWord" class="text-center">
-                        <img
-                            v-if="currentWord.illustration_url && !illustrationFailed"
-                            :key="currentWord.id"
-                            :src="currentWord.illustration_url"
-                            :alt="t('词义插图', 'Meaning illustration')"
-                            @error="illustrationFailed = true"
-                            width="200"
-                            height="200"
-                            class="practice-illustration"
-                        >
-                        <p class="practice-meaning text-gray-800">
-                            <span
-                                v-if="currentWord.part_of_speech"
-                                class="practice-part-of-speech"
-                                :class="stealthMode ? 'text-gray-500' : 'text-orange-700'"
-                            >{{ currentWord.part_of_speech }}</span>
-                            <span>{{ currentWord.chinese_meaning }}</span>
+                <section class="practice-sheet" :class="cardClass" :aria-label="t('当前词条', 'Current entry')">
+                    <div v-if="currentWord" class="entry-content">
+                        <img v-if="currentWord.illustration_url && !illustrationFailed" :key="currentWord.id" :src="currentWord.illustration_url" :alt="t('词义插图', 'Meaning illustration')" @error="illustrationFailed = true" width="200" height="200" class="practice-illustration">
+                        <p class="practice-meaning">
+                            <span v-if="currentWord.part_of_speech" class="practice-part-of-speech">{{ currentWord.part_of_speech }}</span>
+                            <span lang="zh-CN">{{ currentWord.chinese_meaning }}</span>
                         </p>
-                        <button
-                            type="button"
-                            @click="playPronunciation"
-                            :disabled="!currentWord.audio_url || isAudioLoading"
-                            :aria-label="t('播放发音', 'Play pronunciation')"
-                            class="practice-audio-button mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M11 5 6 9H3v6h3l5 4V5Z"/>
-                                <path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>
-                            </svg>
-                            {{ !currentWord.audio_url ? t('暂无发音', 'No audio') : isAudioLoading ? t('加载中…', 'Loading…') : isAudioPlaying ? t('重新播放', 'Replay') : t('播放发音', 'Play pronunciation') }}
-                        </button>
-                        <audio
-                            v-if="currentWord.audio_url"
-                            ref="pronunciationAudio"
-                            :src="currentWord.audio_url"
-                            preload="none"
-                            @playing="isAudioPlaying = true; isAudioLoading = false"
-                            @pause="isAudioPlaying = false"
-                            @ended="isAudioPlaying = false"
-                            @error="handleAudioError"
-                        ></audio>
-                        <p v-if="audioError" role="status" class="mt-2 text-sm text-gray-500">{{ audioError }}</p>
-
-                        <!-- Input：关闭拼写检查/自动纠正/自动大写，避免浏览器替你“答题” -->
-                        <div class="mt-8">
-                            <label for="answer-input" class="sr-only">{{ inputPlaceholder }}</label>
-                            <input
-                                id="answer-input"
-                                ref="inputField"
-                                v-model="userInput"
-                                @beforeinput="handleBeforeInput"
-                                @input="handleInput"
-                                @keydown="handleKeydown"
-                                @compositionstart="handleCompositionStart"
-                                @compositionend="handleCompositionEnd"
-                                @keyup.esc="quitPractice"
-                                type="text"
-                                autocomplete="off"
-                                autocorrect="off"
-                                autocapitalize="off"
-                                spellcheck="false"
-                                :placeholder="inputPlaceholder"
-                                class="w-full rounded-xl border-2 px-6 py-4 text-center font-mono text-2xl tracking-wide text-gray-900 placeholder:font-sans placeholder:text-base placeholder:tracking-normal placeholder:text-gray-400 focus:outline-none"
-                                :class="inputClass"
-                                :readonly="isAdvancing"
-                                :disabled="isChecking"
-                            >
+                        <div class="answer-area">
+                            <div class="answer-row">
+                                <input id="answer-input" ref="inputField" v-model="userInput" @beforeinput="handleBeforeInput" @input="handleInput" @keydown="handleKeydown" @compositionstart="handleCompositionStart" @compositionend="handleCompositionEnd" @keyup.esc="quitPractice" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" :aria-label="showAnswer ? '订正拼写' : '英文拼写'" class="answer-input" :class="inputClass" :readonly="isAdvancing" :disabled="isChecking">
+                            </div>
                         </div>
-
-                        <!-- 屏幕阅读器播报反馈 -->
                         <p class="sr-only" aria-live="polite">{{ feedbackMessage }}</p>
-
-                        <!-- 答错/跳过：展示正确拼写，并标出拼错的字母 -->
-                        <div v-if="showAnswer && !isAdvancing" class="mt-6 space-y-3">
-                            <p class="text-sm font-medium" :class="feedbackClass">{{ feedbackMessage }}</p>
-
-                            <p class="whitespace-pre-wrap break-words font-mono text-3xl font-bold tracking-wide">
-                                <span
-                                    v-for="(segment, index) in answerDisplay.segments"
-                                    :key="index"
-                                    :class="segment.ok ? answerOkClass : answerMissClass"
-                                >{{ segment.ch }}</span>
-                            </p>
-                            <p v-if="answerDisplay.alternatives" class="text-sm text-gray-500">
-                                {{ t('也可以：', 'Also: ') }}<span class="font-mono">{{ answerDisplay.alternatives }}</span>
-                            </p>
-                            <p v-if="currentWord.phonetic" class="text-gray-500">{{ currentWord.phonetic }}</p>
-                            <p v-if="wrongInput" class="text-sm text-gray-500">
-                                {{ t('你的输入：', 'You typed: ') }}<span class="font-mono line-through">{{ wrongInput }}</span>
-                            </p>
-
-                            <div
-                                v-if="currentWord.example_en || currentWord.example_cn"
-                                class="mx-auto max-w-xl rounded-lg bg-gray-50 px-4 py-3 text-left text-sm leading-relaxed"
-                            >
-                                <p v-if="currentWord.example_en" class="text-gray-700">{{ currentWord.example_en }}</p>
-                                <p v-if="currentWord.example_cn" class="mt-1 text-gray-500">{{ currentWord.example_cn }}</p>
+                        <div v-if="showAnswer && !isAdvancing" class="correction-area">
+                            <p class="feedback-text">{{ feedbackMessage }}</p>
+                            <p class="answer-spelling"><span v-for="(segment, index) in answerDisplay.segments" :key="index" :class="segment.ok ? answerOkClass : answerMissClass">{{ segment.ch }}</span></p>
+                            <p v-if="answerDisplay.alternatives" class="muted">{{ t('也可以：', 'Also: ') }}<span class="mono">{{ answerDisplay.alternatives }}</span></p>
+                            <p v-if="currentWord.phonetic" class="phonetic">{{ currentWord.phonetic }}</p>
+                            <p v-if="wrongInput" class="muted">{{ t('你的输入：', 'You typed: ') }}<del class="mono">{{ wrongInput }}</del></p>
+                            <div v-if="currentWord.example_en || currentWord.example_cn" class="example-area">
+                                <p v-if="currentWord.example_en">{{ currentWord.example_en }}</p>
+                                <p v-if="currentWord.example_cn" class="muted">{{ currentWord.example_cn }}</p>
                             </div>
-
-                            <button
-                                @click="nextWord"
-                                class="mt-2 rounded-lg px-6 py-2 text-sm font-semibold transition-colors"
-                                :class="stealthMode ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'"
-                            >
-                                {{ t('下一题', 'Next') }}
-                            </button>
+                            <button type="button" class="button button-secondary" @click="nextWord">{{ t('下一题', 'Continue') }}<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button>
                         </div>
                     </div>
-
-                    <div v-else-if="isLoadingWords" class="py-12 text-center">
-                        <div class="mx-auto h-10 w-10 animate-spin rounded-full border-b-2" :class="stealthMode ? 'border-gray-600' : 'border-indigo-600'"></div>
-                        <p class="mt-4 text-gray-500">{{ t('加载中...', 'Loading...') }}</p>
+                    <div v-else-if="isLoadingWords" class="empty-state" role="status">
+                        <div class="loading-skeleton"><span></span><span></span><span></span></div>
+                        <p>{{ t('正在加载单词…', 'Loading entries…') }}</p>
                     </div>
-
-                    <div v-else-if="wordsError" class="py-12 text-center">
-                        <p class="text-xl font-semibold text-gray-800">{{ t('单词加载失败', 'Failed to load words') }}</p>
-                        <p class="mt-3 text-sm text-gray-500">{{ wordsError }}</p>
-                        <button
-                            @click="fetchWords"
-                            class="mt-6 rounded-lg px-6 py-2 font-semibold text-white transition-colors"
-                            :class="stealthMode ? 'bg-gray-700 hover:bg-gray-800' : 'bg-indigo-600 hover:bg-indigo-700'"
-                        >{{ t('重试', 'Retry') }}</button>
+                    <div v-else-if="wordsError" class="empty-state" role="alert">
+                        <h2>{{ t('单词加载失败', 'Unable to load entries') }}</h2><p>{{ wordsError }}</p>
+                        <button type="button" class="button button-primary" @click="fetchWords">{{ t('重试', 'Try again') }}</button>
                     </div>
-
-                    <div v-else class="py-12 text-center">
-                        <p class="text-xl font-semibold text-gray-800">{{ t('暂无可练习单词', 'No words available') }}</p>
-                        <p class="mt-3 text-sm text-gray-500">{{ t('可以先同步 Anki，再重新开始练习。', 'Sync Anki first, then start again.') }}</p>
-                        <div class="mt-6 flex justify-center gap-3">
-                            <button
-                                @click="openSyncModal"
-                                class="rounded-lg px-5 py-2 font-semibold text-white transition-colors"
-                                :class="stealthMode ? 'bg-gray-700 hover:bg-gray-800' : 'bg-sky-600 hover:bg-sky-700'"
-                            >{{ t('同步 Anki', 'Sync') }}</button>
-                            <button
-                                @click="fetchWords"
-                                class="rounded-lg border bg-white px-5 py-2 font-semibold transition-colors"
-                                :class="stealthMode ? 'border-gray-300 text-gray-700 hover:bg-gray-100' : 'border-indigo-200 text-indigo-700 hover:bg-indigo-50'"
-                            >{{ t('重试', 'Retry') }}</button>
-                        </div>
+                    <div v-else class="empty-state">
+                        <svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#document"/></svg>
+                        <h2>{{ t('暂无可练习单词', 'No entries yet') }}</h2><p>{{ t('先同步 Anki，再重新开始练习。', 'Sync your collection, then refresh this session.') }}</p>
+                        <div class="button-row"><button type="button" class="button button-primary" @click="openSyncModal">{{ t('同步 Anki', 'Sync collection') }}</button><button type="button" class="button button-secondary" @click="fetchWords">{{ t('重试', 'Refresh') }}</button></div>
                     </div>
+                </section>
+            </template>
+            <section v-else class="results-sheet">
+                <div class="result-heading"><svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#check"/></svg><h2>{{ isPracticeAbandoned ? t('已退出练习', 'Session closed') : isMistakePractice ? t('错词重练完成', 'Review complete') : t('练习完成', 'Session complete') }}</h2></div>
+                <dl class="metrics-strip result-metrics"><div><dt>{{ t('总题数', 'Entries') }}</dt><dd>{{ resultTotal }}</dd></div><div><dt>{{ t('正确', 'Correct') }}</dt><dd>{{ stats.correct }}</dd></div><div><dt>{{ t('错误', 'To revise') }}</dt><dd>{{ stats.incorrect }}</dd></div><div><dt>{{ t('正确率', 'Accuracy') }}</dt><dd>{{ accuracy }}<small>%</small></dd></div></dl>
+                <div v-if="stats.errors.length" class="mistakes-section"><h3>{{ t('错题回顾', 'Revisions') }}</h3><ul class="entry-list"><li v-for="(error, index) in stats.errors" :key="index"><div><strong class="mono">{{ error.word }}</strong><p class="muted">{{ error.meaning }}</p></div><del class="mono muted">{{ error.user_input }}</del></li></ul></div>
+                <div class="button-row"><button v-if="mistakePracticeWords.length" type="button" class="button button-secondary" @click="startMistakePractice">{{ t('错词重练', 'Review revisions') }}</button><button type="button" class="button button-primary" @click="restartPractice">{{ t('重新开始', 'New session') }}<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button></div>
+            </section>
+        </main>
+        <div v-if="syncModal.visible" class="dialog-backdrop" @click.self="closeSyncModal">
+            <section class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="sync-title">
+                <header class="dialog-header"><h2 id="sync-title">{{ t('Anki 同步', 'Collection sync') }}</h2><button type="button" class="icon-button" @click="closeSyncModal" :aria-label="t('关闭', 'Close')"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
+                <div v-if="syncModal.loading" class="dialog-body muted" role="status">{{ t('加载中…', 'Loading…') }}</div>
+                <div v-else class="dialog-body">
+                    <dl class="sync-metrics"><div><dt>{{ t('上次同步', 'Last sync') }}</dt><dd>{{ formatSyncTime(syncModal.status && syncModal.status.last_sync_at) }}</dd></div><div><dt>{{ t('新增单词', 'Added') }}</dt><dd>{{ (syncModal.status && syncModal.status.added_words) || 0 }}</dd></div><div><dt>{{ t('单词总数', 'Total') }}</dt><dd>{{ (syncModal.status && syncModal.status.after_words) || 0 }}</dd></div></dl>
+                    <div class="sync-history"><h3>{{ t('同步历史', 'History') }}<span class="muted">{{ syncHistory().length }}</span></h3><div v-if="syncHistory().length" class="scroll-list"><article v-for="(item, index) in syncHistory()" :key="item.synced_at + '-' + index" class="history-row"><div class="row-between"><strong>{{ formatSyncTime(item.synced_at) }}</strong><span>+{{ item.added_words || 0 }}</span></div><p v-if="item.added_word_list && item.added_word_list.length" class="muted">{{ item.added_word_list.map(word => word.chinese_meaning || word.word).join(' · ') }}</p><p v-else class="muted">{{ t('无新增单词', 'No new entries') }}</p></article></div><p v-else class="muted">{{ t('暂无同步历史', 'No sync history yet.') }}</p></div>
+                    <p v-if="syncModal.error" class="error-message" role="alert">{{ syncModal.error }}</p>
+                    <button type="button" class="button button-primary full-width" @click="syncNow" :disabled="syncModal.syncing">{{ syncModal.syncing ? t('同步中…', 'Syncing…') : t('立即同步', 'Sync now') }}</button>
                 </div>
-
-                <!-- Keyboard Shortcuts Hint：随当前状态切换 -->
-                <div class="text-center text-xs text-gray-500">
-                    <p v-if="showAnswer">
-                        <template v-if="stealthMode">Type the correct spelling once to continue · <kbd class="kbd">Enter</kbd> on empty input to skip · <kbd class="kbd">Esc</kbd> Exit</template>
-                        <template v-else>照着正确拼写打一遍自动进入下一题 · 空输入按 <kbd class="kbd">Enter</kbd> 直接下一题 · <kbd class="kbd">Esc</kbd> 退出</template>
-                    </p>
-                    <p v-else>
-                        <kbd class="kbd">Enter</kbd> {{ t('提交', 'Submit') }} ·
-                        <kbd class="kbd">Space</kbd> {{ t('不会，看答案', 'Show answer') }} ·
-                        <kbd class="kbd">Esc</kbd> {{ t('退出', 'Exit') }}
-                    </p>
-                </div>
-            </div>
-
-            <!-- Results Screen -->
-            <div v-else class="mx-auto max-w-2xl">
-                <div class="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-                    <h2 class="mb-6 text-2xl font-bold text-gray-800">
-                        <span v-if="stealthMode">{{ isPracticeAbandoned ? 'Practice Exited' : 'Practice Completed' }}</span>
-                        <span v-else>{{ isPracticeAbandoned ? '已退出练习' : (isMistakePractice ? '错词重练完成' : '练习完成') }}</span>
-                    </h2>
-
-                    <div class="mb-8 grid grid-cols-4 gap-3">
-                        <div class="rounded-lg bg-gray-50 p-4">
-                            <p class="text-xs text-gray-500">{{ t('总题数', 'Total') }}</p>
-                            <p class="mt-1 text-2xl font-bold tabular-nums text-gray-800">{{ resultTotal }}</p>
-                        </div>
-                        <div class="rounded-lg bg-gray-50 p-4">
-                            <p class="text-xs text-gray-500">{{ t('正确', 'Correct') }}</p>
-                            <p class="mt-1 text-2xl font-bold tabular-nums" :class="stealthMode ? 'text-gray-800' : 'text-green-600'">{{ stats.correct }}</p>
-                        </div>
-                        <div class="rounded-lg bg-gray-50 p-4">
-                            <p class="text-xs text-gray-500">{{ t('错误', 'Incorrect') }}</p>
-                            <p class="mt-1 text-2xl font-bold tabular-nums" :class="stealthMode ? 'text-gray-800' : 'text-red-600'">{{ stats.incorrect }}</p>
-                        </div>
-                        <div class="rounded-lg bg-gray-50 p-4">
-                            <p class="text-xs text-gray-500">{{ t('正确率', 'Accuracy') }}</p>
-                            <p class="mt-1 text-2xl font-bold tabular-nums" :class="stealthMode ? 'text-gray-800' : 'text-indigo-600'">{{ accuracy }}%</p>
-                        </div>
-                    </div>
-
-                    <!-- Error List -->
-                    <div v-if="stats.errors.length > 0" class="mb-8 text-left">
-                        <h3 class="mb-3 text-base font-semibold text-gray-800">{{ t('错题回顾', 'Review Mistakes') }}</h3>
-                        <div class="space-y-2">
-                            <div
-                                v-for="(error, index) in stats.errors"
-                                :key="index"
-                                class="flex items-center justify-between gap-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3"
-                            >
-                                <div class="min-w-0">
-                                    <p class="font-mono font-semibold text-gray-800">{{ error.word }}</p>
-                                    <p class="text-sm text-gray-500">{{ error.meaning }}</p>
-                                </div>
-                                <p class="shrink-0 font-mono text-sm line-through" :class="stealthMode ? 'text-gray-500' : 'text-red-500'">{{ error.user_input }}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex flex-col justify-center gap-3 sm:flex-row">
-                        <button
-                            v-if="mistakePracticeWords.length > 0"
-                            @click="startMistakePractice"
-                            class="rounded-xl px-8 py-3 font-bold text-white transition-colors"
-                            :class="stealthMode ? 'bg-gray-700 hover:bg-gray-800' : 'bg-red-600 hover:bg-red-700'"
-                        >{{ t('错词重练', 'Review Mistakes') }}</button>
-                        <button
-                            @click="restartPractice"
-                            class="rounded-xl px-8 py-3 font-bold transition-colors"
-                            :class="stealthMode ? 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-100' : 'bg-indigo-600 text-white hover:bg-indigo-700'"
-                        >{{ t('重新开始', 'Restart') }}</button>
-                    </div>
-                </div>
-            </div>
-
-            <div
-                v-if="syncModal.visible"
-                class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 px-4"
-                @click.self="closeSyncModal"
-            >
-                <div class="w-full max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-xl" role="dialog" aria-modal="true">
-                    <div class="mb-5 flex items-center justify-between">
-                        <h2 class="text-xl font-bold" :class="stealthMode ? 'text-gray-800' : 'text-indigo-900'">{{ t('Anki 同步', 'Anki Sync') }}</h2>
-                        <button
-                            @click="closeSyncModal"
-                            class="rounded px-3 py-1 text-xl leading-none text-gray-600 hover:bg-gray-100"
-                            :aria-label="t('关闭', 'Close')"
-                        >×</button>
-                    </div>
-
-                    <div v-if="syncModal.loading" class="py-8 text-center text-gray-500">{{ t('加载中...', 'Loading...') }}</div>
-                    <div v-else class="space-y-4">
-                        <div class="grid grid-cols-3 gap-3 text-sm">
-                            <div class="rounded-lg bg-gray-50 p-3">
-                                <p class="text-gray-500">{{ t('上次同步', 'Last sync') }}</p>
-                                <p class="mt-1 font-semibold text-gray-800">{{ formatSyncTime(syncModal.status && syncModal.status.last_sync_at) }}</p>
-                            </div>
-                            <div class="rounded-lg bg-gray-50 p-3">
-                                <p class="text-gray-500">{{ t('新增单词', 'Added') }}</p>
-                                <p class="mt-1 text-xl font-bold tabular-nums" :class="stealthMode ? 'text-gray-800' : 'text-green-700'">
-                                    {{ (syncModal.status && syncModal.status.added_words) || 0 }}
-                                </p>
-                            </div>
-                            <div class="rounded-lg bg-gray-50 p-3">
-                                <p class="text-gray-500">{{ t('单词总数', 'Total') }}</p>
-                                <p class="mt-1 text-xl font-bold tabular-nums text-gray-800">{{ (syncModal.status && syncModal.status.after_words) || 0 }}</p>
-                            </div>
-                        </div>
-
-                        <div class="rounded-lg border border-gray-100 p-3 text-sm text-gray-600">
-                            <div class="mb-3 flex items-center justify-between">
-                                <p class="font-semibold text-gray-800">{{ t('同步历史', 'Sync history') }}</p>
-                                <span class="text-xs text-gray-400">{{ syncHistory().length }}</span>
-                            </div>
-                            <div v-if="syncHistory().length" class="max-h-56 space-y-3 overflow-y-auto pr-1">
-                                <div
-                                    v-for="(item, index) in syncHistory()"
-                                    :key="item.synced_at + '-' + index"
-                                    class="rounded-md bg-gray-50 px-3 py-2"
-                                >
-                                    <div class="mb-2 flex items-start justify-between gap-3">
-                                        <p class="font-semibold text-gray-800">{{ formatSyncTime(item.synced_at) }}</p>
-                                        <span class="shrink-0 rounded bg-white px-2 py-0.5 text-xs text-gray-500">+{{ item.added_words || 0 }}</span>
-                                    </div>
-                                    <div v-if="item.added_word_list && item.added_word_list.length" class="flex flex-wrap gap-1.5">
-                                        <span
-                                            v-for="word in item.added_word_list"
-                                            :key="item.synced_at + '-' + word.id"
-                                            class="rounded bg-white px-2 py-1 text-xs text-gray-700"
-                                        >{{ word.chinese_meaning || word.word }}</span>
-                                    </div>
-                                    <p v-else class="text-xs text-gray-500">{{ t('无新增单词', 'No new words') }}</p>
-                                </div>
-                            </div>
-                            <p v-else class="text-gray-500">{{ t('暂无同步历史', 'No sync history') }}</p>
-                        </div>
-
-                        <p v-if="syncModal.error" class="rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ syncModal.error }}</p>
-
-                        <button
-                            @click="syncNow"
-                            :disabled="syncModal.syncing"
-                            class="w-full rounded-lg px-4 py-3 font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                            :class="stealthMode ? 'bg-gray-700 hover:bg-gray-800' : 'bg-sky-600 hover:bg-sky-700'"
-                        >
-                            {{ syncModal.syncing ? t('同步中...', 'Syncing...') : t('立即同步', 'Sync Now') }}
-                        </button>
-                    </div>
-                </div>
-            </div>
+            </section>
         </div>
+      </div>
     </div>
-
-    <script src="src/app.js?v=20261028-media"></script>
 </body>
 </html>
