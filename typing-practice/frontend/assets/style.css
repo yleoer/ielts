@@ -1,5 +1,32 @@
 /* 练习页公共样式：只保留与练习反馈直接相关的动效，避免全局 hover/scale 干扰注意力。 */
 
+/* 词条内容：插图、同行词性与释义，再显示发音按钮。 */
+.practice-illustration {
+    display: block;
+    width: min(200px, 100%);
+    height: auto;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 22px;
+    margin: 0 auto 16px;
+}
+
+.practice-meaning {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.6;
+}
+
+.practice-part-of-speech {
+    font-size: 14px;
+    font-weight: 600;
+}
+
 /* Keyboard Key Style */
 .kbd {
     display: inline-block;

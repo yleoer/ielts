@@ -22,11 +22,15 @@ createApp({
             shake: false,
             shakeTimer: null,
             wordsError: '',
+            illustrationFailed: false,
+            isAudioPlaying: false,
+            isAudioLoading: false,
+            audioError: '',
             sessionId: '',
             sessionStartedAt: null,
             currentWordStartedAt: 0,
             draftSaveTimer: null,
-            draftStorageKey: 'typingPracticeDraftSession:v1',
+            draftStorageKey: 'typingPracticeDraftSession:wordAtlas:v2',
             practiceMode: 'normal',
             stealthMode: false,
             stats: {
@@ -178,6 +182,11 @@ createApp({
         }
     },
     watch: {
+        currentWord() {
+            this.stopPronunciation();
+            this.illustrationFailed = false;
+            this.audioError = '';
+        },
         userInput(newVal) {
             if (this.isRestoringDraft) {
                 return;
@@ -296,8 +305,44 @@ createApp({
                 phonetic: String(source.phonetic || ''),
                 example_en: String(source.example_en || ''),
                 example_cn: String(source.example_cn || ''),
-                category: String(source.category || '')
+                category: String(source.category || ''),
+                illustration_url: String(source.illustration_url || ''),
+                audio_url: String(source.audio_url || '')
             };
+        },
+
+        stopPronunciation() {
+            const player = this.$refs.pronunciationAudio;
+            if (player) {
+                player.pause();
+                player.currentTime = 0;
+            }
+            this.isAudioPlaying = false;
+            this.isAudioLoading = false;
+        },
+
+        handleAudioError() {
+            this.isAudioPlaying = false;
+            this.isAudioLoading = false;
+            this.audioError = this.t('音频暂时不可用，请稍后重试。', 'Audio is unavailable. Please try again.');
+        },
+
+        async playPronunciation() {
+            const player = this.$refs.pronunciationAudio;
+            if (!player || !this.currentWord?.audio_url || this.isAudioLoading) return;
+            const noteId = this.currentWord.id;
+            this.audioError = '';
+            this.isAudioLoading = true;
+            try {
+                if (player.error) player.load();
+                player.currentTime = 0;
+                await player.play();
+            } catch (error) {
+                if (this.currentWord?.id === noteId) this.handleAudioError();
+            } finally {
+                if (this.currentWord?.id === noteId) this.isAudioLoading = false;
+                this.focusInput();
+            }
         },
 
         handleBeforeInput(event) {
@@ -882,6 +927,7 @@ createApp({
         },
 
         finishPractice({ submit = true, abandoned = false } = {}) {
+            this.stopPronunciation();
             this.clearAdvanceTimer();
             this.isFinished = true;
             this.isPracticeAbandoned = abandoned;

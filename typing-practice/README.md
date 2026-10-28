@@ -14,18 +14,30 @@ python -m venv .venv
 
 ### 直接读取 Anki 数据库
 
-这种方式不启动 Anki 同步服务，只读取已有的 `collection.anki2`。如果使用当前同步库中的牌组，牌组名称和 ID 应设置为 `IELTS` 与 `1793085454896`；其他数据库请改成实际牌组信息。
+这种方式不启动 Anki 同步服务，只读取已有的 `collection.anki2`。默认读取 `Word Atlas` 牌组，生成时的牌组 ID 为 `1958430017`；会优先按名称解析实际导入后的牌组和子牌组。只支持 Word Atlas 的 22 字段结构。
 
 ```powershell
 $env:ANKI_DB_PATH = "$env:APPDATA\Anki2\User 1\collection.anki2"
-$env:ANKI_DECK_NAME = 'IELTS'
-$env:ANKI_DECK_ID = '1793085454896'
+$env:ANKI_DECK_NAME = 'Word Atlas'
+$env:ANKI_DECK_ID = '1958430017'
 $env:STATS_DB_PATH = (Join-Path (Get-Location) 'typing-practice\data\stats\stats.db')
 
 .\.venv\Scripts\python.exe typing-practice\backend\app.py
 ```
 
 默认访问 <http://127.0.0.1:8080>。页面、静态文件和 API 都由同一个 Flask 进程提供，不需要单独启动前端开发服务器。
+
+### 插图与发音
+
+卡片依次显示 200px 圆角插图、同一行的词性与中文含义、播放发音按钮，然后显示输入框。发音只在点击按钮时播放，优先英音 `AudioUK`，为空时使用美音 `AudioUS`；切换单词或退出练习会停止播放。插图缺失或加载失败时隐藏，音频字段为空时按钮禁用，播放失败时给出提示。
+
+直接读取 Anki 时，媒体目录默认为数据库旁的 `collection.media/`。如数据库是复制的缓存，需指定原始媒体目录，例如：
+
+```powershell
+$env:ANKI_MEDIA_DIR = "$env:APPDATA\Anki2\账户 1\collection.media"
+```
+
+也可以在 YAML 的 `anki.media_dir` 设置路径；环境变量优先。媒体通过受访问密码保护的 `/api/media/<note_id>/illustration` 和 `/api/media/<note_id>/audio` 提供，只返回该笔记引用的本地图片或音频，不执行字段内的 HTML。
 
 ### 首次访问密码
 
@@ -46,8 +58,8 @@ $root = (Get-Location).Path
 $env:ANKI_SYNC_SOURCE_DIR = Join-Path $root 'typing-practice\data\anki-sync'
 $env:ANKI_SYNC_TARGET = Join-Path $root 'typing-practice\data\anki-cache\collection.anki2'
 $env:ANKI_DB_PATH = $env:ANKI_SYNC_TARGET
-$env:ANKI_DECK_NAME = 'IELTS'
-$env:ANKI_DECK_ID = '1793085454896'
+$env:ANKI_DECK_NAME = 'Word Atlas'
+$env:ANKI_DECK_ID = '1958430017'
 $env:ANKI_SYNC_STABLE_SECONDS = '0'
 $env:STATS_DB_PATH = Join-Path $root 'typing-practice\data\stats\stats.db'
 
@@ -77,7 +89,34 @@ Invoke-RestMethod 'http://127.0.0.1:8080/api/words?limit=20'
 
 `/api/health` 应返回 `status: ok`。如果同步接口提示 `Anki sync source is not configured`，说明启动进程没有同时设置 `ANKI_SYNC_SOURCE_DIR` 和 `ANKI_SYNC_TARGET`。如果同步成功但单词列表为空，请检查 `ANKI_DECK_NAME`、`ANKI_DECK_ID` 是否与数据库中的牌组一致，以及牌组中是否有已学习卡片。
 
+如果进程中已有旧的 `ANKI_DECK_NAME` / `ANKI_DECK_ID`，需更新为 Word Atlas 配置；环境变量会覆盖默认 YAML。刚导入但还未在 Anki 学习的卡片不会进入练习池。
+
+## Word Atlas 字段
+
+按 Word Atlas 的固定 22 字段顺序读取，不兼容旧词表牌组格式：
+
+| Word Atlas 字段 | 练习接口字段 |
+| --- | --- |
+| `Word` | `word` |
+| `UK`（为空时使用 `US`） | `phonetic` |
+| `PartOfSpeech` | `part_of_speech` |
+| `MeaningZH` | `chinese_meaning` |
+| `ExampleEN` / `ExampleZH` | `example_en` / `example_cn` |
+| `Topic` | `category` |
+| `Illustration` 的 `<img src>` | `illustration_url` |
+| `AudioUK`（为空时使用 `AudioUS`）的 `[sound:...]` | `audio_url` |
+
+词条文字中的 HTML 排版会转换为纯文本。页面去掉可见的“IELTS 打字练习”标题；浏览器标签分别为“打字练习”和“学习统计”。插图、词性与释义、发音按钮按参考卡片顺序排列，保留现有页面配色和答题流程。
+
+正式版草稿使用 `typingPracticeDraftSession:wordAtlas:v2`，保留媒体链接，避免恢复缺少媒体字段的旧草稿及本地演示数据；历史统计保留。测试命令为：
+
+```powershell
+python -m unittest discover -s typing-practice/backend -p 'test_*.py'
+```
+
 ## Docker
 
 标准部署仍使用 `docker-compose.yml`；本地构建使用 `docker-compose.local-build.yml`。应用和页面在同一个 Flask 进程中运行，不需要单独启动前端开发服务器。
+
+Compose 将 `typing-practice/data/anki-media/` 只读挂载到 `/app/anki-media`。把 Anki 的 `collection.media/` 文件复制到该目录，保留原文件名；媒体文件不提交 Git。当前数据库同步只复制 `collection.anki2` 及其 SQLite 附属文件，不自动复制媒体目录；新增媒体需要同步更新该目录。
 

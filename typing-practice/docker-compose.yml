@@ -25,6 +25,7 @@ services:
     volumes:
       - ./data/anki-sync:/app/anki-sync:ro
       - ./data/anki-cache:/app/anki-cache
+      - ./data/anki-media:/app/anki-media:ro
       - ./data/stats:/app/stats
     environment:
       TZ: "${TZ:-Asia/Shanghai}"
@@ -32,6 +33,7 @@ services:
       SERVER_PORT: 8080
       ACCESS_PASSWORD: "${ACCESS_PASSWORD:-}"
       ANKI_DB_PATH: /app/anki-cache/collection.anki2
+      ANKI_MEDIA_DIR: /app/anki-media
       ANKI_SYNC_SOURCE_DIR: /app/anki-sync
       ANKI_SYNC_TARGET: /app/anki-cache/collection.anki2
       ANKI_SYNC_INTERVAL_SECONDS: "${ANKI_SYNC_INTERVAL_SECONDS:-300}"

@@ -35,6 +35,9 @@ typing-practice/data/anki-sync/*
 !typing-practice/data/anki-cache/
 typing-practice/data/anki-cache/*
 !typing-practice/data/anki-cache/.gitkeep
+!typing-practice/data/anki-media/
+typing-practice/data/anki-media/*
+!typing-practice/data/anki-media/.gitkeep
 !typing-practice/data/stats/
 typing-practice/data/stats/*
 !typing-practice/data/stats/.gitkeep
