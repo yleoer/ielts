@@ -5,6 +5,8 @@ typing practice web app lives in `typing-practice/`.
 
 Commands below are intended to be run from the repository root.
 
+A separate [Word Atlas deck](word-atlas.md) uses the local Word Atlas dataset and local `genanki` source. The full deck contains 7,298 words and 14,596 cards with illustrations and offline UK/US audio, without AI calls. The instructions below describe the original generator.
+
 This repository contains the source files and script for generating an Anki
 deck package (`.apkg`) from the IELTS vocabulary list and local pronunciation
 audio.

@@ -6,6 +6,7 @@
 
 - [生成器概览](apkg-generator/README.md)
 - [Anki 卡片设计说明](apkg-generator/anki-card-template.md)
+- [Word Atlas 完整牌组](apkg-generator/word-atlas.md)
 
 ## 打字练习
 
