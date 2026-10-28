@@ -31,6 +31,7 @@ Anki 是我的词汇数据源。这个仓库把周边流程放在一起：生成
 
 - [APKG 生成器说明](docs/apkg-generator/README.zh-CN.md)
 - [Anki 卡片设计说明](docs/apkg-generator/anki-card-template.md)
+- [Word Atlas：完整 Anki 牌组](docs/apkg-generator/word-atlas.md)
 
 ### 打字练习
 

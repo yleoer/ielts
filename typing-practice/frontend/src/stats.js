@@ -1,12 +1,12 @@
 const { createApp } = Vue;
 
-// 掌握度从好到差排列；颜色走“绿 → 黄 → 红”，一眼能看出好坏。
+// 掌握度依靠标签、数值与统一色阶呈现。
 const MASTERY_LEVELS = [
-    { key: 'mastered', zh: '已掌握', en: 'Mastered', color: '#16a34a', muted: '#374151' },
-    { key: 'familiar', zh: '熟悉', en: 'Familiar', color: '#4ade80', muted: '#6b7280' },
-    { key: 'learning', zh: '学习中', en: 'Learning', color: '#facc15', muted: '#9ca3af' },
-    { key: 'weak', zh: '薄弱', en: 'Weak', color: '#ef4444', muted: '#4b5563' },
-    { key: 'new', zh: '未学习', en: 'New', color: '#d1d5db', muted: '#e5e7eb' }
+    { key: 'mastered', zh: '已掌握', en: 'Mastered', color: '#375d4c' },
+    { key: 'familiar', zh: '熟悉', en: 'Familiar', color: '#718f7e' },
+    { key: 'learning', zh: '学习中', en: 'Learning', color: '#a1b9a4' },
+    { key: 'weak', zh: '薄弱', en: 'Weak', color: '#a17764' },
+    { key: 'new', zh: '未学习', en: 'New', color: '#d4dfd1' }
 ];
 
 const ERROR_TYPES = [
@@ -22,7 +22,6 @@ createApp({
         return {
             loading: true,
             loadError: false,
-            stealthMode: false,
             overview: {},
             mastery: null,
             masteryError: false,
@@ -56,7 +55,7 @@ createApp({
             return [
                 { label: this.t('累计练习单词', 'Words practiced'), value: o.total_words_practiced || 0, unit: '' },
                 { label: this.t('整体正确率', 'Accuracy'), value: Number(o.overall_accuracy || 0).toFixed(1), unit: '%' },
-                { label: this.t('连续学习', 'Streak'), value: o.current_streak || 0, unit: this.t('天', 'days') },
+                { label: this.t('连续学习', 'Streak'), value: o.current_streak || 0, unit: this.t('天', Number(o.current_streak) === 1 ? 'day' : 'days') },
                 { label: this.t('累计时长', 'Total time'), value: time.value, unit: time.unit }
             ];
         },
@@ -71,7 +70,7 @@ createApp({
         }
     },
     mounted() {
-        this.loadStealthMode();
+        this.updatePageAppearance();
         this.loadAllData();
 
         window.addEventListener('resize', () => {
@@ -87,19 +86,13 @@ createApp({
         });
     },
     methods: {
-        t(zh, en) {
-            return this.stealthMode ? en : zh;
+        t(zh) {
+            return zh;
         },
 
-        loadStealthMode() {
-            this.stealthMode = localStorage.getItem('stealthMode') === 'true';
-        },
-
-        toggleStealthMode() {
-            this.stealthMode = !this.stealthMode;
-            localStorage.setItem('stealthMode', this.stealthMode);
-            this.renderHeatmap();
-            this.renderTrend();
+        updatePageAppearance() {
+            document.title = '词间 · 统计';
+            document.documentElement.lang = 'zh-CN';
         },
 
         async loadAllData() {
@@ -218,11 +211,11 @@ createApp({
             const data = this.mastery || {};
             // “未学习”在当前统计口径下通常为 0，为 0 时不占一行。
             const defs = MASTERY_LEVELS.filter((def) => def.key !== 'new' || Number(data.new || 0) > 0);
-            const { rows, total } = this.buildRows(defs, data, (def) => (this.stealthMode ? def.muted : def.color));
+            const { rows, total } = this.buildRows(defs, data, (def) => def.color);
             return {
                 key: 'mastery',
                 title: this.t('单词掌握度', 'Word Mastery'),
-                totalText: this.t(`共 ${total} 个单词 · 点击查看`, `${total} words · click to view`),
+                totalText: `共 ${total} 个单词`,
                 error: this.masteryError,
                 total,
                 rows,
@@ -232,14 +225,14 @@ createApp({
 
         errorTypePanel() {
             const data = this.errorTypes || {};
-            const color = this.stealthMode ? '#6b7280' : '#f87171';
+            const color = '#a17764';
             const { rows, total } = this.buildRows(ERROR_TYPES, data, () => color);
             // 错误类型没有天然顺序，按次数从多到少排，最该关注的放最上面。
             rows.sort((a, b) => b.value - a.value);
             return {
                 key: 'errors',
                 title: this.t('错误类型', 'Error Types'),
-                totalText: this.t(`共 ${total} 次 · 点击查看`, `${total} errors · click to view`),
+                totalText: `共 ${total} 次`,
                 error: this.errorTypesError,
                 total,
                 rows,
@@ -256,8 +249,8 @@ createApp({
                 this.trendChart = echarts.init(container);
             }
 
-            const barColor = this.stealthMode ? '#d1d5db' : '#c7d2fe';
-            const lineColor = this.stealthMode ? '#374151' : '#4f46e5';
+            const barColor = '#c8d5cc';
+            const lineColor = '#375d4c';
             const dates = this.trendData.map((item) => item.date.slice(5));
             const t = this.t.bind(this);
 
@@ -280,14 +273,14 @@ createApp({
                     data: dates,
                     axisTick: { show: false },
                     axisLine: { lineStyle: { color: '#e5e7eb' } },
-                    axisLabel: { color: '#9ca3af', fontSize: 11, interval: 6 }
+                    axisLabel: { color: '#626b77', fontSize: 12, interval: 6 }
                 },
                 yAxis: [
                     {
                         type: 'value',
                         minInterval: 1,
                         splitLine: { lineStyle: { color: '#f3f4f6' } },
-                        axisLabel: { color: '#9ca3af', fontSize: 11 }
+                        axisLabel: { color: '#626b77', fontSize: 12 }
                     },
                     {
                         type: 'value',
@@ -295,7 +288,7 @@ createApp({
                         max: 100,
                         interval: 25,
                         splitLine: { show: false },
-                        axisLabel: { color: '#9ca3af', fontSize: 11, formatter: '{value}%' }
+                        axisLabel: { color: '#626b77', fontSize: 12, formatter: '{value}%' }
                     }
                 ],
                 series: [
@@ -338,7 +331,7 @@ createApp({
             const today = this.formatLocalDate(new Date());
 
             container.innerHTML = `
-                <div class="github-heatmap${this.stealthMode ? ' heatmap-muted' : ''}">
+                <div class="github-heatmap">
                     <div class="github-heatmap-months" aria-hidden="true">
                         <span></span>
                         ${monthLabels.map((m) => `<span style="grid-column:${m.column};">${m.label}</span>`).join('')}
@@ -357,10 +350,10 @@ createApp({
                             `).join('')}
                         </div>
                     </div>
-                    <div class="github-heatmap-legend mt-3 flex items-center justify-end gap-1">
-                        <span class="mr-1">${this.t('少', 'Less')}</span>
+                    <div class="github-heatmap-legend">
+                        <span>${this.t('少', 'Less')}</span>
                         ${[0, 1, 2, 3, 4].map((level) => `<span class="github-heatmap-cell github-heatmap-level-${level}"></span>`).join('')}
-                        <span class="ml-1">${this.t('多', 'More')}</span>
+                        <span>${this.t('多', 'More')}</span>
                     </div>
                 </div>
             `;
@@ -404,9 +397,7 @@ createApp({
         },
 
         buildHeatmapMonthLabels(year, weeks) {
-            const names = this.stealthMode
-                ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                : ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+            const names = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
             const labels = [];
             const seen = new Set();
             weeks.forEach((week, index) => {

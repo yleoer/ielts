@@ -1,0 +1,23 @@
+<header class="workspace-header">
+    <a class="workspace-brand" href="/index.html" aria-label="词间首页">
+        <img src="/assets/favicon.svg?v=20261028-cijian" width="28" height="28" alt="">
+        <span class="brand-name">词间</span>
+    </a>
+    <nav class="workspace-nav" :aria-label="t('主导航', 'Main navigation')">
+        <a href="/index.html" :aria-label="t('练习', 'Notes')" class="nav-link {% if active_page == 'practice' %}is-active{% endif %}" {% if active_page == 'practice' %}aria-current="page"{% endif %}>
+            <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#document"/></svg>
+            <span>{{ t('练习', 'Notes') }}</span>
+        </a>
+        <a href="/stats.html" :aria-label="t('统计', 'Activity')" class="nav-link {% if active_page == 'stats' %}is-active{% endif %}" {% if active_page == 'stats' %}aria-current="page"{% endif %}>
+            <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#chart"/></svg>
+            <span>{{ t('统计', 'Activity') }}</span>
+        </a>
+    </nav>
+    <div class="header-actions">
+        {% if active_page == 'practice' %}
+        <button type="button" class="icon-button" @click="openSyncModal" :title="t('同步 Anki', 'Sync')" :aria-label="t('同步 Anki', 'Sync')">
+            <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#sync"/></svg>
+        </button>
+        {% endif %}
+    </div>
+</header>

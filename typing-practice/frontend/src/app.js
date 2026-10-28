@@ -22,13 +22,13 @@ createApp({
             shake: false,
             shakeTimer: null,
             wordsError: '',
+            illustrationFailed: false,
             sessionId: '',
             sessionStartedAt: null,
             currentWordStartedAt: 0,
             draftSaveTimer: null,
-            draftStorageKey: 'typingPracticeDraftSession:v1',
+            draftStorageKey: 'typingPracticeDraftSession:wordAtlas:v2',
             practiceMode: 'normal',
-            stealthMode: false,
             stats: {
                 total: 0,
                 correct: 0,
@@ -99,26 +99,19 @@ createApp({
             });
             return reviewWords;
         },
-        // 卡片始终保留 2px 边框，状态变化只换颜色，避免内容抖动。
+        // 文档面始终保留边框，状态变化只换颜色，避免内容抖动。
         cardClass() {
-            if (this.isAdvancing) {
-                return this.stealthMode
-                    ? 'practice-card-success practice-card-success-muted border-gray-400'
-                    : 'practice-card-success border-green-400';
-            }
-            if (this.showAnswer) {
-                return this.stealthMode ? 'border-gray-300' : 'border-red-200';
-            }
-            return 'border-transparent';
+            if (this.isAdvancing) return 'is-success';
+            return this.showAnswer ? 'is-correction' : '';
         },
         inputClass() {
             const classes = [];
             if (this.isAdvancing) {
-                classes.push(this.stealthMode ? 'border-gray-500 bg-gray-50 practice-input-success' : 'border-green-500 bg-green-50 practice-input-success');
+                classes.push('is-correct');
             } else if (this.showAnswer) {
-                classes.push(this.stealthMode ? 'border-gray-400 focus:border-gray-600' : 'border-red-300 focus:border-red-400');
+                classes.push('is-invalid');
             } else {
-                classes.push(this.stealthMode ? 'border-gray-300 focus:border-gray-500' : 'border-gray-300 focus:border-indigo-500');
+                classes.push('is-pending');
             }
             if (this.shake) {
                 classes.push('practice-shake');
@@ -126,21 +119,14 @@ createApp({
             return classes.join(' ');
         },
         feedbackClass() {
-            return this.stealthMode ? 'text-gray-600' : 'text-red-600';
+            return 'feedback-text';
         },
         answerOkClass() {
-            return this.stealthMode ? 'text-gray-800' : 'text-indigo-700';
+            return 'answer-letter';
         },
         answerMissClass() {
             // 颜色 + 下划线双重提示，不只依赖颜色区分。
-            return this.stealthMode
-                ? 'text-gray-900 underline decoration-2 underline-offset-4'
-                : 'text-red-600 underline decoration-2 underline-offset-4';
-        },
-        inputPlaceholder() {
-            return this.showAnswer
-                ? this.t('照着正确拼写再打一遍', 'Type the correct spelling')
-                : this.t('输入英文单词', 'Type the word...');
+            return 'answer-letter is-missed';
         },
         wrongInput() {
             return this.lastWrongInput;
@@ -178,6 +164,9 @@ createApp({
         }
     },
     watch: {
+        currentWord() {
+            this.illustrationFailed = false;
+        },
         userInput(newVal) {
             if (this.isRestoringDraft) {
                 return;
@@ -201,8 +190,8 @@ createApp({
         }
     },
     methods: {
-        t(zh, en) {
-            return this.stealthMode ? en : zh;
+        t(zh) {
+            return zh;
         },
 
         isRetypeCorrect() {
@@ -296,7 +285,8 @@ createApp({
                 phonetic: String(source.phonetic || ''),
                 example_en: String(source.example_en || ''),
                 example_cn: String(source.example_cn || ''),
-                category: String(source.category || '')
+                category: String(source.category || ''),
+                illustration_url: String(source.illustration_url || '')
             };
         },
 
@@ -376,7 +366,7 @@ createApp({
                 this.syncModal.status = response.data.data || null;
             } catch (error) {
                 console.error('Error loading sync status:', error);
-                this.syncModal.error = this.stealthMode ? 'Unable to load sync status' : '无法加载同步状态';
+                this.syncModal.error = '无法加载同步状态';
             } finally {
                 this.syncModal.loading = false;
             }
@@ -391,7 +381,7 @@ createApp({
                 await this.fetchWords();
             } catch (error) {
                 console.error('Error syncing Anki collection:', error);
-                const message = error.response?.data?.error || (this.stealthMode ? 'Sync failed' : '同步失败');
+                const message = error.response?.data?.error || '同步失败';
                 this.syncModal.error = message;
                 if (error.response?.data?.data) {
                     this.syncModal.status = error.response.data.data;
@@ -403,7 +393,7 @@ createApp({
 
         formatSyncTime(value) {
             if (!value) {
-                return this.stealthMode ? 'Never' : '暂无';
+                return '暂无';
             }
             return new Date(value).toLocaleString('zh-CN', {
                 hour12: false,
@@ -945,23 +935,15 @@ createApp({
         },
 
         quitPractice() {
-            const message = this.stealthMode ? 'Exit practice?' : '确定要退出练习吗？';
+            const message = '确定要退出练习吗？';
             if (confirm(message)) {
                 this.finishPractice({ submit: false, abandoned: true });
             }
         },
 
-        toggleStealthMode() {
-            this.stealthMode = !this.stealthMode;
-            // 保存到 localStorage
-            localStorage.setItem('stealthMode', this.stealthMode);
-        },
-
-        loadStealthMode() {
-            const saved = localStorage.getItem('stealthMode');
-            if (saved !== null) {
-                this.stealthMode = saved === 'true';
-            }
+        updatePageAppearance() {
+            document.title = '词间 · 练习';
+            document.documentElement.lang = 'zh-CN';
         },
 
         showError(message) {
@@ -969,7 +951,7 @@ createApp({
         }
     },
     mounted() {
-        this.loadStealthMode();
+        this.updatePageAppearance();
         if (!this.restoreDraftSession()) {
             this.fetchWords();
         }

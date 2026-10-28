@@ -18,6 +18,7 @@
 - 同步服务和其他组件保持不动。
 - 只有文档改动时会跳过构建和部署。
 - `latest` 和提交 SHA 标签都同时支持 AMD64 与 ARM64；服务器执行 `docker compose pull` 时会自动拉取与本机架构匹配的镜像。
+- 工作流不执行服务器仓库的 `git pull`，也不复制 Compose 文件、插图或 Anki 数据。首次升级词间 / Word Atlas 前，需先完成 [Docker 部署](DOCKER-DEPLOY.md#从旧版升级到词间--word-atlas) 中的配置与数据准备；健康检查成功不代表练习词条和插图已就绪。
 
 ## 需要的密钥
 

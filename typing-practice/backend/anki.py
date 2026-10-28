@@ -7,6 +7,7 @@ import json
 import re
 import sqlite3
 import threading
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -14,28 +15,58 @@ from urllib.parse import quote
 
 FIELD_SEPARATOR = "\x1f"
 HTML_TAG_PATTERN = re.compile(r"<[^>]*>")
+WORD_ATLAS_FIELDS = (
+    "Word", "UK", "US", "PartOfSpeech", "MeaningZH", "MeaningEN", "MoreSenses",
+    "ExampleEN", "ExampleZH", "IELTSExampleEN", "IELTSExampleZH", "Collocations",
+    "Tip", "Extra", "CEFR", "Topic", "Illustration", "AudioUK", "AudioUS",
+    "AudioExample", "AudioIELTS", "SourceId",
+)
+
+
+class _IllustrationParser(HTMLParser):
+    def __init__(self, markup: str):
+        super().__init__(convert_charrefs=True)
+        self.filename = ""
+        self.feed(markup)
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "img" and not self.filename:
+            self.filename = dict(attrs).get("src", "") or ""
+
+
+def media_filename(values: dict[str, str], kind: str) -> str:
+    if kind == "illustration":
+        filename = _IllustrationParser(values.get("Illustration", "")).filename
+        extensions = {".webp", ".png", ".jpg", ".jpeg", ".gif", ".avif"}
+    else:
+        return ""
+    if not filename or filename.startswith(".") or any(char in filename for char in "/\\:\x00"):
+        return ""
+    return filename if Path(filename).suffix.lower() in extensions else ""
 
 
 def clean_field(value: str) -> str:
-    value = html.unescape(value or "")
+    value = value or ""
     value = re.sub(r"<br\s*/?>", "\n", value, flags=re.IGNORECASE)
     value = HTML_TAG_PATTERN.sub("", value)
-    return value.strip()
+    return html.unescape(value).strip()
 
 
 def parse_word(note_id: int, raw_fields: str) -> dict[str, Any] | None:
     fields = (raw_fields or "").split(FIELD_SEPARATOR)
-    if len(fields) < 4:
+    if len(fields) != len(WORD_ATLAS_FIELDS):
         return None
+    values = dict(zip(WORD_ATLAS_FIELDS, fields))
     word = {
         "id": note_id,
-        "word": clean_field(fields[0]),
-        "phonetic": clean_field(fields[1]),
-        "part_of_speech": clean_field(fields[2]),
-        "chinese_meaning": clean_field(fields[3]),
-        "example_en": clean_field(fields[4]) if len(fields) > 4 else "",
-        "example_cn": clean_field(fields[5]) if len(fields) > 5 else "",
-        "category": clean_field(fields[7]) if len(fields) > 7 else "",
+        "word": clean_field(values["Word"]),
+        "phonetic": clean_field(values["UK"]) or clean_field(values["US"]),
+        "part_of_speech": clean_field(values["PartOfSpeech"]),
+        "chinese_meaning": clean_field(values["MeaningZH"]),
+        "example_en": clean_field(values["ExampleEN"]),
+        "example_cn": clean_field(values["ExampleZH"]),
+        "category": clean_field(values["Topic"]),
+        "illustration_url": f"/api/media/{note_id}/illustration" if media_filename(values, "illustration") else "",
     }
     if not word["word"] or not word["chinese_meaning"]:
         return None
@@ -188,6 +219,14 @@ class AnkiReader:
         if not word:
             raise ValueError(f"note {note_id} does not contain the expected word fields")
         return word
+
+    def get_media_filename(self, note_id: int, kind: str) -> str:
+        with self._lock:
+            row = self.db.execute("SELECT flds FROM notes WHERE id = ?", (note_id,)).fetchone()
+        fields = row["flds"].split(FIELD_SEPARATOR) if row else []
+        if len(fields) != len(WORD_ATLAS_FIELDS):
+            return ""
+        return media_filename(dict(zip(WORD_ATLAS_FIELDS, fields)), kind)
 
     def count_learned(self) -> int:
         query = f"""
