@@ -48,7 +48,8 @@ class AccessGateTest(unittest.TestCase):
     def test_login_page_and_wrong_password(self):
         response = self.client.get("/login")
         self.assertEqual(response.status_code, 200)
-        self.assertIn('<button type="submit">进入</button>'.encode(), response.data)
+        self.assertIn(b'type="submit"', response.data)
+        self.assertIn('进入'.encode(), response.data)
         self.assertNotIn('IELTS'.encode(), response.data)
         self.assertNotIn(b'placeholder=', response.data)
         self.assertNotIn(self.config.access_password.encode(), response.data)

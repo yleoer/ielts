@@ -21,6 +21,7 @@ CODEX_ENV.md
 apkg-generator/anki_export/*.apkg
 apkg-generator/anki_export/*.tsv
 apkg-generator/anki_export/*.csv
+apkg-generator/anki_export/word-atlas/
 
 # Runtime databases
 **/.access-secret
@@ -34,6 +35,9 @@ typing-practice/data/anki-sync/*
 !typing-practice/data/anki-cache/
 typing-practice/data/anki-cache/*
 !typing-practice/data/anki-cache/.gitkeep
+!typing-practice/data/anki-media/
+typing-practice/data/anki-media/*
+!typing-practice/data/anki-media/.gitkeep
 !typing-practice/data/stats/
 typing-practice/data/stats/*
 !typing-practice/data/stats/.gitkeep
