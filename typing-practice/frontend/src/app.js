@@ -11,7 +11,7 @@ const practiceApp = {
             isPracticeAbandoned: false, isComposing: false, isLoadingWords: false,
             isAdvancing: false, isRestoringDraft: false, advanceTimer: null,
             lastWrongInput: '', shake: false, shakeTimer: null, wordsError: '',
-            illustrationFailed: false, sessionId: '', sessionLimit: 20,
+            illustrationFailed: false, sessionId: '',
             practiceMode: 'normal', summary: null,
             pendingAttempt: null, submitError: '', submissionConflict: false,
             answerAccepted: false, storageError: '', draftSaveTimer: null,
@@ -26,7 +26,10 @@ const practiceApp = {
         currentWord() { return this.words[this.currentIndex] || null; },
         isMistakePractice() { return this.practiceMode === 'mistakes'; },
         isFormalPractice() { return this.practiceMode === 'normal'; },
-        progressTotal() { return this.isFormalPractice ? this.sessionLimit : this.words.length; },
+        progressTotal() {
+            if (!this.isFormalPractice) return this.words.length;
+            return Math.max(this.words.length, this.currentIndex + (this.summary?.due_count || 0) + (this.summary?.new_available || 0));
+        },
         progressCurrent() { return this.currentWord ? this.currentIndex + 1 : this.attemptedTotal; },
         progressPercentage() { return this.progressTotal ? this.progressCurrent * 100 / this.progressTotal : 0; },
         attemptedTotal() { return this.stats.correct + this.stats.incorrect; },
@@ -74,6 +77,7 @@ const practiceApp = {
             this.sessionId = this.generateSessionId();
             this.practiceMode = mode;
             this.words = [];
+            this.summary = null;
             this.currentIndex = 0;
             this.isFinished = false;
             this.isPracticeAbandoned = false;
@@ -87,12 +91,11 @@ const practiceApp = {
             this.wordsError = '';
             try {
                 const response = await axios.get(`${this.apiBaseUrl}/practice/queue`, {
-                    params: { session_id: this.sessionId, limit: this.isFormalPractice ? 1 : this.sessionLimit, mode: this.isFormalPractice ? 'scheduled' : 'free' }, timeout: 15000
+                    params: { session_id: this.sessionId, limit: this.isFormalPractice ? 1 : 20, mode: this.isFormalPractice ? 'scheduled' : 'free' }, timeout: 15000
                 });
                 const data = response.data.data;
                 this.serverOffset = Date.parse(data.server_time) - Date.now();
                 this.summary = data.summary;
-                this.sessionLimit = response.data.session_limit || 20;
                 if (!data.items.length) {
                     if (this.attemptedTotal) this.finishPractice();
                     return;
@@ -167,7 +170,7 @@ const practiceApp = {
         async submitInput(input) {
             if (!this.currentWord || this.pendingAttempt || this.isChecking || this.answerAccepted || this.showAnswer) return;
             this.pauseClock();
-            if (!this.isFormalPractice) {
+            if (this.isMistakePractice) {
                 this.acceptAnswer({ is_correct: Boolean(input) && this.answerCandidates(this.currentWord.word).includes(this.normalizeAnswer(input)), duration_ms: this.elapsedMs }, input);
                 return;
             }
@@ -240,7 +243,10 @@ const practiceApp = {
             this.words.splice(this.currentIndex, 1);
             this.resetInputState();
             this.saveDraftSession();
-            await this.loadNextWord();
+            if (this.isFormalPractice) await this.loadNextWord();
+            else if (this.currentWord) {
+                this.beginCurrentWord(); this.focusInput(); this.saveDraftSession();
+            } else this.finishPractice();
         },
         resetInputState() {
             this.clearAdvanceTimer();
@@ -272,8 +278,7 @@ const practiceApp = {
             this.resetInputState();
             this.saveDraftSession();
             if (this.isFormalPractice) {
-                if (this.attemptedTotal >= this.sessionLimit) this.finishPractice();
-                else await this.loadNextWord();
+                await this.loadNextWord();
             } else if (this.currentWord) {
                 this.beginCurrentWord(); this.focusInput(); this.saveDraftSession();
             } else this.finishPractice();
@@ -316,7 +321,7 @@ const practiceApp = {
             if (!this.sessionId || this.isRestoringDraft || this.isFinished) return false;
             const draft = {
                 version: 1, savedAt: new Date().toISOString(), sessionId: this.sessionId,
-                words: this.words, currentIndex: this.currentIndex, sessionLimit: this.sessionLimit,
+                words: this.words, currentIndex: this.currentIndex,
                 userInput: this.userInput, showAnswer: this.showAnswer, answerAccepted: this.answerAccepted,
                 isCorrect: this.isCorrect, lastWrongInput: this.lastWrongInput, feedbackMessage: this.feedbackMessage,
                 practiceMode: this.practiceMode, stats: this.stats, elapsedMs: this.effectiveDuration(),
@@ -359,8 +364,14 @@ const practiceApp = {
                     return false;
                 }
             } catch (error) { return false; }
+            if (draft.practiceMode === 'free' && !draft.pendingAttempt && draft.words.some(word => !word.attempt_id)) {
+                // Earlier free sessions had no server tickets; start a recorded round.
+                this.sessionId = draft.sessionId;
+                await this.fetchWords({ mode: 'free' });
+                return true;
+            }
             this.isRestoringDraft = true;
-            for (const key of ['sessionId', 'words', 'currentIndex', 'sessionLimit', 'userInput', 'showAnswer', 'answerAccepted', 'isCorrect', 'lastWrongInput', 'feedbackMessage', 'practiceMode', 'stats', 'elapsedMs', 'firstInputMs', 'serverOffset', 'summary', 'pendingAttempt']) {
+            for (const key of ['sessionId', 'words', 'currentIndex', 'userInput', 'showAnswer', 'answerAccepted', 'isCorrect', 'lastWrongInput', 'feedbackMessage', 'practiceMode', 'stats', 'elapsedMs', 'firstInputMs', 'serverOffset', 'summary', 'pendingAttempt']) {
                 if (key in draft) this[key] = draft[key];
             }
             this.clockStartedAt = null;
@@ -369,7 +380,7 @@ const practiceApp = {
             if (this.pendingAttempt) await this.retryPending();
             else if (this.answerAccepted && !this.showAnswer) await this.nextWord();
             else if (!this.currentWord) {
-                if (this.isFormalPractice && this.attemptedTotal < this.sessionLimit) await this.loadNextWord();
+                if (this.isFormalPractice) await this.loadNextWord();
                 else this.finishPractice();
             } else { this.resumeClock(); this.focusInput(); }
             return true;

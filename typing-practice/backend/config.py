@@ -31,6 +31,7 @@ class AnkiConfig:
 
 @dataclass
 class PracticeConfig:
+    # Read-only vocabulary and explicit queue batch limits, not session limits.
     default_limit: int = 20
     max_limit: int = 100
 
@@ -118,6 +119,8 @@ def load_config() -> Config:
     practice = raw.get("practice", {}) or {}
     stats = raw.get("stats", {}) or {}
     memory = raw.get("memory", {}) or {}
+    # Old YAML files may still contain the retired daily new-word quota.
+    memory.pop("daily_new", None)
     optimization = raw.get("optimization", {}) or {}
 
     cfg = Config(
@@ -162,7 +165,6 @@ def load_config() -> Config:
         cfg.stats.db_path = env["STATS_DB_PATH"].strip()
     for name, attribute, convert in (
         ("FSRS_DESIRED_RETENTION", "desired_retention", float),
-        ("FSRS_DAILY_NEW", "daily_new", int),
         ("FSRS_EASY_SECONDS", "easy_seconds", float),
         ("FSRS_HARD_SECONDS", "hard_seconds", float),
         ("FSRS_PARAMETERS_PATH", "parameters_path", str),

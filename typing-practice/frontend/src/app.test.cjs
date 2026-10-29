@@ -96,11 +96,30 @@ test('correction allows typing and does not submit a second review', async () =>
     assert.equal(h.requests.length, 0);
 });
 
-test('free practice records only session feedback', async () => {
+test('free practice persists submissions and restores a failed submission for retry', async () => {
     const h = harness();
     h.app.practiceMode = 'free';
     h.app.beginCurrentWord();
     h.tick(2000);
+    await h.app.submitInput('apple');
+    assert.equal(h.app.stats.correct, 0);
+    assert.equal(h.requests.length, 1);
+    assert.ok(h.app.pendingAttempt);
+    assert.ok(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'));
+    h.context.axios.post = async (url, payload) => ({ data: { data: {
+        attempt_id: payload.attempt_id, is_correct: true, duration_ms: 2000
+    } } });
+    const restored = h.mount();
+    await restored.restoreDraftSession();
+    assert.equal(restored.practiceMode, 'free');
+    assert.equal(restored.stats.correct, 1);
+    assert.equal(restored.pendingAttempt, null);
+    assert.equal(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'), null);
+});
+
+test('mistake practice records only session feedback', async () => {
+    const h = harness();
+    h.app.practiceMode = 'mistakes';
     await h.app.submitInput('apple');
     assert.equal(h.app.stats.correct, 1);
     assert.equal(h.requests.length, 0);
@@ -149,4 +168,144 @@ test('conflict offers recovery without changing local counts', async () => {
     await h.app.continueAfterConflict();
     assert.equal(loaded, true);
     assert.equal(h.app.pendingAttempt, null);
+});
+
+for (const count of [3, 25]) {
+    test(`formal practice completes the available ${count} words when the queue empties`, async () => {
+        const h = harness();
+        const summary = () => ({ total: count, due_count: 0, new_available: count - h.app.attemptedTotal });
+        h.context.axios.get = async (url, { params } = {}) => {
+            if (url.endsWith('/memory/summary')) return { data: { data: summary() } };
+            assert.equal(params.limit, 1);
+            const index = h.app.attemptedTotal;
+            return { data: { data: {
+                items: index < count ? [{ word: 'apple', source_id: `apple-${index}`, attempt_id: `attempt-${index}` }] : [],
+                summary: summary(), server_time: new Date().toISOString()
+            } } };
+        };
+        h.context.axios.post = async (url, payload) => ({ data: { data: {
+            attempt_id: payload.attempt_id, is_correct: true, duration_ms: 1000
+        } } });
+        await h.app.fetchWords();
+        assert.equal(h.app.progressTotal, count);
+        for (let index = 0; index < count; index++) {
+            assert.equal(h.app.isFinished, false);
+            assert.equal(h.app.progressCurrent, index + 1);
+            await h.app.submitInput('apple');
+            await h.app.nextWord();
+            assert.equal(h.app.progressTotal, count);
+        }
+        assert.equal(h.app.isFinished, true);
+        assert.equal(h.app.resultTotal, count);
+    });
+}
+
+for (const count of [3, 20]) {
+    test(`free practice requests at most 20 words and saves all ${count} answers`, async () => {
+        const h = harness();
+        let queueRequests = 0;
+        h.context.axios.get = async (url, { params } = {}) => {
+            if (url.endsWith('/memory/summary')) return { data: { data: { total: 125 } } };
+            queueRequests++;
+            assert.equal(params.mode, 'free');
+            assert.equal(params.limit, 20);
+            return { data: { data: {
+                items: Array.from({ length: count }, (_, index) => ({ word: 'apple', source_id: `apple-${index}`, attempt_id: `free-${index}` })),
+                summary: { total: 125 }, server_time: new Date().toISOString()
+            } } };
+        };
+        h.context.axios.post = async (url, payload) => {
+            h.requests.push(payload);
+            return { data: { data: { attempt_id: payload.attempt_id, is_correct: true, duration_ms: 1000 } } };
+        };
+        await h.app.fetchWords({ mode: 'free' });
+        assert.equal(h.app.progressTotal, count);
+        for (let index = 0; index < count; index++) {
+            assert.equal(h.app.isFinished, false);
+            await h.app.submitInput('apple');
+            await h.app.nextWord();
+        }
+        assert.equal(h.app.isFinished, true);
+        assert.equal(h.app.resultTotal, count);
+        assert.equal(h.requests.length, count);
+        assert.equal(queueRequests, 1);
+    });
+}
+
+test('a free practice conflict skips the stale word without fetching another batch', async () => {
+    const h = harness();
+    h.app.practiceMode = 'free';
+    h.app.words.push({ word: 'book', source_id: 'book', attempt_id: 'second' });
+    let queueRequests = 0;
+    h.context.axios.get = async url => {
+        if (url.endsWith('/practice/queue')) queueRequests++;
+        return { data: { data: { total: 2 } } };
+    };
+    h.context.axios.post = async () => { throw { response: { status: 409, data: { error: 'stale' } } }; };
+    await h.app.submitInput('apple');
+    await h.app.continueAfterConflict();
+    assert.equal(h.app.currentWord.word, 'book');
+    assert.equal(h.app.resultTotal, 0);
+    assert.equal(queueRequests, 0);
+    await h.app.submitInput('book');
+    await h.app.continueAfterConflict();
+    assert.equal(h.app.isFinished, true);
+    assert.equal(h.app.resultTotal, 0);
+    assert.equal(queueRequests, 0);
+});
+
+test('an old unrecorded free draft starts a new round without replaying old counts', async () => {
+    const h = harness();
+    h.app.practiceMode = 'free';
+    h.app.words = Array.from({ length: 125 }, () => ({ word: 'apple', source_id: 'apple' }));
+    h.app.currentIndex = 5;
+    h.app.stats.correct = 5;
+    h.app.saveDraftSession();
+    h.context.axios.get = async (url, { params }) => {
+        assert.equal(params.mode, 'free');
+        assert.equal(params.limit, 20);
+        return { data: { data: {
+            items: Array.from({ length: 20 }, (_, index) => ({ word: 'apple', attempt_id: `new-${index}` })),
+            summary: { total: 125 }, server_time: new Date().toISOString()
+        } } };
+    };
+    const restored = h.mount();
+    assert.equal(await restored.restoreDraftSession(), true);
+    assert.equal(restored.practiceMode, 'free');
+    assert.equal(restored.progressTotal, 20);
+    assert.equal(restored.progressCurrent, 1);
+    assert.equal(restored.resultTotal, 0);
+    assert.equal(h.requests.length, 0);
+});
+
+test('a legacy draft at the old 20-word limit continues loading available words', async () => {
+    const h = harness();
+    h.app.words = Array.from({ length: 20 }, () => ({ word: 'apple' }));
+    h.app.currentIndex = 20;
+    h.app.stats.correct = 20;
+    h.app.saveDraftSession();
+    const key = 'typingPracticeDraftSession:fsrs:v1:session';
+    const draft = JSON.parse(h.localStorage.getItem(key));
+    h.localStorage.setItem(key, JSON.stringify({ ...draft, sessionLimit: 20 }));
+    h.context.axios.get = async () => ({ data: { data: {
+        items: [{ word: 'book', source_id: 'book', attempt_id: 'next' }],
+        summary: { total: 25, due_count: 0, new_available: 5 }, server_time: new Date().toISOString()
+    } } });
+    const restored = h.mount();
+    assert.equal(await restored.restoreDraftSession(), true);
+    assert.equal(restored.isFinished, false);
+    assert.equal(restored.currentWord.word, 'book');
+    assert.equal(restored.progressCurrent, 21);
+    assert.equal(restored.progressTotal, 25);
+});
+
+test('an empty pool shows zero progress and no current question', async () => {
+    const h = harness();
+    h.context.axios.get = async () => ({ data: { data: {
+        items: [], summary: { total: 0, due_count: 0, new_available: 0 }, server_time: new Date().toISOString()
+    } } });
+    await h.app.fetchWords();
+    assert.equal(h.app.currentWord, null);
+    assert.equal(h.app.progressTotal, 0);
+    assert.equal(h.app.progressCurrent, 0);
 });

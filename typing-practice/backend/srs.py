@@ -52,7 +52,6 @@ def answer_candidates(word: str) -> list[str]:
 @dataclass
 class MemoryConfig:
     desired_retention: float = 0.9
-    daily_new: int = 20
     easy_seconds: float = 6
     hard_seconds: float = 20
     parameters_path: str = ""
@@ -61,8 +60,6 @@ class MemoryConfig:
     def validate(self) -> None:
         if not 0 < self.desired_retention < 1:
             raise ValueError("memory.desired_retention 必须在 0 和 1 之间")
-        if isinstance(self.daily_new, bool) or not isinstance(self.daily_new, int) or self.daily_new < 0:
-            raise ValueError("memory.daily_new 必须是非负整数")
         duration(self.easy_seconds, "memory.easy_seconds")
         duration(self.hard_seconds, "memory.hard_seconds")
         if not 0 < self.easy_seconds < self.hard_seconds:

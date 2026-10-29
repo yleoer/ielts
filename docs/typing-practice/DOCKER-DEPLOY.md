@@ -28,7 +28,7 @@
 
 ## FSRS 配置
 
-Compose 从 .env 传入 FSRS_DESIRED_RETENTION（默认 0.9）、FSRS_DAILY_NEW（20）、FSRS_EASY_SECONDS（6）、FSRS_HARD_SECONDS（20）和 FSRS_PARAMETERS_PATH（空，使用默认模型）。参数配置变化需重建容器。
+Compose 从 .env 传入 FSRS_DESIRED_RETENTION（默认 0.9）、FSRS_EASY_SECONDS（6）、FSRS_HARD_SECONDS（20）和 FSRS_PARAMETERS_PATH（空，使用默认模型）。正式练习按当前可练词数安排，不设每轮作答数或每日新词上限；自由练习每轮最多 20 个，并计入历史统计与 FSRS。旧 FSRS_DAILY_NEW 已停用，即使 .env 中保留旧值也会忽略。参数配置变化需重建容器。
 
 镜像包含 `fsrs[optimizer]==6.3.2` 与 CPU 版 PyTorch。启动时检查一次，之后默认每天检查一次；累计 1,000 条有效间隔复习后在下一次检查中后台训练，留出较新数据验证，误差改善才启用；后续按自然月评估，默认至少新增 100 条有效记录。训练使用独立 CPU 子进程，答案接口不执行训练。Compose 还传入 `FSRS_AUTO_OPTIMIZE=true`、`FSRS_OPTIMIZER_CHECK_SECONDS=86400`、`FSRS_OPTIMIZER_MIN_NEW_REVIEWS=100`、`FSRS_OPTIMIZER_TIMEOUT_SECONDS=3600`。实际 `.env` 如果还配置旧值 `300`，需改为 `86400` 或删除该覆盖项，再重建容器。
 
@@ -78,7 +78,7 @@ GitHub Actions 自动部署仅修改镜像标签、拉取镜像和重建练习�
 
 ## 排障
 
-- 正式队列为空可能是没有到期词或新词额度已用完；/api/memory/summary 可区分。词库为空时检查 Anki 学习与同步状态。
+- 正式队列为空表示当前没有到期词或未开始的词；/api/memory/summary 可查看数量及下次到期时间。词库为空时检查 Anki 学习与同步状态。
 - 统计数据缺失，通常是统计库路径或挂载不对。
 - 同步延迟，通常只是容器内的初始等待时间还没过。
 

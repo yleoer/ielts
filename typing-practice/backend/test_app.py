@@ -22,7 +22,7 @@ def make_config(root: Path, anki_path: str = "") -> Config:
     )
 
 
-def make_anki_db(path: Path) -> None:
+def make_anki_db(path: Path, word_count: int = 1) -> None:
     db = sqlite3.connect(path)
     db.executescript(
         """
@@ -41,11 +41,101 @@ def make_anki_db(path: Path) -> None:
                    "Illustration": '<img src="wa_abandon_img.webp">',
                    "AudioUK": "[sound:wa_abandon_uk.mp3]"})
     db.execute("INSERT INTO notes(id,flds) VALUES(?,?)", (101, FIELD_SEPARATOR.join(fields[name] for name in WORD_ATLAS_FIELDS)))
+    for index in range(1, word_count):
+        spelling = f"word-{chr(97 + index // 26)}{chr(97 + index % 26)}"
+        fields.update(Word=spelling, SourceId=spelling)
+        db.execute("INSERT INTO notes VALUES(?,?)", (101 + index, FIELD_SEPARATOR.join(fields[name] for name in WORD_ATLAS_FIELDS)))
+        db.execute("INSERT INTO cards VALUES(?,?,1,1,1)", (201 + index, 101 + index))
     db.commit()
     db.close()
 
 
 class FlaskAppTest(unittest.TestCase):
+    def test_scheduled_practice_uses_the_entire_pool_without_session_or_daily_quotas(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        collection = root / "collection.anki2"
+        make_anki_db(collection, word_count=125)
+        app = create_app(make_config(root, str(collection)), start_background_tasks=False)
+        self.addCleanup(app.extensions["typing_practice_state"].close)
+        state = app.extensions["typing_practice_state"]
+        now = datetime(2026, 10, 29, 8, tzinfo=timezone.utc)
+        state.memory.now = lambda: now
+        client = app.test_client()
+        free = client.get("/api/practice/queue?session_id=free&mode=free").json["data"]
+        self.assertEqual(len(free["items"]), 20)
+        self.assertEqual(len({item["source_id"] for item in free["items"]}), 20)
+        self.assertTrue(all("attempt_id" in item for item in free["items"]))
+        self.assertEqual(state.stats.db.execute("SELECT COUNT(*) FROM practice_items").fetchone()[0], 20)
+        limited = client.get("/api/practice/queue?session_id=free&mode=free&limit=5").json["data"]
+        self.assertEqual(len(limited["items"]), 5)
+        self.assertEqual(state.stats.overview()["total_words_practiced"], 0)
+
+        practiced = set()
+        for remaining in range(125, 0, -1):
+            response = client.get("/api/practice/queue?session_id=whole-pool")
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn("session_limit", response.json)
+            data = response.json["data"]
+            self.assertEqual(data["summary"]["new_available"], remaining)
+            self.assertEqual(len(data["items"]), 1)
+            question = data["items"][0]
+            practiced.add(question["source_id"])
+            now += timedelta(seconds=1)
+            response = client.post("/api/practice/attempts", json={
+                "attempt_id": question["attempt_id"], "session_id": "whole-pool",
+                "user_input": question["word"], "duration_ms": 1000, "reviewed_at": now.isoformat(),
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json["data"]["rating"], 4)
+        self.assertEqual(len(practiced), 125)
+        empty = client.get("/api/practice/queue?session_id=whole-pool").json["data"]
+        self.assertEqual(empty["items"], [])
+        self.assertEqual(empty["summary"]["new_today"], 125)
+        self.assertEqual(state.stats.overview()["total_words_practiced"], 125)
+
+    def test_free_practice_saves_twenty_answers_and_can_review_before_due(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        collection = root / "collection.anki2"
+        make_anki_db(collection, word_count=25)
+        app = create_app(make_config(root, str(collection)), start_background_tasks=False)
+        state = app.extensions["typing_practice_state"]
+        self.addCleanup(state.close)
+        now = datetime(2026, 10, 29, 8, tzinfo=timezone.utc)
+        state.memory.now = lambda: now
+        client = app.test_client()
+        items = client.get("/api/practice/queue?session_id=free&mode=free&limit=1000").json["data"]["items"]
+        self.assertEqual(len(items), 20)
+        for question in items:
+            now += timedelta(seconds=1)
+            response = client.post("/api/practice/attempts", json={
+                "attempt_id": question["attempt_id"], "session_id": "free",
+                "user_input": question["word"], "duration_ms": 1000, "reviewed_at": now.isoformat(),
+            })
+            self.assertEqual(response.status_code, 200)
+        self.assertEqual(client.get("/api/stats/overview").json["data"]["total_words_practiced"], 20)
+        self.assertEqual(state.stats.db.execute("SELECT COUNT(*) FROM word_memory").fetchone()[0], 20)
+        items = client.get("/api/practice/queue?session_id=early&mode=free").json["data"]["items"]
+        question = next(item for item in items if item["card_version"] > 0)
+        self.assertFalse(question["memory"]["is_due"])
+        now += timedelta(seconds=1)
+        payload = {"attempt_id": question["attempt_id"], "session_id": "early", "user_input": "",
+                   "duration_ms": 1000, "reviewed_at": now.isoformat()}
+        response = client.post("/api/practice/attempts", json=payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["data"]["rating"], 1)
+        self.assertEqual(response.json["data"]["card_version"], 2)
+        self.assertNotEqual(response.json["data"]["memory"]["due"], question["memory"]["due"])
+        self.assertEqual(client.post("/api/practice/attempts", json=payload).json, response.json)
+        overview = client.get("/api/stats/overview").json["data"]
+        self.assertEqual(overview["total_words_practiced"], 21)
+        self.assertEqual(overview["total_sessions"], 2)
+        heatmap = client.get("/api/stats/heatmap?start_date=2026-10-29&end_date=2026-10-29").json["data"]
+        self.assertEqual(heatmap[0]["words"], 21)
+
     def test_optimization_history_api_and_invalid_cursors(self):
         from test_optimizer_service import seed_history, candidate
         temporary = tempfile.TemporaryDirectory()
