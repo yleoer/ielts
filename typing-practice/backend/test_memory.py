@@ -34,7 +34,7 @@ class RatingTest(unittest.TestCase):
         for value in (None, "6", True, -1, float("nan"), float("inf")):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 srs.grade(True, value)
-        for config in (MemoryConfig(easy_seconds=20), MemoryConfig(desired_retention=1), MemoryConfig(daily_new=-1)):
+        for config in (MemoryConfig(easy_seconds=20), MemoryConfig(desired_retention=1)):
             with self.assertRaises(ValueError):
                 SRS(config)
 
@@ -132,11 +132,65 @@ class MemoryTest(unittest.TestCase):
         self.memory.submit(payload, self.pool)
         self.assertEqual(self.stats.overview()["total_words_practiced"], 1)
 
-    def test_free_practice_has_no_formal_ticket(self):
+    def test_free_practice_creates_a_ticket_and_records_memory_and_history(self):
         response = self.memory.queue(self.pool, "free", mode="free")
-        self.assertNotIn("attempt_id", response["items"][0])
-        self.assertEqual(self.stats.db.execute("SELECT COUNT(*) FROM practice_items").fetchone()[0], 0)
+        question = response["items"][0]
+        self.assertIn("attempt_id", question)
+        self.assertEqual(self.stats.db.execute("SELECT mode FROM practice_items").fetchone()[0], "free")
         self.assertEqual(self.memory.summary(self.pool)["new_today"], 0)
+        payload = self.payload(question, session="free")
+        result = self.memory.submit(payload, self.pool)
+        self.assertEqual(result["rating"], 3)
+        self.assertEqual(self.memory.submit(payload, self.pool), result)
+        self.assertEqual(self.stats.overview()["total_words_practiced"], 1)
+        self.assertEqual(self.memory.summary(self.pool)["new_today"], 1)
+
+    def test_free_practice_reviews_a_card_before_due(self):
+        original = self.memory.submit(self.payload(self.question()), self.pool)
+        question = self.memory.queue(self.pool, "free", mode="free")["items"][0]
+        self.assertFalse(question["memory"]["is_due"])
+        result = self.memory.submit(self.payload(question, "wrong", session="free"), self.pool)
+        self.assertLess(self.now, parse_due(original))
+        self.assertEqual(result["rating"], 1)
+        self.assertEqual(result["card_version"], 2)
+        self.assertEqual(parse_due(result), self.now + timedelta(minutes=1))
+        self.assertEqual(self.stats.overview()["total_words_practiced"], 2)
+
+    def test_submitted_mode_cannot_override_the_ticket_due_check(self):
+        self.memory.submit(self.payload(self.question()), self.pool)
+        question = self.memory.queue(self.pool, "early", mode="free")["items"][0]
+        with self.stats.db:
+            self.stats.db.execute("UPDATE practice_items SET mode='scheduled' WHERE attempt_id=?", (question["attempt_id"],))
+        payload = {**self.payload(question, session="early"), "mode": "free"}
+        with self.assertRaises(PracticeConflict):
+            self.memory.submit(payload, self.pool)
+        self.assertEqual(self.stats.overview()["total_words_practiced"], 1)
+
+    def test_free_practice_still_checks_competing_card_versions(self):
+        first = self.memory.queue(self.pool, "first", mode="free")["items"][0]
+        second = self.memory.queue(self.pool, "second", mode="free")["items"][0]
+        self.memory.submit(self.payload(first, session="first"), self.pool)
+        with self.assertRaises(PracticeConflict):
+            self.memory.submit(self.payload(second, session="second"), self.pool)
+        self.assertEqual(self.stats.overview()["total_words_practiced"], 1)
+
+    def test_free_practice_caps_the_sample_and_uses_all_of_a_small_pool(self):
+        self.pool = [word(f"word-{index}", index) for index in range(25)]
+        for limit, expected in ((None, 20), (1000, 20), (3, 3)):
+            with self.subTest(limit=limit):
+                items = self.memory.queue(self.pool, "sample", limit=limit, mode="free")["items"]
+                self.assertEqual(len(items), expected)
+                self.assertEqual(len({item["source_id"] for item in items}), expected)
+        self.assertEqual(len(self.memory.queue(self.pool[:3], "small", mode="free")["items"]), 3)
+
+    def test_legacy_tickets_keep_their_scheduled_mode_after_migration(self):
+        question = self.question()
+        with self.stats.db:
+            self.stats.db.execute("ALTER TABLE practice_items DROP COLUMN mode")
+        migrated = MemoryStore(self.stats, MemoryConfig(enable_fuzzing=False), lambda: self.now)
+        self.assertEqual(self.stats.db.execute("SELECT mode FROM practice_items").fetchone()[0], "scheduled")
+        migrated.submit(self.payload(question), self.pool)
+        self.assertEqual(self.stats.overview()["total_words_practiced"], 1)
 
     def test_source_id_survives_reimport_and_missing_source_is_rejected(self):
         payload = self.payload(self.question())
@@ -150,25 +204,26 @@ class MemoryTest(unittest.TestCase):
         self.assertEqual(self.memory.summary([])["total"], 0)
         self.assertEqual(self.memory.summary(self.pool)["learning"], 1)
 
-    def test_daily_new_quota_and_shanghai_midnight(self):
-        self.memory.srs.config.daily_new = 1
+    def test_daily_new_count_and_shanghai_midnight(self):
         self.pool += [word("book", 2)]
         self.now = datetime(2026, 10, 29, 15, 59, 40, tzinfo=timezone.utc)
         self.memory.submit(self.payload(self.question(), elapsed=1000), self.pool)
-        self.assertEqual(self.memory.summary(self.pool)["new_available"], 0)
+        self.assertEqual(self.memory.summary(self.pool)["new_today"], 1)
+        self.assertEqual(self.memory.summary(self.pool)["new_available"], 1)
         self.now = datetime(2026, 10, 29, 16, tzinfo=timezone.utc)
+        self.assertEqual(self.memory.summary(self.pool)["new_today"], 0)
         self.assertEqual(self.memory.summary(self.pool)["new_available"], 1)
         self.memory.submit(self.payload(self.question(), "book", 1000), self.pool)
         rows = self.stats.heatmap("2026-10-29", "2026-10-30")
         self.assertEqual([(row["date"], row["words"]) for row in rows], [("2026-10-29", 1), ("2026-10-30", 1)])
 
-    def test_daily_quota_enforced_at_submit_for_outstanding_questions(self):
-        self.memory.srs.config.daily_new = 1
+    def test_outstanding_new_questions_can_both_be_submitted(self):
         a = self.question()
         b = self.question(pool=[word("book", 2)])
+        self.pool += [word("book", 2)]
         self.memory.submit(self.payload(a), self.pool)
-        with self.assertRaises(PracticeConflict):
-            self.memory.submit(self.payload(b, "book"), [word("book", 2)])
+        self.memory.submit(self.payload(b, "book"), self.pool)
+        self.assertEqual(self.memory.summary(self.pool)["new_today"], 2)
 
     def test_server_checks_answers_variants_and_whitespace(self):
         self.pool[0]["word"] = "colour / color"

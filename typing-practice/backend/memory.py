@@ -12,6 +12,8 @@ from fsrs import Card, Rating, ReviewLog, State
 from srs import SRS, SHANGHAI, answer_candidates, duration, normalize_answer, parse_time, time_text, utc_now
 from stats import analyze_error_type
 
+FREE_PRACTICE_LIMIT = 20
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS srs_configs (version TEXT PRIMARY KEY, config_json TEXT NOT NULL);
@@ -35,7 +37,8 @@ CREATE TABLE IF NOT EXISTS practice_items (
     word_json TEXT NOT NULL,
     card_version INTEGER NOT NULL,
     issued_at TEXT NOT NULL,
-    config_version TEXT NOT NULL
+    config_version TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'scheduled'
 );
 CREATE INDEX IF NOT EXISTS idx_items_issued ON practice_items(issued_at);
 CREATE TABLE IF NOT EXISTS word_reviews (
@@ -98,6 +101,9 @@ class MemoryStore:
         self.db.executescript(SCHEMA)
         with self.lock, self.db:
             self.db.execute("BEGIN IMMEDIATE")
+            columns = {row["name"] for row in self.db.execute("PRAGMA table_info(practice_items)")}
+            if "mode" not in columns:
+                self.db.execute("ALTER TABLE practice_items ADD COLUMN mode TEXT NOT NULL DEFAULT 'scheduled'")
             # Retired tables are removed on cutover and never recreated.
             self.db.execute("DROP TABLE IF EXISTS word_attempts")
             self.db.execute("DROP TABLE IF EXISTS word_mastery")
@@ -128,12 +134,11 @@ class MemoryStore:
         review.sort(key=lambda key: (states[key]["due"], key))
         fresh.sort()
         new_today = self._new_today(now)
-        allowance = max(0, self.srs.config.daily_new - new_today)
         today = now.astimezone(SHANGHAI).date()
         summary = {
             "total": len(words), "due_count": len(learning) + len(review),
-            "new_available": min(allowance, len(fresh)), "new_today": new_today,
-            "daily_new": self.srs.config.daily_new, "next_due": min(future) if future else None,
+            "new_available": len(fresh), "new_today": new_today,
+            "next_due": min(future) if future else None,
             "new": len(fresh), "learning": 0, "mastered": 0,
             "due_forecast": [{"date": (today + timedelta(days=offset)).isoformat(), "count": 0}
                              for offset in range(7)],
@@ -146,7 +151,7 @@ class MemoryStore:
                 offset = (forecast_date(card, today) - today).days
                 if offset < 7:
                     summary["due_forecast"][offset]["count"] += 1
-        return words, states, learning + review + fresh[:allowance], summary
+        return words, states, learning + review + fresh, summary
 
     def summary(self, pool):
         with self.lock:
@@ -176,7 +181,7 @@ class MemoryStore:
             result.sort(key=lambda item: (item["due"], item["source_id"]))
             return result
 
-    def queue(self, pool, session_id: str, limit=1, mode="scheduled"):
+    def queue(self, pool, session_id: str, limit=None, mode="scheduled"):
         if not isinstance(session_id, str) or not 1 <= len(session_id) <= 100:
             raise ValueError("需要有效的 session_id")
         if mode not in {"scheduled", "free"}:
@@ -187,23 +192,27 @@ class MemoryStore:
             words, states, keys, summary = self._plan(pool, now)
             self.db.execute("DELETE FROM practice_items WHERE issued_at < ?", (time_text(now - timedelta(days=7)),))
             if mode == "free":
-                # Free practice never creates a formal question or updates memory.
+                # Free practice samples the whole pool, including cards not yet due.
                 import random
                 keys = list(words)
                 random.SystemRandom().shuffle(keys)
             data = []
-            for key in keys[:min(max(limit, 1), 100)]:
+            maximum = FREE_PRACTICE_LIMIT if mode == "free" else 100
+            default_limit = FREE_PRACTICE_LIMIT if mode == "free" else 1
+            item_limit = min(max(limit if limit is not None else default_limit, 1), maximum)
+            for key in keys[:item_limit]:
                 word = dict(words[key])
                 row = states.get(key)
                 word["memory"] = self.srs.describe(Card.from_json(row["card_json"]), now) if row else {"status": "new", "is_due": False}
                 word["card_version"] = row["version"] if row else 0
-                if mode == "scheduled":
-                    word["attempt_id"] = str(uuid4())
-                    word["issued_at"] = time_text(now)
-                    self.db.execute("INSERT INTO practice_items VALUES(?,?,?,?,?,?,?)", (
-                        word["attempt_id"], session_id, key, json.dumps(words[key]),
-                        word["card_version"], time_text(now), self.srs.version,
-                    ))
+                word["attempt_id"] = str(uuid4())
+                word["issued_at"] = time_text(now)
+                self.db.execute("""INSERT INTO practice_items
+                    (attempt_id,session_id,word_key,word_json,card_version,issued_at,config_version,mode)
+                    VALUES(?,?,?,?,?,?,?,?)""", (
+                    word["attempt_id"], session_id, key, json.dumps(words[key]),
+                    word["card_version"], time_text(now), self.srs.version, mode,
+                ))
                 data.append(word)
             return {"items": data, "summary": summary, "server_time": time_text(now)}
 
@@ -259,7 +268,9 @@ class MemoryStore:
                 raise PracticeConflict("这个词已在其他题目中完成复习，请继续下一题")
             if row:
                 card = Card.from_json(row["card_json"])
-                if reviewed < card.due or reviewed <= card.last_review:
+                if reviewed <= card.last_review:
+                    raise PracticeConflict("作答时间必须晚于上次复习，请重新获取题目")
+                if item["mode"] != "free" and reviewed < card.due:
                     raise PracticeConflict("这个词尚未到期，请重新获取题目")
                 if row["config_version"] != self.srs.version:
                     logs = [ReviewLog(row["id"], Rating(log["rating"]), parse_time(log["reviewed_at"]), round(log["duration_ms"]))
@@ -267,8 +278,6 @@ class MemoryStore:
                     card = self.srs.scheduler.reschedule_card(card, logs)
                 before_json = card.to_json()
             else:
-                if self._new_today(reviewed) >= self.srs.config.daily_new:
-                    raise PracticeConflict("当天新词额度已用完，请继续复习到期词")
                 cursor = self.db.execute("""INSERT INTO word_memory(word_key,card_json,due,state,first_review,last_review,version,config_version)
                     VALUES(?, '', ?, 1, ?, ?, 0, ?)""", (item["word_key"], time_text(reviewed), time_text(reviewed), time_text(reviewed), self.srs.version))
                 card = Card(card_id=cursor.lastrowid, due=reviewed)

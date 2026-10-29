@@ -16,7 +16,7 @@ from flask import Flask, abort, current_app, jsonify, render_template, request, 
 from anki import AnkiReader
 from auth import install_access_gate
 from config import Config, load_config
-from memory import MemoryStore, PracticeConflict
+from memory import FREE_PRACTICE_LIMIT, MemoryStore, PracticeConflict
 from optimizer_service import OptimizationService
 from stats import StatsStore
 from sync import copy_collection_group, latest_collection, sync_configured, sync_target_path
@@ -66,7 +66,7 @@ class AppState:
             self.closed = True
 
     def get_words(self, limit: int, category: str) -> list[dict[str, Any]]:
-        # Read-only vocabulary endpoint for integrations and free practice.
+        # Read-only vocabulary endpoint for integrations.
         return [word for word in self.current_pool() if category == "all" or word["category"] == category][:limit]
 
     def current_pool(self) -> list[dict[str, Any]]:
@@ -95,7 +95,6 @@ class AppState:
                 "total_learned": total,
                 "default_limit": self.config.practice.default_limit,
                 "max_limit": self.config.practice.max_limit,
-                "daily_new": self.config.memory.daily_new,
                 "easy_seconds": self.config.memory.easy_seconds,
                 "hard_seconds": self.config.memory.hard_seconds,
             }
@@ -272,11 +271,13 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
 
     @app.route("/api/practice/queue")
     def practice_queue():
+        mode = request.args.get("mode", "scheduled")
+        limit = min(_int_query("limit", FREE_PRACTICE_LIMIT if mode == "free" else 1), cfg.practice.max_limit)
         data = state.memory.queue(
             state.current_pool(), request.args.get("session_id", ""),
-            min(_int_query("limit", 1), cfg.practice.max_limit), request.args.get("mode", "scheduled"),
+            limit, mode,
         )
-        return jsonify(success=True, data=data, session_limit=cfg.practice.default_limit)
+        return jsonify(success=True, data=data)
 
     @app.route("/api/practice/attempts", methods=["POST"])
     def practice_attempt():

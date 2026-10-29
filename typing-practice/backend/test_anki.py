@@ -91,6 +91,13 @@ class WordAtlasFieldTest(unittest.TestCase):
             with patch("config.load_dotenv"), patch("config.default_anki_db_path", return_value=""), patch("config._config_path", return_value=path), patch.dict("os.environ", {"ANKI_MEDIA_DIR": "from-env"}, clear=True):
                 self.assertEqual(load_config().anki.media_dir, "from-env")
 
+    def test_retired_daily_new_setting_is_ignored(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.yaml"
+            path.write_text("memory:\n  daily_new: 20\n", encoding="utf-8")
+            with patch("config.load_dotenv"), patch("config.default_anki_db_path", return_value=""), patch("config._config_path", return_value=path), patch.dict("os.environ", {"FSRS_DAILY_NEW": "20"}, clear=True):
+                self.assertFalse(hasattr(load_config().memory, "daily_new"))
+
 
 class WordAtlasReaderTest(unittest.TestCase):
     def test_learned_words_are_unique_and_include_child_decks(self):

@@ -17,7 +17,6 @@ stats:
 
 memory:
   desired_retention: 0.9
-  daily_new: 20
   easy_seconds: 6
   hard_seconds: 20
   parameters_path: ""
