@@ -37,7 +37,7 @@ class WordAtlasFieldTest(unittest.TestCase):
             "id": 101, "source_id": "library", "word": "library", "phonetic": "/ˈlaɪbrəri/",
             "part_of_speech": "n.", "chinese_meaning": "图书馆；藏书室",
             "example_en": "I borrowed books from the library.",
-            "example_cn": "我从图书馆借了书。", "category": "教育",
+            "example_cn": "我从图书馆借了书。", "category": "教育", "cefr": "A1",
             "illustration_url": "/api/media/101/illustration",
         })
 
@@ -123,6 +123,7 @@ class WordAtlasReaderTest(unittest.TestCase):
             try:
                 self.assertEqual(reader.count_learned(), 2)
                 self.assertEqual([word["word"] for word in reader.get_learned_word_pool()], ["library", "commute"])
+                self.assertEqual([word["word"] for word in reader.get_word_pool()], ["library", "unlearned", "commute"])
                 self.assertEqual(reader.get_learned_words(10, "教育")[0]["word"], "library")
                 self.assertEqual(reader.get_word_by_id(103)["part_of_speech"], "v.")
                 self.assertEqual(reader.get_media_filename(101, "illustration"), "wa_library_img.webp")
@@ -147,6 +148,8 @@ class WordAtlasReaderTest(unittest.TestCase):
             try:
                 words = reader.get_learned_word_pool()
                 self.assertEqual(len(words), 2)
+                self.assertEqual(len(reader.get_word_pool()), 7298)
+                self.assertEqual(words[0]["cefr"], "A1")
                 self.assertEqual(words[0]["word"], "library")
                 self.assertEqual(words[0]["part_of_speech"], "n.")
                 self.assertEqual(words[0]["chinese_meaning"], "图书馆；藏书室")

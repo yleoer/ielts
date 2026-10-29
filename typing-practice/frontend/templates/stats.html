@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
-    <script src="/src/stats.js?v=20261029-fsrs-cleanup" defer></script>
+    <script src="/src/stats.js?v=20261029-stat-cleanup" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -41,6 +41,41 @@
                         </ol>
                     </template>
                 </section>
+                <section class="report-section vocabulary-section" aria-labelledby="route-title">
+                    <div class="section-heading route-heading">
+                        <div><h2 id="route-title">等级进度</h2><p v-if="vocabulary" class="progress-summary"><span>学习中 / 已掌握 / 总单词数</span><strong>{{ progressCounts(vocabulary.overall) }}</strong></p></div>
+                        <ul class="progress-legend" aria-label="记忆状态图例"><li><span class="legend-dot is-learning"></span>学习中</li><li><span class="legend-dot is-mastered"></span>已掌握</li><li><span class="legend-dot is-new"></span>未开始</li></ul>
+                    </div>
+                    <div v-if="vocabularyLoading" class="vocabulary-placeholder" role="status"><div class="loading-skeleton"><span></span><span></span><span></span></div><p class="muted">正在读取词库进度…</p></div>
+                    <div v-else-if="vocabularyError" class="vocabulary-placeholder" role="alert"><p class="error-message">无法加载词库进度，请检查 Anki 数据源或连接后重试。</p><button type="button" class="button button-secondary" @click="loadVocabulary">重试加载</button></div>
+                    <template v-else-if="vocabulary">
+                        <div class="route-scroll" tabindex="0" aria-label="CEFR 等级进度，可横向滚动">
+                            <ol class="learning-route">
+                                <li v-for="level in vocabulary.levels.filter(item => item.value !== '未分级')" :key="level.value">
+                                    <button type="button" class="route-stop" :disabled="!level.total" @click="openVocabularyWords('cefr', level)" :aria-label="progressDescription(level)" :aria-haspopup="level.total ? 'dialog' : null">
+                                        <span class="route-ring">
+                                            <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-mastered" cx="60" cy="60" r="52" pathLength="100" :stroke-dasharray="`${progressPercent(level, 'mastered')} 100`"/><circle class="ring-learning" cx="60" cy="60" r="52" pathLength="100" :stroke-dasharray="`${progressPercent(level, 'learning')} 100`" :stroke-dashoffset="-progressPercent(level, 'mastered')"/></svg>
+                                            <strong class="route-level">{{ level.value }}</strong>
+                                        </span>
+                                        <span class="route-label">{{ level.label }}</span>
+                                        <span class="route-count">{{ progressCounts(level) }}</span>
+                                    </button>
+                                </li>
+                            </ol>
+                        </div>
+                        <div v-if="vocabulary.levels.some(item => item.value === '未分级')" class="route-footnote"><template v-for="level in vocabulary.levels.filter(item => item.value === '未分级')" :key="level.value"><button type="button" class="text-button" @click="openVocabularyWords('cefr', level)" :aria-label="progressDescription(level)">未分级 {{ progressCounts(level) }}</button></template></div>
+                        <p v-if="!vocabulary.overall.total" class="vocabulary-empty">当前牌组没有可读取的词条，请同步 Word Atlas 后重试。</p>
+                    </template>
+                </section>
+                <section v-if="vocabulary && !vocabularyLoading && !vocabularyError && vocabulary.topics.length" class="report-section" aria-labelledby="topics-title">
+                    <div class="section-heading"><h2 id="topics-title">话题进度</h2><p>学习中 / 已掌握 / 总单词数</p></div>
+                    <ul class="topic-progress-list">
+                        <li v-for="topic in vocabulary.topics" :key="topic.value"><button type="button" class="topic-progress-button" @click="openVocabularyWords('topic', topic)" :aria-label="progressDescription(topic)" aria-haspopup="dialog">
+                            <span class="topic-progress-heading"><strong>{{ topic.label }}</strong><span class="topic-count">{{ progressCounts(topic) }}</span></span>
+                            <span class="topic-track" aria-hidden="true"><span class="topic-mastered" :style="{ width: progressPercent(topic, 'mastered') + '%' }"></span><span class="topic-learning" :style="{ width: progressPercent(topic, 'learning') + '%' }"></span></span>
+                        </button></li>
+                    </ul>
+                </section>
                 <section class="report-section calendar-section">
                     <div class="section-heading"><h2>{{ t('学习日历', 'Activity calendar') }}</h2><p>{{ t(`${heatmapYear} 年练习 ${heatmapActiveDays} 天`, `${heatmapActiveDays} active ${heatmapActiveDays === 1 ? 'day' : 'days'} in ${heatmapYear}`) }}</p></div>
                     <div class="calendar-scroll" tabindex="0" :aria-label="t('学习日历，可横向滚动', 'Activity calendar, scroll horizontally')"><div id="heatmap"></div></div>
@@ -50,14 +85,6 @@
                     <div v-if="trendEmpty" class="chart-empty">{{ t('近 30 天暂无练习记录', 'No activity in the last 30 days.') }}</div>
                     <div v-show="!trendEmpty" id="trend-chart" class="trend-chart" role="img" :aria-label="t('近 30 天练习量和正确率趋势', 'Entries and accuracy over the last 30 days')"></div>
                 </section>
-                <div class="breakdown-grid">
-                    <section v-for="panel in breakdownPanels" :key="panel.key" class="report-section">
-                        <div class="section-heading"><h2>{{ panel.title }}</h2><p>{{ panel.totalText }}</p></div>
-                        <p v-if="panel.error" class="chart-empty">{{ t('加载失败，请刷新重试', 'Unable to load. Refresh to try again.') }}</p>
-                        <p v-else-if="!panel.total" class="chart-empty">{{ t('完成正式作答后，这里将显示明细。', 'Complete a session to see the breakdown.') }}</p>
-                        <ul v-else class="breakdown-list"><li v-for="row in panel.rows" :key="row.key"><button type="button" :disabled="!row.value" @click="panel.open(row)" :aria-label="`${row.label} ${row.value}`"><span class="row-between"><span>{{ row.label }}</span><span class="muted"><strong>{{ row.value }}</strong><span class="row-percent">{{ row.percent }}%</span></span></span><span class="breakdown-track"><span :style="{ width: row.percent + '%', background: row.color }"></span></span></button></li></ul>
-                    </section>
-                </div>
                 <details class="optimization-history" @toggle="onOptimizationToggle">
                     <summary><h2>参数优化记录</h2></summary>
                     <div class="optimization-content">
@@ -100,30 +127,38 @@
             </div>
         </main>
         <div v-if="detailModal.visible" class="dialog-backdrop" @click.self="closeDetailModal">
-            <section class="dialog-panel detail-dialog" role="dialog" aria-modal="true" aria-labelledby="detail-title">
-                <header class="dialog-header"><div><h2 id="detail-title">{{ detailModal.title }}</h2><p class="muted">{{ detailModal.subtitle }}</p></div><button type="button" class="icon-button" @click="closeDetailModal" :aria-label="t('关闭', 'Close')"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
-                <div class="dialog-body">
-                    <p v-if="detailModal.loading" class="chart-empty" role="status">{{ t('加载中…', 'Loading…') }}</p>
-                    <p v-else-if="detailModal.error" class="error-message" role="alert">{{ detailModal.error }}</p>
-                    <p v-else-if="!detailModal.items.length" class="chart-empty">{{ detailModal.type === 'forecast' ? '这一天没有待复习的单词' : t('暂无单词', 'No entries to show.') }}</p>
-                    <ul v-else class="entry-list">
-                        <li v-for="(item, index) in detailModal.items" :key="index" :class="{ 'forecast-entry': detailModal.type === 'forecast' }">
-                            <div><strong class="mono">{{ item.word }}</strong><p class="muted">{{ item.chinese_meaning }}</p></div>
-                            <div class="detail-values">
-                                <template v-if="detailModal.type === 'mastery'">
-                                    <p>答对 {{ item.correct_attempts }} / {{ item.total_attempts }}</p>
-                                    <p v-if="item.due" class="muted">{{ item.is_due ? '已到期' : '下次复习' }} {{ formatDue(item.due) }}</p>
-                                </template>
-                                <template v-else-if="detailModal.type === 'forecast'">
-                                    <p class="muted">{{ item.is_due ? '已到期' : '复习时间' }} {{ formatDue(item.due) }}</p>
-                                </template>
-                                <template v-else>
-                                    <p>× {{ item.error_count }}</p>
-                                    <del v-if="item.user_input" class="mono muted">{{ item.user_input }}</del>
-                                </template>
+            <section class="dialog-panel detail-dialog" role="dialog" aria-modal="true" aria-labelledby="detail-title" aria-describedby="detail-subtitle">
+                <header class="dialog-header"><div><h2 id="detail-title">{{ detailModal.title }}</h2><p id="detail-subtitle" class="muted">{{ detailModal.subtitle }}</p></div><button type="button" class="icon-button" ref="detailClose" @click="closeDetailModal" :aria-label="t('关闭', 'Close')"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
+                <div v-if="detailModal.type === 'vocabulary'" class="vocabulary-filters" role="group" aria-label="按记忆状态筛选">
+                    <button v-for="filter in vocabularyFilters" :key="filter.value" type="button" :aria-pressed="detailModal.status === filter.value" @click="selectVocabularyStatus(filter.value)">{{ filter.label }}</button>
+                </div>
+                <div class="dialog-body" tabindex="0" aria-label="单词明细">
+                    <p v-if="detailModal.loading && !detailModal.items.length" class="chart-empty" role="status">加载中…</p>
+                    <div v-if="detailModal.error" role="alert"><p class="error-message">{{ detailModal.error }}</p><button v-if="detailModal.type === 'vocabulary'" type="button" class="button button-secondary" :disabled="detailModal.loading" @click="loadVocabularyWords(detailModal.retryAppend)">重试加载</button></div>
+                    <p v-if="!detailModal.loading && !detailModal.error && !detailModal.items.length" class="chart-empty">{{ detailModal.type === 'forecast' ? '这一天没有待复习的单词' : '当前筛选下没有单词' }}</p>
+                    <ul v-if="detailModal.items.length" class="entry-list">
+                        <li v-for="item in detailModal.items" :key="item.source_id || item.id" :class="{ 'forecast-entry': detailModal.type === 'forecast', 'vocabulary-entry': detailModal.type === 'vocabulary' }">
+                            <div class="word-detail-row">
+                                <div><strong class="mono">{{ item.word }}</strong><p class="muted">{{ item.chinese_meaning }}</p><p v-if="detailModal.type === 'vocabulary'" class="entry-metadata">{{ item.cefr || '未分级' }} · {{ item.category || '未分类' }}</p></div>
+                                <div class="detail-values">
+                                    <span v-if="!item.total_attempts" class="word-attempts-empty">0/0</span>
+                                    <button v-else type="button" class="word-attempts" :aria-expanded="!!item.errorHistory?.expanded" :aria-controls="`word-errors-${item.id}`" :aria-label="`${item.word}：答对 ${item.correct_attempts || 0} / ${item.total_attempts} 次，查看答错记录`" @click="toggleWordErrors(item)">答对 {{ item.correct_attempts || 0 }} / {{ item.total_attempts }}</button>
+                                    <template v-if="detailModal.type === 'vocabulary'"><p>{{ memoryLabel(item.status) }}</p><p v-if="item.due" class="muted">{{ item.is_due ? '已到期' : '下次复习' }} {{ formatDue(item.due) }}</p></template>
+                                    <template v-else-if="detailModal.type === 'forecast'"><p class="muted">{{ item.is_due ? '已到期' : '复习时间' }} {{ formatDue(item.due) }}</p></template>
+                                </div>
                             </div>
+                            <section v-if="item.errorHistory?.expanded" :id="`word-errors-${item.id}`" class="word-error-history" :aria-label="`${item.word} 的答错记录`">
+                                <p v-if="item.errorHistory.loading && !item.errorHistory.items.length" class="muted" role="status">正在加载答错记录…</p>
+                                <div v-if="item.errorHistory.error" role="alert"><p class="error-message">{{ item.errorHistory.error }}</p><button type="button" class="button button-secondary" :disabled="item.errorHistory.loading" @click="loadWordErrors(item, item.errorHistory.retryAppend)">重试加载</button></div>
+                                <p v-if="item.errorHistory.loaded && !item.errorHistory.loading && !item.errorHistory.error && !item.errorHistory.items.length" class="muted">暂无答错记录</p>
+                                <ol v-if="item.errorHistory.items.length" class="word-error-records">
+                                    <li v-for="record in item.errorHistory.items" :key="record.id"><time class="error-record-time" :datetime="record.reviewed_at">{{ formatDue(record.reviewed_at) }}</time><p v-if="record.user_input.trim()" class="error-input mono"><span v-for="(part, index) in record.inputSegments" :key="index" :class="`input-diff-${part.kind}`" :title="part.description">{{ part.text }}</span><span class="sr-only" v-if="record.inputSegments.some(part => part.kind === 'missing')">（方框表示漏写的位置）</span></p><p v-else class="muted">未输入</p></li>
+                                </ol>
+                                <button v-if="item.errorHistory.nextBeforeId != null && !item.errorHistory.error" type="button" class="button button-secondary" :disabled="item.errorHistory.loading" @click="loadWordErrors(item, true)">{{ item.errorHistory.loading ? '加载中…' : '加载更早记录' }}</button>
+                            </section>
                         </li>
                     </ul>
+                    <div v-if="detailModal.type === 'vocabulary' && detailModal.items.length" class="detail-pagination"><p class="muted" role="status">已显示 {{ detailModal.items.length }} / {{ detailModal.total }} 个词</p><button v-if="detailModal.nextOffset != null && !detailModal.error" type="button" class="button button-secondary" :disabled="detailModal.loading" @click="loadVocabularyWords(true)">{{ detailModal.loading ? '加载中…' : '加载更多' }}</button></div>
                 </div>
             </section>
         </div>

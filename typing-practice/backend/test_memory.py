@@ -81,7 +81,7 @@ class MemoryTest(unittest.TestCase):
     def test_again_repeats_in_same_session_only_when_due(self):
         response = self.memory.submit(self.payload(self.question(), ""), self.pool)
         self.assertEqual(response["rating"], 1)
-        self.assertEqual(response["error_type"], "skipped")
+        self.assertNotIn("error_type", response)
         self.now = parse_due(response) - timedelta(microseconds=1)
         self.assertEqual(self.memory.queue(self.pool, "test")["items"], [])
         self.now += timedelta(microseconds=1)
@@ -98,6 +98,37 @@ class MemoryTest(unittest.TestCase):
         self.assertEqual(self.stats.overview()["total_time_minutes"], 7000 / 60000)
         with self.assertRaises(PracticeConflict):
             self.memory.submit({**payload, "user_input": "wrong"}, self.pool)
+
+    def test_removing_legacy_error_column_preserves_reviews_memory_and_pending_tickets(self):
+        from optimize_fsrs import load_logs
+
+        payload = self.payload(self.question(), "aple")
+        original = self.memory.submit(payload, self.pool)
+        legacy_response = {**original, "error_type": "missing_letter"}
+        # Reproduce an existing database with the retired classification column.
+        with self.stats.db:
+            self.stats.db.execute("ALTER TABLE word_reviews ADD COLUMN error_type TEXT NOT NULL DEFAULT ''")
+            self.stats.db.execute("UPDATE word_reviews SET error_type=?,response_json=?",
+                                  ("missing_letter", json.dumps(legacy_response)))
+            self.stats.db.execute("DELETE FROM schema_migrations WHERE name='remove-error-type-v1'")
+        pending = self.memory.queue(self.pool, "after-upgrade", mode="free")["items"][0]
+        card_before = dict(self.stats.db.execute("SELECT * FROM word_memory").fetchone())
+        review_before = dict(self.stats.db.execute("SELECT * FROM word_reviews").fetchone())
+        review_before.pop("error_type")
+        for _ in range(2):
+            self.memory = MemoryStore(self.stats, MemoryConfig(enable_fuzzing=False), lambda: self.now)
+            columns = {row["name"] for row in self.stats.db.execute("PRAGMA table_info(word_reviews)")}
+            self.assertNotIn("error_type", columns)
+            self.assertEqual(dict(self.stats.db.execute("SELECT * FROM word_memory").fetchone()), card_before)
+            self.assertEqual(dict(self.stats.db.execute("SELECT * FROM word_reviews").fetchone()), review_before)
+            self.assertEqual(self.memory.submit(payload, None), legacy_response)
+            self.assertEqual(self.stats.overview()["total_words_practiced"], 1)
+            self.assertEqual(len(load_logs(self.path)), 1)
+            self.assertEqual(list(self.stats.db.execute("PRAGMA foreign_key_check")), [])
+        response = self.memory.submit(self.payload(pending, session="after-upgrade"), self.pool)
+        self.assertTrue(response["is_correct"])
+        self.assertNotIn("error_type", response)
+        self.assertEqual(self.stats.overview()["total_words_practiced"], 2)
 
     def test_two_tabs_conflict(self):
         first, second = self.question(), self.question(session="other")

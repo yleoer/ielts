@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from srs import SHANGHAI, answer_candidates, normalize_answer
+from srs import SHANGHAI
 
 
 SCHEMA = """
@@ -60,36 +60,6 @@ def _time_text(value: datetime | None) -> str | None:
 
 def _row_dict(row: sqlite3.Row) -> dict[str, Any]:
     return {key: row[key] for key in row.keys()}
-
-
-def analyze_error_type(expected: str, user_input: str) -> str:
-    input_value = normalize_answer(user_input or "")
-    if not input_value:
-        return "skipped"
-    candidates = answer_candidates(expected)
-    if input_value in candidates:
-        return ""
-    expected_value = min(candidates, key=lambda value: levenshtein_distance(value, input_value), default="")
-    distance = levenshtein_distance(expected_value, input_value)
-    if distance == 1:
-        if len(input_value) < len(expected_value):
-            return "missing_letter"
-        if len(input_value) > len(expected_value):
-            return "extra_letter"
-        return "spelling"
-    return "spelling" if distance <= 3 else "completely_wrong"
-
-
-def levenshtein_distance(left: str, right: str) -> int:
-    if len(left) < len(right):
-        left, right = right, left
-    previous = list(range(len(right) + 1))
-    for index, left_char in enumerate(left, 1):
-        current = [index]
-        for right_index, right_char in enumerate(right, 1):
-            current.append(min(current[-1] + 1, previous[right_index] + 1, previous[right_index - 1] + (left_char != right_char)))
-        previous = current
-    return previous[-1]
 
 
 class StatsStore:
@@ -147,26 +117,21 @@ class StatsStore:
             previous = item
         return {"current_streak": current, "longest_streak": longest, "total_days": len(dates), "practice_dates": dates}
 
-    def error_types(self) -> dict[str, int]:
-        data = {"spelling": 0, "missing_letter": 0, "extra_letter": 0, "completely_wrong": 0, "skipped": 0}
+    def word_errors(self, source_id: str, before_id: int = 0, limit: int = 50) -> dict[str, Any]:
+        source_id = source_id.strip()
+        if not source_id:
+            raise ValueError("需要有效的 SourceId")
+        key = f"word-atlas:{source_id}"
         with self.lock:
-            for row in self.db.execute("SELECT error_type,COUNT(*) count FROM word_reviews WHERE is_correct=0 GROUP BY error_type"):
-                data[row["error_type"]] = row["count"]
-        return data
-
-    def error_type_words(self, error_type: str, limit: int = 200) -> list[dict[str, Any]]:
-        with self.lock:
-            rows = self.db.execute(
-                """WITH ranked AS (
-                    SELECT word_key,word,chinese_meaning,category,user_input,reviewed_at,
-                           COUNT(*) OVER(PARTITION BY word_key) error_count,
-                           ROW_NUMBER() OVER(PARTITION BY word_key ORDER BY reviewed_at DESC,id DESC) row_number
-                    FROM word_reviews WHERE is_correct=0 AND error_type=?
-                ) SELECT word,chinese_meaning,category,user_input,error_count,reviewed_at last_attempt_at
-                  FROM ranked WHERE row_number=1 ORDER BY error_count DESC,last_attempt_at DESC LIMIT ?""",
-                (error_type, min(max(limit, 1), 1000)),
-            ).fetchall()
-        return [_row_dict(row) for row in rows]
+            counts = self.db.execute("""SELECT COUNT(*) total_attempts,
+                COALESCE(SUM(is_correct),0) correct_attempts FROM word_reviews WHERE word_key=?""", (key,)).fetchone()
+            rows = self.db.execute("""SELECT id,word,user_input,reviewed_at
+                FROM word_reviews WHERE word_key=? AND is_correct=0 AND (?=0 OR id<?)
+                ORDER BY id DESC LIMIT ?""", (key, before_id, before_id, limit + 1)).fetchall()
+        items = [_row_dict(row) for row in rows[:limit]]
+        return {"items": items,
+                "correct_attempts": counts["correct_attempts"], "total_attempts": counts["total_attempts"],
+                "next_before_id": items[-1]["id"] if len(rows) > limit else None}
 
     def overview(self) -> dict[str, Any]:
         with self.lock:

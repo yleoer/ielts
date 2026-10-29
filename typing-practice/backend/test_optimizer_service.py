@@ -43,11 +43,11 @@ def append_day(stats, memory, day, cards=100, first_card=1):
         for card_id in range(first_card, first_card + cards):
             stats.db.execute("""INSERT INTO word_reviews
                 (attempt_id,request_hash,session_id,memory_id,word_key,word,chinese_meaning,category,
-                 user_input,is_correct,error_type,rating,reviewed_at,received_at,duration_ms,answer_length,
+                 user_input,is_correct,rating,reviewed_at,received_at,duration_ms,answer_length,
                  before_json,after_json,config_version,response_json)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     f"day-{day}-card-{card_id}", "fixture", f"day-{day}", card_id, f"word-atlas:word-{card_id}",
-                    f"word-{card_id}", "模拟词", "测试", "answer", int((day + card_id) % 7 != 0), "",
+                    f"word-{card_id}", "模拟词", "测试", "answer", int((day + card_id) % 7 != 0),
                     1 if (day + card_id) % 7 == 0 else 3, time_text(when), time_text(when), 7000, 6,
                     None, "{}", memory.srs.version, "{}",
                 ))

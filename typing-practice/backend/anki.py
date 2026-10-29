@@ -67,6 +67,7 @@ def parse_word(note_id: int, raw_fields: str) -> dict[str, Any] | None:
         "example_en": clean_field(values["ExampleEN"]),
         "example_cn": clean_field(values["ExampleZH"]),
         "category": clean_field(values["Topic"]),
+        "cefr": clean_field(values["CEFR"]).upper(),
         "illustration_url": f"/api/media/{note_id}/illustration" if media_filename(values, "illustration") else "",
     }
     if not word["word"] or not word["chinese_meaning"]:
@@ -210,6 +211,17 @@ class AnkiReader:
             ORDER BY n.id
         """
         return self._read_words(query, self._learned_deck_ids(), category)
+
+    def get_word_pool(self) -> list[dict[str, Any]]:
+        """All vocabulary in the configured deck tree, regardless of learning state."""
+        query = f"""
+            SELECT n.id, n.flds FROM notes n
+            WHERE n.id IN (
+                SELECT c.nid FROM cards c WHERE c.did IN ({self._deck_placeholders()})
+            )
+            ORDER BY n.id
+        """
+        return self._read_words(query, self._learned_deck_ids(), "all")
 
     def get_word_by_id(self, note_id: int) -> dict[str, Any]:
         with self._lock:
