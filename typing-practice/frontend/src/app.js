@@ -1,214 +1,379 @@
 const { createApp } = Vue;
+const DRAFT_PREFIX = 'typingPracticeDraftSession:fsrs:v1:';
+const OUTBOX_PREFIX = 'typingPracticePending:fsrs:v1:';
+const ACTIVE_KEY = 'typingPracticeActiveSession:fsrs:v1';
 
-createApp({
+const practiceApp = {
     data() {
         return {
-            words: [],
-            currentIndex: 0,
-            userInput: '',
-            isChecking: false,
-            showAnswer: false,
-            isCorrect: false,
-            feedbackMessage: '',
-            isFinished: false,
-            isPracticeAbandoned: false,
-            isComposing: false,
-            isLoadingWords: false,
-            isAdvancing: false,
-            isRestoringDraft: false,
-            advanceTimer: null,
-            // 答错/跳过时记录原始输入，用于标出拼错的字母；跳过时为空字符串。
-            lastWrongInput: '',
-            shake: false,
-            shakeTimer: null,
-            wordsError: '',
-            illustrationFailed: false,
-            sessionId: '',
-            sessionStartedAt: null,
-            currentWordStartedAt: 0,
-            draftSaveTimer: null,
-            draftStorageKey: 'typingPracticeDraftSession:wordAtlas:v2',
-            practiceMode: 'normal',
-            stats: {
-                total: 0,
-                correct: 0,
-                incorrect: 0,
-                errors: [],
-                attempts: []
-            },
-            syncModal: {
-                visible: false,
-                loading: false,
-                syncing: false,
-                error: '',
-                status: null
-            },
-            apiBaseUrl: window.location.origin && window.location.origin.startsWith('http')
-                ? `${window.location.origin}/api`
-                : 'http://localhost:8080/api'
+            words: [], currentIndex: 0, userInput: '', isChecking: false,
+            showAnswer: false, isCorrect: false, feedbackMessage: '', isFinished: false,
+            isPracticeAbandoned: false, isComposing: false, isLoadingWords: false,
+            isAdvancing: false, isRestoringDraft: false, advanceTimer: null,
+            lastWrongInput: '', shake: false, shakeTimer: null, wordsError: '',
+            illustrationFailed: false, sessionId: '', sessionLimit: 20,
+            practiceMode: 'normal', summary: null,
+            pendingAttempt: null, submitError: '', submissionConflict: false,
+            answerAccepted: false, storageError: '', draftSaveTimer: null,
+            clockStartedAt: null, elapsedMs: 0, firstInputMs: null,
+            serverOffset: 0,
+            stats: { correct: 0, incorrect: 0, errors: [], attempts: [] },
+            syncModal: { visible: false, loading: false, syncing: false, error: '', status: null },
+            apiBaseUrl: `${window.location.origin}/api`
         };
     },
     computed: {
-        currentWord() {
-            return this.words[this.currentIndex] || null;
-        },
-        progressPercentage() {
-            if (this.words.length === 0) return 0;
-            return (this.progressCurrent / this.words.length) * 100;
-        },
-        progressCurrent() {
-            if (this.words.length === 0) return 0;
-            return Math.min(this.currentIndex + 1, this.words.length);
-        },
-        accuracy() {
-            if (this.attemptedTotal === 0) return 0;
-            return Math.round((this.stats.correct / this.attemptedTotal) * 100);
-        },
-        attemptedTotal() {
-            return this.stats.correct + this.stats.incorrect;
-        },
-        resultTotal() {
-            return this.isPracticeAbandoned ? this.attemptedTotal : this.stats.total;
-        },
-        isMistakePractice() {
-            return this.practiceMode === 'mistakes';
-        },
+        currentWord() { return this.words[this.currentIndex] || null; },
+        isMistakePractice() { return this.practiceMode === 'mistakes'; },
+        isFormalPractice() { return this.practiceMode === 'normal'; },
+        progressTotal() { return this.isFormalPractice ? this.sessionLimit : this.words.length; },
+        progressCurrent() { return this.currentWord ? this.currentIndex + 1 : this.attemptedTotal; },
+        progressPercentage() { return this.progressTotal ? this.progressCurrent * 100 / this.progressTotal : 0; },
+        attemptedTotal() { return this.stats.correct + this.stats.incorrect; },
+        accuracy() { return this.attemptedTotal ? Math.round(this.stats.correct * 100 / this.attemptedTotal) : 0; },
+        resultTotal() { return this.attemptedTotal; },
         mistakePracticeWords() {
-            const wordsByKey = new Map();
-            this.words.forEach((word) => {
-                const key = this.wordKey(word.word);
-                if (key && !wordsByKey.has(key)) {
-                    wordsByKey.set(key, this.cloneWord(word));
-                }
-            });
-
-            const reviewWords = [];
-            const seen = new Set();
-            this.stats.errors.forEach((error) => {
-                const source = error.wordData || wordsByKey.get(this.wordKey(error.word)) || {
-                    word: error.word,
-                    chinese_meaning: error.meaning
-                };
-                const word = this.cloneWord(source);
-                const key = this.wordKey(word.word);
-                if (!key || seen.has(key)) {
-                    return;
-                }
-                seen.add(key);
-                reviewWords.push(word);
-            });
-            return reviewWords;
+            return [...new Map(this.stats.errors.map(error => [error.wordData.source_id || error.word, error.wordData])).values()];
         },
-        // 文档面始终保留边框，状态变化只换颜色，避免内容抖动。
-        cardClass() {
-            if (this.isAdvancing) return 'is-success';
-            return this.showAnswer ? 'is-correction' : '';
-        },
+        cardClass() { return this.isAdvancing ? 'is-success' : this.showAnswer ? 'is-correction' : ''; },
         inputClass() {
-            const classes = [];
-            if (this.isAdvancing) {
-                classes.push('is-correct');
-            } else if (this.showAnswer) {
-                classes.push('is-invalid');
-            } else {
-                classes.push('is-pending');
-            }
-            if (this.shake) {
-                classes.push('practice-shake');
-            }
-            return classes.join(' ');
+            return [this.isAdvancing ? 'is-correct' : this.showAnswer ? 'is-invalid' : 'is-pending', this.shake ? 'practice-shake' : ''];
         },
-        feedbackClass() {
-            return 'feedback-text';
-        },
-        answerOkClass() {
-            return 'answer-letter';
-        },
-        answerMissClass() {
-            // 颜色 + 下划线双重提示，不只依赖颜色区分。
-            return 'answer-letter is-missed';
-        },
-        wrongInput() {
-            return this.lastWrongInput;
-        },
-        // 正确答案展示：选出和用户输入最接近的写法，逐字母标出漏写/写错的位置。
+        answerOkClass() { return 'answer-letter'; },
+        answerMissClass() { return 'answer-letter is-missed'; },
+        wrongInput() { return this.lastWrongInput; },
+        nextDueText() { return this.summary?.next_due ? this.formatSyncTime(this.summary.next_due) : ''; },
         answerDisplay() {
-            if (!this.currentWord) {
-                return { segments: [], alternatives: '' };
-            }
-            const rawCandidates = String(this.currentWord.word || '')
-                .split('/')
-                .map((item) => item.trim())
-                .filter(Boolean);
-            if (!rawCandidates.length) {
-                return { segments: [], alternatives: '' };
-            }
-
+            const candidates = String(this.currentWord?.word || '').split('/').map(value => value.trim()).filter(Boolean);
             const input = this.normalizeAnswer(this.lastWrongInput);
-            let best = rawCandidates[0];
-            if (input) {
-                let bestDistance = Infinity;
-                rawCandidates.forEach((candidate) => {
-                    const distance = this.levenshteinDistance(this.normalizeAnswer(candidate), input);
-                    if (distance < bestDistance) {
-                        bestDistance = distance;
-                        best = candidate;
-                    }
-                });
-            }
-
-            return {
-                segments: this.alignAnswer(best, input),
-                alternatives: rawCandidates.filter((item) => item !== best).join(' / ')
-            };
+            const best = candidates.reduce((best, candidate) => !best || this.levenshteinDistance(candidate.toLowerCase(), input) < this.levenshteinDistance(best.toLowerCase(), input) ? candidate : best, '');
+            return { segments: this.alignAnswer(best, input), alternatives: candidates.filter(value => value !== best).join(' / ') };
         }
     },
     watch: {
-        currentWord() {
-            this.illustrationFailed = false;
-        },
-        userInput(newVal) {
-            if (this.isRestoringDraft) {
-                return;
-            }
-
-            const filtered = this.sanitizeInput(newVal);
-            if (filtered !== newVal) {
-                this.$nextTick(() => {
-                    this.userInput = filtered;
-                });
-                return;
-            }
-
-            // 订正模式：照着正确拼写打对后自动进入下一题，不再计入统计。
+        currentWord() { this.illustrationFailed = false; },
+        userInput() {
+            if (this.isRestoringDraft) return;
             if (this.showAnswer && !this.isAdvancing && !this.isComposing && this.isRetypeCorrect()) {
-                this.startRetypeAdvance();
-                return;
+                this.startCorrectAdvance();
+            } else {
+                this.scheduleDraftSave();
             }
-
-            this.scheduleDraftSave();
         }
     },
     methods: {
-        t(zh) {
-            return zh;
+        t(zh) { return zh; },
+        generateSessionId() { return crypto.randomUUID ? crypto.randomUUID() : 's-' + Date.now() + '-' + Math.random().toString(36).slice(2); },
+        cloneWord(word) { return JSON.parse(JSON.stringify(word)); },
+        isRetypeCorrect() { return Boolean(this.userInput.trim()) && this.answerCandidates(this.currentWord?.word).includes(this.normalizeAnswer(this.userInput)); },
+        async fetchWords({ mode = 'normal' } = {}) {
+            if (this.pendingAttempt || this.isLoadingWords || this.isChecking) return;
+            this.clearAdvanceTimer();
+            this.pauseClock();
+            this.clearDraftSession();
+            this.sessionId = this.generateSessionId();
+            this.practiceMode = mode;
+            this.words = [];
+            this.currentIndex = 0;
+            this.isFinished = false;
+            this.isPracticeAbandoned = false;
+            this.stats = { correct: 0, incorrect: 0, errors: [], attempts: [] };
+            this.resetInputState();
+            await this.loadNextWord();
         },
-
-        isRetypeCorrect() {
-            if (!this.currentWord) {
+        async loadNextWord() {
+            if (this.isLoadingWords || this.pendingAttempt) return;
+            this.isLoadingWords = true;
+            this.wordsError = '';
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}/practice/queue`, {
+                    params: { session_id: this.sessionId, limit: this.isFormalPractice ? 1 : this.sessionLimit, mode: this.isFormalPractice ? 'scheduled' : 'free' }, timeout: 15000
+                });
+                const data = response.data.data;
+                this.serverOffset = Date.parse(data.server_time) - Date.now();
+                this.summary = data.summary;
+                this.sessionLimit = response.data.session_limit || 20;
+                if (!data.items.length) {
+                    if (this.attemptedTotal) this.finishPractice();
+                    return;
+                }
+                this.words.push(...data.items);
+                this.resetInputState();
+                await this.$nextTick();
+                this.beginCurrentWord();
+                this.focusInput();
+                this.saveDraftSession();
+            } catch (error) {
+                this.wordsError = error.response?.data?.error || '无法加载单词，请检查连接后重试。';
+            } finally {
+                this.isLoadingWords = false;
+            }
+        },
+        async refreshSummary() {
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}/memory/summary`, { timeout: 15000 });
+                this.summary = response.data.data;
+            } catch (error) { /* Existing counts stay visible; the next queue request retries. */ }
+        },
+        beginCurrentWord() {
+            this.elapsedMs = 0;
+            this.firstInputMs = null;
+            this.clockStartedAt = null;
+            this.resumeClock();
+        },
+        resumeClock() {
+            if (this.clockStartedAt === null && !document.hidden && !this.syncModal.visible && this.currentWord && !this.pendingAttempt && !this.answerAccepted && !this.showAnswer && !this.isFinished) this.clockStartedAt = performance.now();
+        },
+        pauseClock() {
+            if (this.clockStartedAt !== null) {
+                this.elapsedMs += Math.max(0, performance.now() - this.clockStartedAt);
+                this.clockStartedAt = null;
+            }
+        },
+        effectiveDuration() {
+            return this.elapsedMs + (this.clockStartedAt === null ? 0 : Math.max(0, performance.now() - this.clockStartedAt));
+        },
+        handleBeforeInput(event) {
+            if (this.pendingAttempt || (this.answerAccepted && !this.showAnswer) || this.isAdvancing || (event.data && this.sanitizeInput(event.data) !== event.data)) event.preventDefault();
+        },
+        handleInput() {
+            this.userInput = this.sanitizeInput(this.userInput);
+            if (!this.showAnswer && !this.pendingAttempt && this.firstInputMs === null && this.userInput) this.firstInputMs = this.effectiveDuration();
+        },
+        handleCompositionStart() { this.isComposing = true; },
+        handleCompositionEnd() { this.isComposing = false; this.handleInput(); this.scheduleDraftSave(); },
+        handleKeydown(event) {
+            if (this.isAdvancing || this.isChecking || this.pendingAttempt) { event.preventDefault(); return; }
+            if (event.key === 'Enter') this.handleEnter(event);
+            if ((event.key === ' ' || event.code === 'Space') && !this.userInput.trim()) {
+                event.preventDefault();
+                if (!this.showAnswer) this.skipWord();
+            }
+        },
+        handleEnter(event) {
+            event.preventDefault();
+            if (this.isComposing || this.isAdvancing || this.pendingAttempt || this.isChecking) return;
+            if (this.showAnswer) {
+                if (!this.userInput.trim() || this.isRetypeCorrect()) this.nextWord();
+                else this.triggerShake();
+            } else this.submitAnswer();
+        },
+        submitAnswer() {
+            const input = this.sanitizeInput(this.userInput).trim();
+            if (!input || !this.isValidAnswerInput(input)) return;
+            this.submitInput(input);
+        },
+        skipWord() { if (!this.showAnswer) this.submitInput(''); },
+        async submitInput(input) {
+            if (!this.currentWord || this.pendingAttempt || this.isChecking || this.answerAccepted || this.showAnswer) return;
+            this.pauseClock();
+            if (!this.isFormalPractice) {
+                this.acceptAnswer({ is_correct: Boolean(input) && this.answerCandidates(this.currentWord.word).includes(this.normalizeAnswer(input)), duration_ms: this.elapsedMs }, input);
+                return;
+            }
+            this.pendingAttempt = {
+                attempt_id: this.currentWord.attempt_id, session_id: this.sessionId,
+                user_input: input, duration_ms: this.elapsedMs, first_input_ms: this.firstInputMs,
+                reviewed_at: new Date(Date.now() + this.serverOffset).toISOString()
+            };
+            this.submissionConflict = false;
+            await this.retryPending();
+        },
+        async retryPending() {
+            if (!this.pendingAttempt || this.isChecking || this.submissionConflict) return;
+            this.submitError = '';
+            if (!this.saveDraftSession()) return;
+            this.isChecking = true;
+            const payload = { ...this.pendingAttempt };
+            try {
+                const response = await axios.post(`${this.apiBaseUrl}/practice/attempts`, payload, { timeout: 15000 });
+                this.pendingAttempt = null;
+                this.acceptAnswer(response.data.data, payload.user_input);
+                // Only remove the durable outbox after the acknowledged UI state was saved.
+                if (this.saveDraftSession()) this.removeConfirmedOutbox(payload.attempt_id);
+            } catch (error) {
+                this.submitError = error.response?.data?.error || '答案尚未确认保存，请检查连接后重试。';
+                this.submissionConflict = [400, 409, 410].includes(error.response?.status);
+                this.saveDraftSession();
+            } finally {
+                this.isChecking = false;
+                this.focusInput();
+            }
+        },
+        acceptAnswer(result, input) {
+            const word = this.cloneWord(this.currentWord);
+            const existing = result.attempt_id && this.stats.attempts.some(item => item.attempt_id === result.attempt_id);
+            if (!existing) {
+                this.stats.attempts.push({ attempt_id: result.attempt_id });
+                if (result.is_correct) this.stats.correct++;
+                else {
+                    this.stats.incorrect++;
+                    this.stats.errors.push({ word: word.word, meaning: word.chinese_meaning, user_input: input || '(看答案)', wordData: word });
+                }
+            }
+            this.answerAccepted = true;
+            this.isCorrect = result.is_correct;
+            this.showAnswer = !result.is_correct;
+            this.lastWrongInput = result.is_correct ? '' : input;
+            this.feedbackMessage = result.is_correct ? '' : input ? '拼写错误，正确答案：' : '正确答案：';
+            this.userInput = '';
+            const saved = this.saveDraftSession();
+            if (result.is_correct && saved) this.startCorrectAdvance();
+            else { this.triggerShake(); this.focusInput(); }
+        },
+        removeConfirmedOutbox(attemptId) {
+            try { localStorage.removeItem(OUTBOX_PREFIX + attemptId); }
+            catch (error) { this.storageError = '答案已保存，但浏览器进度未能更新，请重试保存进度。'; }
+        },
+        retryDraftSave() {
+            if (!this.saveDraftSession()) return;
+            if (this.answerAccepted) {
+                const id = this.stats.attempts.at(-1)?.attempt_id;
+                if (id) this.removeConfirmedOutbox(id);
+                if (this.isCorrect) this.startCorrectAdvance();
+            }
+        },
+        async continueAfterConflict() {
+            if (!this.submissionConflict || this.isChecking) return;
+            localStorage.removeItem(OUTBOX_PREFIX + this.pendingAttempt.attempt_id);
+            this.pendingAttempt = null;
+            this.words.splice(this.currentIndex, 1);
+            this.resetInputState();
+            this.saveDraftSession();
+            await this.loadNextWord();
+        },
+        resetInputState() {
+            this.clearAdvanceTimer();
+            this.pauseClock();
+            this.userInput = '';
+            this.showAnswer = false;
+            this.answerAccepted = false;
+            this.isCorrect = false;
+            this.lastWrongInput = '';
+            this.feedbackMessage = '';
+            this.submitError = '';
+            this.submissionConflict = false;
+            this.shake = false;
+        },
+        startCorrectAdvance() {
+            this.clearAdvanceTimer();
+            this.isAdvancing = true;
+            this.advanceTimer = window.setTimeout(() => { this.advanceTimer = null; this.nextWord(); }, 180);
+        },
+        clearAdvanceTimer() {
+            if (this.advanceTimer) window.clearTimeout(this.advanceTimer);
+            this.advanceTimer = null;
+            this.isAdvancing = false;
+        },
+        async nextWord() {
+            if (this.pendingAttempt || this.isLoadingWords || this.storageError || !this.answerAccepted) return;
+            this.clearAdvanceTimer();
+            this.currentIndex++;
+            this.resetInputState();
+            this.saveDraftSession();
+            if (this.isFormalPractice) {
+                if (this.attemptedTotal >= this.sessionLimit) this.finishPractice();
+                else await this.loadNextWord();
+            } else if (this.currentWord) {
+                this.beginCurrentWord(); this.focusInput(); this.saveDraftSession();
+            } else this.finishPractice();
+        },
+        finishPractice({ abandoned = false } = {}) {
+            if (this.pendingAttempt) return;
+            this.clearAdvanceTimer();
+            this.pauseClock();
+            this.isFinished = true;
+            this.isPracticeAbandoned = abandoned;
+            this.clearDraftSession();
+            this.refreshSummary();
+        },
+        restartPractice() { this.fetchWords(); },
+        startFreePractice() { this.fetchWords({ mode: 'free' }); },
+        startMistakePractice() {
+            const words = this.mistakePracticeWords.map(word => this.cloneWord(word));
+            if (!words.length || this.pendingAttempt) return;
+            this.clearDraftSession();
+            this.sessionId = this.generateSessionId();
+            this.practiceMode = 'mistakes';
+            this.words = words;
+            this.currentIndex = 0;
+            this.isFinished = false;
+            this.isPracticeAbandoned = false;
+            this.stats = { correct: 0, incorrect: 0, errors: [], attempts: [] };
+            this.resetInputState();
+            this.beginCurrentWord(); this.focusInput(); this.saveDraftSession();
+        },
+        quitPractice() {
+            if (this.pendingAttempt) { this.submitError = '请先重试保存或处理失效题目，再退出练习。'; return; }
+            if (confirm('确定要退出练习吗？已保存的作答会保留。')) this.finishPractice({ abandoned: true });
+        },
+        focusInput() { this.$nextTick(() => this.$refs.inputField?.focus()); },
+        scheduleDraftSave() {
+            if (this.draftSaveTimer) window.clearTimeout(this.draftSaveTimer);
+            this.draftSaveTimer = window.setTimeout(() => { this.draftSaveTimer = null; this.saveDraftSession(); }, 200);
+        },
+        saveDraftSession() {
+            if (!this.sessionId || this.isRestoringDraft || this.isFinished) return false;
+            const draft = {
+                version: 1, savedAt: new Date().toISOString(), sessionId: this.sessionId,
+                words: this.words, currentIndex: this.currentIndex, sessionLimit: this.sessionLimit,
+                userInput: this.userInput, showAnswer: this.showAnswer, answerAccepted: this.answerAccepted,
+                isCorrect: this.isCorrect, lastWrongInput: this.lastWrongInput, feedbackMessage: this.feedbackMessage,
+                practiceMode: this.practiceMode, stats: this.stats, elapsedMs: this.effectiveDuration(),
+                firstInputMs: this.firstInputMs, serverOffset: this.serverOffset, summary: this.summary,
+                pendingAttempt: this.pendingAttempt
+            };
+            try {
+                if (this.pendingAttempt) localStorage.setItem(OUTBOX_PREFIX + this.pendingAttempt.attempt_id, JSON.stringify(draft));
+                localStorage.setItem(DRAFT_PREFIX + this.sessionId, JSON.stringify(draft));
+                sessionStorage.setItem(ACTIVE_KEY, this.sessionId);
+                this.storageError = '';
+                return true;
+            } catch (error) {
+                this.storageError = '浏览器无法保存练习进度，请检查站点存储空间后重试。';
                 return false;
             }
-            const input = this.normalizeAnswer(this.userInput);
-            return Boolean(input) && this.answerCandidates(this.currentWord.word).includes(input);
         },
-
-        startRetypeAdvance() {
-            this.feedbackMessage = '';
-            this.saveCorrectAdvanceDraft();
-            this.startCorrectAdvance();
+        clearDraftSession() {
+            if (this.draftSaveTimer) window.clearTimeout(this.draftSaveTimer);
+            this.draftSaveTimer = null;
+            if (this.pendingAttempt) return;
+            try {
+                if (this.sessionId) localStorage.removeItem(DRAFT_PREFIX + this.sessionId);
+                sessionStorage.removeItem(ACTIVE_KEY);
+            } catch (error) { /* Memory-only state still permits exiting. */ }
         },
-
-        // 基于最长公共子序列对齐：正确答案中没被用户输入覆盖到的字母标为 miss。
+        async restoreDraftSession() {
+            let draft;
+            try {
+                // Retire old sessions without ever replaying their batch statistics.
+                localStorage.removeItem('typingPracticeDraftSession:wordAtlas:v2');
+                const active = sessionStorage.getItem(ACTIVE_KEY);
+                const keys = Object.keys(localStorage);
+                const pending = keys.filter(key => key.startsWith(OUTBOX_PREFIX)).map(key => JSON.parse(localStorage.getItem(key))).sort((a, b) => a.savedAt.localeCompare(b.savedAt));
+                const drafts = keys.filter(key => key.startsWith(DRAFT_PREFIX)).map(key => JSON.parse(localStorage.getItem(key))).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+                draft = pending.find(item => item.sessionId === active) || pending[0] || drafts.find(item => item.sessionId === active) || drafts[0];
+                if (!draft || draft.version !== 1 || !Array.isArray(draft.words) || !draft.sessionId) return false;
+                if (!draft.pendingAttempt && Date.now() - Date.parse(draft.savedAt) > 7 * 86400000) {
+                    localStorage.removeItem(DRAFT_PREFIX + draft.sessionId);
+                    return false;
+                }
+            } catch (error) { return false; }
+            this.isRestoringDraft = true;
+            for (const key of ['sessionId', 'words', 'currentIndex', 'sessionLimit', 'userInput', 'showAnswer', 'answerAccepted', 'isCorrect', 'lastWrongInput', 'feedbackMessage', 'practiceMode', 'stats', 'elapsedMs', 'firstInputMs', 'serverOffset', 'summary', 'pendingAttempt']) {
+                if (key in draft) this[key] = draft[key];
+            }
+            this.clockStartedAt = null;
+            await this.$nextTick();
+            this.isRestoringDraft = false;
+            if (this.pendingAttempt) await this.retryPending();
+            else if (this.answerAccepted && !this.showAnswer) await this.nextWord();
+            else if (!this.currentWord) {
+                if (this.isFormalPractice && this.attemptedTotal < this.sessionLimit) await this.loadNextWord();
+                else this.finishPractice();
+            } else { this.resumeClock(); this.focusInput(); }
+            return true;
+        },
         alignAnswer(expected, input) {
             const chars = Array.from(expected);
             if (!input) {
@@ -271,91 +436,48 @@ createApp({
             return /^[a-zA-Z][a-zA-Z\s'-]*$/.test(normalized);
         },
 
-        wordKey(value) {
-            return this.normalizeAnswer(value);
+        normalizeAnswer(value) {
+            return this.sanitizeInput(value).trim().toLowerCase();
         },
 
-        cloneWord(word) {
-            const source = word || {};
-            return {
-                id: source.id || 0,
-                word: String(source.word || ''),
-                chinese_meaning: String(source.chinese_meaning || source.meaning || ''),
-                part_of_speech: String(source.part_of_speech || ''),
-                phonetic: String(source.phonetic || ''),
-                example_en: String(source.example_en || ''),
-                example_cn: String(source.example_cn || ''),
-                category: String(source.category || ''),
-                illustration_url: String(source.illustration_url || '')
-            };
+        answerCandidates(expected) {
+            return String(expected || '')
+                .split('/')
+                .map(candidate => this.normalizeAnswer(candidate))
+                .filter(Boolean);
         },
 
-        handleBeforeInput(event) {
-            if (!event.data) {
-                return;
-            }
-            if (this.isAdvancing) {
-                event.preventDefault();
-                return;
-            }
-            if (this.sanitizeInput(event.data) !== event.data) {
-                event.preventDefault();
-            }
-        },
+        levenshteinDistance(left, right) {
+            const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+            const current = new Array(right.length + 1).fill(0);
 
-        handleInput() {
-            const filtered = this.sanitizeInput(this.userInput);
-            if (filtered !== this.userInput) {
-                this.userInput = filtered;
-            }
-        },
-
-        handleCompositionStart() {
-            this.isComposing = true;
-        },
-
-        handleCompositionEnd() {
-            this.isComposing = false;
-            this.handleInput();
-            this.scheduleDraftSave();
-        },
-
-        async fetchWords({ clearDraft = true } = {}) {
-            if (clearDraft) {
-                this.clearDraftSession();
-            }
-
-            this.isLoadingWords = true;
-            this.wordsError = '';
-            this.words = [];
-            this.resetPracticeSession();
-
-            try {
-                const response = await axios.get(`${this.apiBaseUrl}/words`, {
-                    params: { limit: 20 }
-                });
-
-                if (response.data.success) {
-                    this.words = Array.isArray(response.data.data) ? response.data.data : [];
-                    this.initializePracticeSession();
-                } else {
-                    this.wordsError = response.data.error || '获取单词失败';
+            for (let i = 1; i <= left.length; i++) {
+                current[0] = i;
+                for (let j = 1; j <= right.length; j++) {
+                    const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+                    current[j] = Math.min(
+                        current[j - 1] + 1,
+                        previous[j] + 1,
+                        previous[j - 1] + cost
+                    );
                 }
-            } catch (error) {
-                console.error('Error fetching words:', error);
-                this.wordsError = error.response?.data?.error || '无法连接后端服务';
-            } finally {
-                this.isLoadingWords = false;
+                for (let j = 0; j < current.length; j++) {
+                    previous[j] = current[j];
+                }
             }
+
+            return previous[right.length];
         },
 
         async openSyncModal() {
+            this.pauseClock();
             this.syncModal.visible = true;
             await this.loadSyncStatus();
         },
 
         closeSyncModal() {
             this.syncModal.visible = false;
+            this.resumeClock();
         },
 
         async loadSyncStatus() {
@@ -378,7 +500,7 @@ createApp({
             try {
                 const response = await axios.post(`${this.apiBaseUrl}/sync/now`);
                 this.syncModal.status = response.data.data || null;
-                await this.fetchWords();
+                await this.refreshSummary();
             } catch (error) {
                 console.error('Error syncing Anki collection:', error);
                 const message = error.response?.data?.error || '同步失败';
@@ -405,588 +527,28 @@ createApp({
             return (this.syncModal.status && this.syncModal.status.history) || [];
         },
 
-        initializePracticeSession() {
-            this.sessionId = this.generateSessionId();
-            this.sessionStartedAt = new Date();
-            this.currentIndex = 0;
-            this.isFinished = false;
-            this.isPracticeAbandoned = false;
-            this.stats = {
-                total: this.words.length,
-                correct: 0,
-                incorrect: 0,
-                errors: [],
-                attempts: []
-            };
-            this.resetInputState();
-            this.beginCurrentWord();
-            this.focusInput();
-            this.saveDraftSession();
-        },
 
-        resetPracticeSession() {
-            this.sessionId = '';
-            this.sessionStartedAt = null;
-            this.currentIndex = 0;
-            this.isFinished = false;
-            this.isPracticeAbandoned = false;
-            this.practiceMode = 'normal';
-            this.currentWordStartedAt = 0;
-            this.stats = {
-                total: 0,
-                correct: 0,
-                incorrect: 0,
-                errors: [],
-                attempts: []
-            };
-            this.resetInputState();
-        },
-
-        restoreDraftSession() {
-            const rawDraft = localStorage.getItem(this.draftStorageKey);
-            if (!rawDraft) {
-                return false;
-            }
-
-            let draft = null;
-            try {
-                draft = JSON.parse(rawDraft);
-            } catch (error) {
-                console.warn('Invalid draft session:', error);
-                this.clearDraftSession();
-                return false;
-            }
-
-            if (!this.isValidDraftSession(draft)) {
-                this.clearDraftSession();
-                return false;
-            }
-
-            const elapsedSeconds = Math.max(Number(draft.currentWordElapsedSeconds || 0), 0);
-            const showAnswer = Boolean(draft.showAnswer) && !Boolean(draft.isCorrect);
-            this.lastWrongInput = showAnswer ? this.sanitizeInput(draft.lastWrongInput || '') : '';
-
-            this.clearAdvanceTimer();
-            this.isRestoringDraft = true;
-            this.words = draft.words;
-            this.currentIndex = Math.min(Math.max(Number(draft.currentIndex || 0), 0), this.words.length);
-            this.userInput = this.sanitizeInput(draft.userInput || '');
-            this.isChecking = false;
-            this.showAnswer = showAnswer;
-            this.isCorrect = false;
-            this.feedbackMessage = showAnswer ? String(draft.feedbackMessage || this.t('拼写错误', 'Incorrect')) : '';
-            this.isFinished = false;
-            this.isPracticeAbandoned = false;
-            this.isLoadingWords = false;
-            this.isAdvancing = false;
-            this.wordsError = '';
-            this.practiceMode = this.normalizePracticeMode(draft.practiceMode);
-            this.sessionId = draft.sessionId;
-            this.sessionStartedAt = this.parseDraftDate(draft.sessionStartedAt) || new Date();
-            this.currentWordStartedAt = performance.now() - elapsedSeconds * 1000;
-            this.stats = this.normalizeDraftStats(draft.stats);
-            this.isRestoringDraft = false;
-            if (this.currentIndex >= this.words.length) {
-                this.finishPractice();
-                return true;
-            }
-            this.focusInput();
-            return true;
-        },
-
-        isValidDraftSession(draft) {
-            if (!draft || draft.version !== 1) return false;
-            if (!Array.isArray(draft.words) || draft.words.length === 0) return false;
-            if (!draft.sessionId || typeof draft.sessionId !== 'string') return false;
-            if (!this.parseDraftDate(draft.sessionStartedAt)) return false;
-
-            const currentIndex = Number(draft.currentIndex);
-            if (!Number.isInteger(currentIndex) || currentIndex < 0 || currentIndex > draft.words.length) {
-                return false;
-            }
-
-            const savedAt = this.parseDraftDate(draft.savedAt);
-            if (!savedAt) return false;
-
-            const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
-            return Date.now() - savedAt.getTime() <= maxAgeMs;
-        },
-
-        parseDraftDate(value) {
-            const date = new Date(value);
-            return Number.isNaN(date.getTime()) ? null : date;
-        },
-
-        normalizeDraftStats(stats) {
-            const source = stats || {};
-            return {
-                total: Number(source.total || this.words.length),
-                correct: Number(source.correct || 0),
-                incorrect: Number(source.incorrect || 0),
-                errors: Array.isArray(source.errors) ? source.errors : [],
-                attempts: Array.isArray(source.attempts) ? source.attempts : []
-            };
-        },
-
-        normalizePracticeMode(value) {
-            return value === 'mistakes' ? 'mistakes' : 'normal';
-        },
-
-        scheduleDraftSave() {
-            if (this.isRestoringDraft || this.isFinished || this.isAdvancing || !this.words.length || !this.sessionId) {
-                return;
-            }
-
-            if (this.draftSaveTimer) {
-                window.clearTimeout(this.draftSaveTimer);
-            }
-
-            this.draftSaveTimer = window.setTimeout(() => {
-                this.draftSaveTimer = null;
-                this.saveDraftSession();
-            }, 250);
-        },
-
-        saveDraftSession(overrides = {}) {
-            if (this.isRestoringDraft || this.isFinished || this.isAdvancing || !this.words.length || !this.sessionId) {
-                return;
-            }
-
-            const draft = {
-                version: 1,
-                savedAt: new Date().toISOString(),
-                words: this.words,
-                currentIndex: overrides.currentIndex ?? this.currentIndex,
-                userInput: overrides.userInput ?? this.userInput,
-                showAnswer: overrides.showAnswer ?? this.showAnswer,
-                isCorrect: overrides.isCorrect ?? this.isCorrect,
-                feedbackMessage: overrides.feedbackMessage ?? this.feedbackMessage,
-                lastWrongInput: overrides.lastWrongInput ?? this.lastWrongInput,
-                practiceMode: this.practiceMode,
-                sessionId: this.sessionId,
-                sessionStartedAt: this.sessionStartedAt ? this.sessionStartedAt.toISOString() : new Date().toISOString(),
-                currentWordElapsedSeconds: overrides.currentWordElapsedSeconds ?? (this.getCurrentWordTimeSpent() || 0),
-                stats: this.stats
-            };
-
-            try {
-                localStorage.setItem(this.draftStorageKey, JSON.stringify(draft));
-            } catch (error) {
-                console.warn('Unable to save draft session:', error);
-            }
-        },
-
-        clearDraftSession() {
-            if (this.draftSaveTimer) {
-                window.clearTimeout(this.draftSaveTimer);
-                this.draftSaveTimer = null;
-            }
-            localStorage.removeItem(this.draftStorageKey);
-        },
-
-        saveCorrectAdvanceDraft() {
-            this.saveDraftSession({
-                currentIndex: Math.min(this.currentIndex + 1, this.words.length),
-                userInput: '',
-                showAnswer: false,
-                isCorrect: false,
-                feedbackMessage: '',
-                lastWrongInput: '',
-                currentWordElapsedSeconds: 0
-            });
-        },
-
-        beginCurrentWord() {
-            this.currentWordStartedAt = performance.now();
-        },
-
-        getCurrentWordTimeSpent() {
-            if (!this.currentWordStartedAt) {
-                return null;
-            }
-            return Math.max((performance.now() - this.currentWordStartedAt) / 1000, 0);
-        },
-
-        handleKeydown(event) {
-            if (this.isAdvancing) {
-                event.preventDefault();
-                return;
-            }
-
-            if (event.key === 'Enter') {
-                this.handleEnter(event);
-                return;
-            }
-
-            // 空格键：输入框为空时，答题阶段 = 不会/看答案，订正阶段忽略；
-            // 输入框非空时保留空格，兼容词组。
-            if (event.key === ' ' || event.code === 'Space') {
-                if (!this.userInput.trim()) {
-                    event.preventDefault();
-                    if (!this.showAnswer) {
-                        this.skipWord();
-                    }
-                }
-            }
-        },
-
-        handleEnter(event) {
-            event.preventDefault();
-            if (this.isComposing || this.isAdvancing) {
-                return;
-            }
-            if (this.showAnswer) {
-                // 订正阶段：空输入直接下一题；输入了但没打对则抖动提示继续订正。
-                if (!this.userInput.trim()) {
-                    this.nextWord();
-                } else if (this.isRetypeCorrect()) {
-                    this.startRetypeAdvance();
-                } else {
-                    this.triggerShake();
-                }
-                return;
-            }
-            this.submitAnswer();
-        },
-
-        submitAnswer() {
-            const trimmedInput = this.sanitizeInput(this.userInput).trim();
-            this.userInput = trimmedInput;
-            if (!this.currentWord || !trimmedInput || this.isChecking || this.showAnswer || this.isAdvancing) {
-                return;
-            }
-
-            if (!this.isValidAnswerInput(trimmedInput)) {
-                return;
-            }
-
-            this.isChecking = true;
-            const timeSpent = this.getCurrentWordTimeSpent();
-            this.isCorrect = this.checkAnswerLocally();
-            this.isChecking = false;
-
-            this.updateStats(trimmedInput, timeSpent);
-            if (this.isCorrect) {
-                this.feedbackMessage = '';
-                this.playSuccessAnimation();
-                this.saveCorrectAdvanceDraft();
-                this.startCorrectAdvance();
-                return;
-            }
-
-            // 答错：清空输入框进入订正阶段，用户照着正确拼写再打一遍。
-            this.lastWrongInput = trimmedInput;
-            this.userInput = '';
-            this.showAnswer = true;
-            this.displayFeedback();
-            this.focusInput();
-            this.saveDraftSession({ userInput: '' });
-        },
-
-        checkAnswerLocally() {
-            const input = this.normalizeAnswer(this.userInput);
-            return this.answerCandidates(this.currentWord.word).includes(input);
-        },
-
-        normalizeAnswer(value) {
-            return this.sanitizeInput(value).trim().toLowerCase();
-        },
-
-        answerCandidates(expected) {
-            return String(expected || '')
-                .split('/')
-                .map(candidate => this.normalizeAnswer(candidate))
-                .filter(Boolean);
-        },
-
-        analyzeErrorType(expected, input) {
-            const sanitizedInput = this.normalizeAnswer(input);
-            const candidates = this.answerCandidates(expected);
-            if (!sanitizedInput) return 'skipped';
-            if (candidates.includes(sanitizedInput)) return '';
-
-            const bestMatch = candidates.reduce((best, candidate) => {
-                const distance = this.levenshteinDistance(candidate, sanitizedInput);
-                if (!best || distance < best.distance) {
-                    return { value: candidate, distance };
-                }
-                return best;
-            }, null);
-
-            if (!bestMatch) return 'completely_wrong';
-
-            const distance = bestMatch.distance;
-            if (distance === 1) {
-                if (sanitizedInput.length < bestMatch.value.length) return 'missing_letter';
-                if (sanitizedInput.length > bestMatch.value.length) return 'extra_letter';
-                return 'spelling';
-            }
-            if (distance <= 3) return 'spelling';
-            return 'completely_wrong';
-        },
-
-        levenshteinDistance(left, right) {
-            const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-            const current = new Array(right.length + 1).fill(0);
-
-            for (let i = 1; i <= left.length; i++) {
-                current[0] = i;
-                for (let j = 1; j <= right.length; j++) {
-                    const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-                    current[j] = Math.min(
-                        current[j - 1] + 1,
-                        previous[j] + 1,
-                        previous[j - 1] + cost
-                    );
-                }
-                for (let j = 0; j < current.length; j++) {
-                    previous[j] = current[j];
-                }
-            }
-
-            return previous[right.length];
-        },
-
-        recordAttempt(userInput, isCorrect, timeSpent, errorType = '') {
-            if (!this.currentWord) return;
-            this.stats.attempts.push({
-                word: this.currentWord.word,
-                chinese_meaning: this.currentWord.chinese_meaning,
-                category: this.currentWord.category || '',
-                user_input: userInput,
-                is_correct: isCorrect,
-                time_spent: timeSpent,
-                error_type: errorType
-            });
-        },
-
-        updateStats(userInput, timeSpent) {
-            if (this.isCorrect) {
-                this.stats.correct++;
-                this.recordAttempt(userInput, true, timeSpent, '');
-            } else {
-                const errorType = this.analyzeErrorType(this.currentWord.word, userInput);
-                const wordData = this.cloneWord(this.currentWord);
-                this.stats.incorrect++;
-                this.stats.errors.push({
-                    word: wordData.word,
-                    meaning: wordData.chinese_meaning,
-                    user_input: userInput,
-                    wordData
-                });
-                this.recordAttempt(userInput, false, timeSpent, errorType);
-            }
-        },
-
-        displayFeedback() {
-            this.feedbackMessage = this.t('拼写错误，正确答案：', 'Incorrect. Correct spelling:');
-            this.playErrorAnimation();
-        },
-
-        playSuccessAnimation() {
-            if (navigator.vibrate) {
-                navigator.vibrate(35);
-            }
-        },
-
-        startCorrectAdvance() {
-            this.isAdvancing = true;
-            this.advanceTimer = window.setTimeout(() => {
-                this.advanceTimer = null;
-                if (this.isAdvancing && !this.isFinished) {
-                    this.nextWord();
-                }
-            }, 180);
-        },
-
-        clearAdvanceTimer() {
-            if (this.advanceTimer) {
-                window.clearTimeout(this.advanceTimer);
-                this.advanceTimer = null;
-            }
-            this.isAdvancing = false;
-        },
-
-        playErrorAnimation() {
-            this.triggerShake();
-            if (navigator.vibrate) {
-                navigator.vibrate([100, 50, 100]);
-            }
-        },
-
-        nextWord() {
-            this.currentIndex++;
-
-            if (this.currentIndex >= this.words.length) {
-                this.finishPractice();
-                return;
-            }
-
-            this.resetInputState();
-            this.beginCurrentWord();
-            this.focusInput();
-            this.saveDraftSession();
-        },
-
-        skipWord() {
-            if (this.showAnswer || this.isAdvancing || !this.currentWord) return;
-
-            const timeSpent = this.getCurrentWordTimeSpent();
-            const wordData = this.cloneWord(this.currentWord);
-            this.stats.incorrect++;
-            this.stats.errors.push({
-                word: wordData.word,
-                meaning: wordData.chinese_meaning,
-                user_input: '(跳过)',
-                wordData
-            });
-            this.recordAttempt('', false, timeSpent, 'skipped');
-
-            // 跳过不再直接切题：先展示答案，让用户照着打一遍形成记忆。
-            this.isCorrect = false;
-            this.lastWrongInput = '';
-            this.userInput = '';
-            this.showAnswer = true;
-            this.feedbackMessage = this.t('已跳过，正确答案：', 'Skipped. Correct spelling:');
-            this.focusInput();
-            this.saveDraftSession({ userInput: '' });
-        },
-
-        resetInputState() {
-            this.clearAdvanceTimer();
-            this.lastWrongInput = '';
-            this.shake = false;
-            this.userInput = '';
-            this.isChecking = false;
-            this.showAnswer = false;
-            this.isCorrect = false;
-            this.feedbackMessage = '';
-        },
-
-        focusInput() {
-            this.$nextTick(() => {
-                if (this.$refs.inputField) {
-                    this.$refs.inputField.focus();
-                }
-            });
-        },
-
-        finishPractice({ submit = true, abandoned = false } = {}) {
-            this.clearAdvanceTimer();
-            this.isFinished = true;
-            this.isPracticeAbandoned = abandoned;
-            this.clearDraftSession();
-            if (submit && !this.isMistakePractice) {
-                this.submitStats();
-            }
-        },
-
-        async submitStats() {
-            const attemptedTotal = this.stats.correct + this.stats.incorrect;
-            if (!attemptedTotal) {
-                return;
-            }
-
-            const endedAt = new Date();
-            const durationSeconds = this.sessionStartedAt
-                ? Math.max(Math.round((endedAt - this.sessionStartedAt) / 1000), 0)
-                : 0;
-
-            try {
-                await axios.post(`${this.apiBaseUrl}/stats/sessions`, {
-                    session_id: this.sessionId,
-                    start_time: this.sessionStartedAt.toISOString(),
-                    end_time: endedAt.toISOString(),
-                    total_words: attemptedTotal,
-                    correct_words: this.stats.correct,
-                    incorrect_words: this.stats.incorrect,
-                    accuracy: (this.stats.correct * 100) / attemptedTotal,
-                    duration_seconds: durationSeconds,
-                    word_attempts: this.stats.attempts
-                });
-            } catch (error) {
-                console.error('Error submitting stats:', error);
-            }
-        },
-
-        generateSessionId() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                const r = Math.random() * 16 | 0;
-                const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
-        },
-
-        restartPractice() {
-            this.clearDraftSession();
-            this.fetchWords();
-        },
-
-        startMistakePractice() {
-            const reviewWords = this.mistakePracticeWords;
-            if (!reviewWords.length) {
-                return;
-            }
-
-            this.clearDraftSession();
-            this.words = reviewWords;
-            this.practiceMode = 'mistakes';
-            this.initializePracticeSession();
-        },
-
-        quitPractice() {
-            const message = '确定要退出练习吗？';
-            if (confirm(message)) {
-                this.finishPractice({ submit: false, abandoned: true });
-            }
-        },
-
-        updatePageAppearance() {
-            document.title = '词间 · 练习';
-            document.documentElement.lang = 'zh-CN';
-        },
-
-        showError(message) {
-            alert(message);
-        }
     },
-    mounted() {
-        this.updatePageAppearance();
-        if (!this.restoreDraftSession()) {
-            this.fetchWords();
-        }
-        this.focusInput();
-
-        // 添加全局键盘事件监听
-        window.addEventListener('keydown', (e) => {
-            // 防止空格键滚动页面
-            if (e.code === 'Space' && e.target === document.body) {
-                e.preventDefault();
-            }
-            if (e.key === 'Escape' && this.syncModal.visible) {
-                this.closeSyncModal();
-                return;
-            }
-            // 输入框在提交时会短暂 disabled，浏览器可能把焦点丢到 body。
-            // 这里做兜底：显示答案后，即使焦点不在输入框，Enter 也能进入下一题。
-            if (e.key === 'Enter' && this.showAnswer && e.target === document.body) {
-                this.handleEnter(e);
-                return;
-            }
-            // 焦点意外丢失（点了空白处）时，直接敲字母自动回到输入框。
-            if (
-                e.target === document.body
-                && /^[a-zA-Z]$/.test(e.key)
-                && !e.ctrlKey && !e.metaKey && !e.altKey
-                && !this.isFinished
-                && !this.syncModal.visible
-            ) {
-                this.focusInput();
-            }
+    async mounted() {
+        document.title = '词间 · 练习';
+        if (!await this.restoreDraftSession()) await this.fetchWords();
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) { this.pauseClock(); this.saveDraftSession(); }
+            else this.resumeClock();
         });
-
-        window.addEventListener('beforeunload', () => {
-            this.saveDraftSession();
+        window.addEventListener('online', () => this.retryPending());
+        window.addEventListener('beforeunload', event => {
+            this.pauseClock(); this.saveDraftSession();
+            if (this.pendingAttempt) { event.preventDefault(); event.returnValue = ''; }
+        });
+        window.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && this.syncModal.visible) { this.closeSyncModal(); return; }
+            if (event.target === document.body) {
+                if (event.code === 'Space') event.preventDefault();
+                if (event.key === 'Enter' && this.showAnswer) this.handleEnter(event);
+                if (/^[a-zA-Z]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey && !this.isFinished && !this.syncModal.visible) this.focusInput();
+            }
         });
     }
-}).mount('#app');
+};
+createApp(practiceApp).mount('#app');

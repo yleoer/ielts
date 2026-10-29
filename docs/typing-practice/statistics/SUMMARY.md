@@ -1,70 +1,11 @@
-# 统计功能总结
+# 学习统计
 
-这是打字练习统计模块的简要说明。
+正式练习逐题保存，统计直接从 word_reviews 汇总，记忆状态来自 word_memory。答错订正、自由练习和结果页错词重练不影响历史统计。
 
-## 作用
+当前页面包含累计作答、整体正确率、连续学习天数、有效时长、未来 7 天每日待复习数量、北京时间学习日历、近 30 天趋势，以及可点击的记忆状态和错误类型明细。七天安排包含今天，逾期词归入今天，日期按北京时间划分。
 
-统计模块负责三件事：
+旧统计在首次启用 FSRS 时清空一次；重复请求按 attempt_id 去重，不再整轮覆盖会话。已掌握以 FSRS 稳定性判断，不再按累计答对次数判断。
 
-- 记录练习会话
-- 汇总单词级尝试
-- 为统计页和选词策略提供数据
+统计页底部提供“参数优化记录”，查看后台自动训练进度、每月评估结果、验证误差和参数版本。首次达到 1,000 条有效间隔复习后自动尝试，验证改善才启用；记录与日志持续保留供回查。
 
-只有普通练习会写入统计。错词重练是当前页面内的即时巩固，不写入统计库，也不改变后续选词权重。
-
-## 当前数据区
-
-- 练习会话
-- 单词尝试
-- 单词掌握状态
-- 里程碑
-- Anki 同步历史
-
-## 当前统计页
-
-当前统计页保留五个核心视图：
-
-- 学习热力图
-- 正确率趋势
-- 单词掌握度分布
-- 错误类型分布
-- 每日练习时长
-
-其中掌握度和错误类型图表支持点击查看明细。
-
-## 当前接口
-
-写入接口：
-
-- `POST /api/stats/sessions`
-
-读取接口：
-
-- `GET /api/stats/overview`
-- `GET /api/stats/heatmap`
-- `GET /api/stats/accuracy-trend`
-- `GET /api/stats/mastery-distribution`
-- `GET /api/stats/mastery-words`
-- `GET /api/stats/daily-duration`
-- `GET /api/stats/error-types`
-- `GET /api/stats/error-type-words`
-- `GET /api/stats/speed-trend`
-- `GET /api/stats/streak`
-- `GET /api/stats/milestones`
-
-部分读取接口保留给后端完整能力，当前页面未全部展示。
-
-## 关键文件
-
-- `typing-practice/backend/stats.py`
-- `typing-practice/backend/app.py`
-- `typing-practice/frontend/templates/stats.html`
-- `typing-practice/frontend/src/stats.js`
-
-## 维护要点
-
-- 会话使用 `session_id` 做幂等覆盖。
-- 重复提交同一个会话不会重复累计。
-- 错误类型可以由前端提供，也可以由后端推断。
-- 单词掌握状态可以由尝试记录重新计算。
-- 前端只在普通练习完成时提交统计。
+详细表结构和接口见 [SPEC.md](SPEC.md)，页面说明见 [FRONTEND.md](FRONTEND.md)。

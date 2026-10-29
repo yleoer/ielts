@@ -59,6 +59,7 @@ def parse_word(note_id: int, raw_fields: str) -> dict[str, Any] | None:
     values = dict(zip(WORD_ATLAS_FIELDS, fields))
     word = {
         "id": note_id,
+        "source_id": clean_field(values["SourceId"]),
         "word": clean_field(values["Word"]),
         "phonetic": clean_field(values["UK"]) or clean_field(values["US"]),
         "part_of_speech": clean_field(values["PartOfSpeech"]),

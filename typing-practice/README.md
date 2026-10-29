@@ -1,6 +1,6 @@
 # typing-practice
 
-`typing-practice` 是一个 Python Flask 单体应用。Flask/Jinja2 负责页面和接口，SQLite 保存练习统计，Python 内置 `sqlite3` 只读读取 Anki `collection.anki2`。
+`typing-practice` 是一个 Python Flask 单体应用。Flask/Jinja2 负责页面和接口，SQLite 保存 FSRS 记忆与逐题练习统计，Python 内置 `sqlite3` 只读读取 Anki `collection.anki2`。
 
 ## 本地 Python 部署
 
@@ -98,6 +98,7 @@ Invoke-RestMethod 'http://127.0.0.1:8080/api/words?limit=20'
 | Word Atlas 字段 | 练习接口字段 |
 | --- | --- |
 | `Word` | `word` |
+| `SourceId` | `source_id`，稳定记忆身份 |
 | `UK`（为空时使用 `US`） | `phonetic` |
 | `PartOfSpeech` | `part_of_speech` |
 | `MeaningZH` | `chinese_meaning` |
@@ -109,10 +110,29 @@ Invoke-RestMethod 'http://127.0.0.1:8080/api/words?limit=20'
 
 前端样式按 [Impeccable](https://github.com/pbakaus/impeccable) 的 Operate 与 craft-floor 规范重做，设计约束见根目录 `PRODUCT.md` / `DESIGN.md`。样式和 SVG 图标均为本地资源，不再加载 Tailwind CDN；Vue、Axios、统计页 ECharts 仍沿用现有 CDN。网页图标采用纸色底、墨绿双页与赭色书签，和“词间”的衬线品牌字搭配。提供 `frontend/assets/favicon.svg`、多尺寸 `favicon.ico` 和 180px `app-icon.png`，练习、统计与访问密码页共用。
 
-正式版草稿使用 `typingPracticeDraftSession:wordAtlas:v2`，保留媒体链接，避免恢复缺少媒体字段的旧草稿及本地演示数据；历史统计保留。测试命令为：
+## FSRS 拼写记忆
+
+正式练习每次取一道到期题目，答对且小于 6 秒记 Easy，6–20 秒（含边界）记 Good，超过 20 秒记 Hard；答错或看答案记 Again。后台使用 py-fsrs 6.3.2，目标保持率 0.9，学习步骤 1/10 分钟，重学 10 分钟。订正、结果页错词重练和自由练习不推进记忆、不写入历史统计。
+
+默认每轮最多 20 次正式作答，每日引入最多 20 个网站未开始的词。已到期的学习/重学词优先，其次长期复习词，最后新词；同轮中再次到期可继续正式复习。没有到期项目时显示下次时间并可选择自由练习。
+
+统计页用七列小柱图展示未来 7 天每日待复习的单词数，包括今天及后六天；按北京时间划分日期，逾期未复习的词归入今天。点击有待复习单词的日期，可弹窗查看当天全部单词、释义和到期时间；数量为零时不打开弹窗。数量来自当前 FSRS 到期安排，每词只计一次，未开始的词不计入；安排会随实际作答更新。
+
+每题由后端判分并事务保存，刷新/重试按作答 ID 去重，多标签页旧版本题目返回冲突。浏览器保存独立待提交记录和每会话草稿（`typingPracticePending:fsrs:v1:*` / `typingPracticeDraftSession:fsrs:v1:*`），未确认保存时提供重试，不假报完成。有效耗时排除隐藏页面、同步弹窗、加载、网络和订正时间。跨日统计统一使用北京时间。
+
+**首次启动新版会清空旧练习会话、作答和掌握度数据一次，然后从新作答累计。** Anki、媒体、同步历史和访问凭证保留。后续重启保留新数据，旧草稿不再恢复，旧批量统计接口返回 410。
+
+`memory` YAML 节点和 `.env.example` 提供保持率、新词上限、6/20 秒阈值及参数文件配置。初始使用默认权重与保持率 0.9；启动时检查一次，之后默认每天检查一次，累计 1,000 条有效间隔复习后在下一次检查中，后台自动在独立 CPU 子进程训练，并按时间留出较新记录验证。只有预测误差改善才启用候选，保留既有到期计划，下次正式复习应用新参数。随后按自然月评估，默认要求新增至少 100 条有效记录；不足会记录跳过，失败 24 小时后重试。服务依赖已包含 `fsrs[optimizer]`，镜像安装 CPU 版 PyTorch，提交答案时不训练。
+
+统计页底部“参数优化记录”可查看进度、计划、训练范围、验证误差、版本及完整记录，并支持查询更早历史。数据库与同目录 `fsrs-optimization/` 持久保存评估报告、参数和进程日志，重启恢复已接受参数。`FSRS_AUTO_OPTIMIZE` 默认开启；可关闭并用 `FSRS_PARAMETERS_PATH` 指向旧参数文件回退。配置与 API 详见 [FSRS 实施说明](../docs/typing-practice/SRS-PLAN.md)。
+
+## 本地测试
+
+在仓库根目录运行，无需额外环境配置文件：
 
 ```powershell
-python -m unittest discover -s typing-practice/backend -p 'test_*.py'
+.\.venv\Scripts\python.exe -m unittest discover -s typing-practice/backend -p 'test_*.py'
+node --test typing-practice/frontend/src/app.test.cjs typing-practice/frontend/src/stats.test.cjs
 ```
 
 ## Docker

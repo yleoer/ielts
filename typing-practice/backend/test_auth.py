@@ -22,7 +22,7 @@ class AccessGateTest(unittest.TestCase):
 
     def make_app(self, password=None):
         config = self.config if password is None else replace(self.config, access_password=password)
-        app = create_app(config)
+        app = create_app(config, start_background_tasks=False)
         app.testing = True
         self.addCleanup(app.extensions["typing_practice_state"].close)
         return app
@@ -37,7 +37,8 @@ class AccessGateTest(unittest.TestCase):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 302, path)
             self.assertTrue(response.location.startswith("/login?next="), path)
-        for path in ("/api/words", "/api/config", "/api/stats/overview", "/api/sync/status"):
+        for path in ("/api/words", "/api/config", "/api/stats/overview", "/api/sync/status",
+                     "/api/memory/optimization", "/api/memory/optimization/runs", "/api/memory/optimization/runs/1"):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 401, path)
             self.assertEqual(response.json["code"], "authentication_required")

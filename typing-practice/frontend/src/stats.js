@@ -3,10 +3,8 @@ const { createApp } = Vue;
 // 掌握度依靠标签、数值与统一色阶呈现。
 const MASTERY_LEVELS = [
     { key: 'mastered', zh: '已掌握', en: 'Mastered', color: '#375d4c' },
-    { key: 'familiar', zh: '熟悉', en: 'Familiar', color: '#718f7e' },
     { key: 'learning', zh: '学习中', en: 'Learning', color: '#a1b9a4' },
-    { key: 'weak', zh: '薄弱', en: 'Weak', color: '#a17764' },
-    { key: 'new', zh: '未学习', en: 'New', color: '#d4dfd1' }
+    { key: 'new', zh: '未开始', en: 'New', color: '#d4dfd1' }
 ];
 
 const ERROR_TYPES = [
@@ -23,12 +21,16 @@ createApp({
             loading: true,
             loadError: false,
             overview: {},
+            memory: null,
+            memoryLoading: false,
+            memoryError: false,
+            optimization: { status: null, items: [], nextBeforeId: null, loading: false, error: '' },
             mastery: null,
             masteryError: false,
             errorTypes: null,
             errorTypesError: false,
             heatmapData: [],
-            heatmapYear: new Date().getFullYear(),
+            heatmapYear: Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai', year: 'numeric' }).format(new Date())),
             trendData: [],
             trendChart: null,
             detailModal: {
@@ -64,6 +66,18 @@ createApp({
         },
         trendEmpty() {
             return !this.trendData.some((item) => item.words > 0);
+        },
+        reviewForecast() {
+            const days = this.memory?.due_forecast || [];
+            const maxCount = Math.max(1, ...days.map((day) => day.count));
+            return days.map((day, index) => {
+                const [, month, date] = day.date.split('-');
+                return {
+                    ...day,
+                    label: index === 0 ? '今天' : index === 1 ? '明天' : `${Number(month)}/${Number(date)}`,
+                    barHeight: Math.max(3, day.count / maxCount * 40)
+                };
+            });
         },
         breakdownPanels() {
             return [this.masteryPanel(), this.errorTypePanel()];
@@ -113,7 +127,8 @@ createApp({
                 this.loadHeatmap(),
                 this.loadTrend(),
                 this.loadMastery(),
-                this.loadErrorTypes()
+                this.loadErrorTypes(),
+                this.loadMemory()
             ]);
 
             this.loading = false;
@@ -155,6 +170,66 @@ createApp({
             }
         },
 
+        async loadMemory() {
+            this.memoryLoading = true;
+            this.memoryError = false;
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}/memory/summary`);
+                this.memory = response.data.data;
+            } catch (error) {
+                this.memoryError = true;
+            } finally {
+                this.memoryLoading = false;
+            }
+        },
+
+        onOptimizationToggle(event) {
+            if (event.target.open && !this.optimization.status) this.loadOptimization();
+        },
+
+        async loadOptimization(append = false) {
+            const state = this.optimization;
+            if (state.loading || (append && !state.nextBeforeId)) return;
+            state.loading = true;
+            state.error = '';
+            try {
+                const params = { limit: 10, before_id: append ? state.nextBeforeId : 0 };
+                const [status, history] = await Promise.all([
+                    axios.get(`${this.apiBaseUrl}/memory/optimization`),
+                    axios.get(`${this.apiBaseUrl}/memory/optimization/runs`, { params })
+                ]);
+                state.status = status.data.data;
+                state.items = append ? [...state.items, ...history.data.data.items] : history.data.data.items;
+                state.nextBeforeId = history.data.data.next_before_id;
+            } catch (error) {
+                state.error = '无法加载参数优化记录，请检查连接后重试。';
+            } finally {
+                state.loading = false;
+            }
+        },
+
+        optimizationSummary(status) {
+            if (!status.enabled) return '自动优化已关闭';
+            if (status.running_run_id) return '正在后台训练与验证，完成后将保存结果。';
+            if (status.effective_reviews < status.minimum_reviews) {
+                return `已积累 ${status.effective_reviews} / ${status.minimum_reviews} 条有效间隔复习，达到门槛后自动评估。`;
+            }
+            return status.next_evaluation_at ? `下次评估：${this.formatDue(status.next_evaluation_at)}` : '已达到门槛，等待后台评估。';
+        },
+
+        optimizationOutcome(status) {
+            return { running: '评估中', accepted: '已启用', rejected: '保留现用参数', skipped: '已跳过',
+                failed: '评估失败', interrupted: '任务中断', superseded: '配置已变更' }[status] || status;
+        },
+
+        formatMetric(value) {
+            return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '—';
+        },
+
+        formatDue(value) {
+            return value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '尚未安排';
+        },
+
         async loadMastery() {
             try {
                 const response = await axios.get(`${this.apiBaseUrl}/stats/mastery-distribution`);
@@ -179,17 +254,17 @@ createApp({
 
         lastNDays(days) {
             const result = [];
-            const today = new Date();
+            const today = new Date(this.formatLocalDate(new Date()) + 'T00:00:00Z');
             for (let offset = days - 1; offset >= 0; offset--) {
-                const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
-                result.push(this.formatLocalDate(d));
+                const d = new Date(today);
+                d.setUTCDate(d.getUTCDate() - offset);
+                result.push(d.toISOString().slice(0, 10));
             }
             return result;
         },
 
         formatLocalDate(d) {
-            const pad = (n) => String(n).padStart(2, '0');
-            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+            return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
         },
 
         buildRows(defs, data, colorFor) {
@@ -209,12 +284,12 @@ createApp({
 
         masteryPanel() {
             const data = this.mastery || {};
-            // “未学习”在当前统计口径下通常为 0，为 0 时不占一行。
+            // 记忆状态按当前词池和 FSRS 卡片计算。
             const defs = MASTERY_LEVELS.filter((def) => def.key !== 'new' || Number(data.new || 0) > 0);
             const { rows, total } = this.buildRows(defs, data, (def) => def.color);
             return {
                 key: 'mastery',
-                title: this.t('单词掌握度', 'Word Mastery'),
+                title: this.t('单词记忆', 'Word memory'),
                 totalText: `共 ${total} 个单词`,
                 error: this.masteryError,
                 total,
@@ -246,7 +321,8 @@ createApp({
                 return;
             }
             if (!this.trendChart || this.trendChart.isDisposed()) {
-                this.trendChart = echarts.init(container);
+                // ECharts owns a mutable object graph; Vue proxies break resize layout.
+                this.trendChart = Vue.markRaw(echarts.init(container));
             }
 
             const barColor = '#c8d5cc';
@@ -420,25 +496,33 @@ createApp({
             return 4;
         },
 
-        formatPercent(value) {
-            return `${Number(value || 0).toFixed(1)}%`;
-        },
-
         closeDetailModal() {
             this.detailModal.visible = false;
         },
 
         async openDetail({ type, title, subtitle, url, params }) {
             this.detailModal = { visible: true, loading: true, title, subtitle, type, error: '', items: [] };
+            const modal = this.detailModal;
             try {
                 const response = await axios.get(`${this.apiBaseUrl}${url}`, { params });
-                this.detailModal.items = response.data.data || [];
+                modal.items = response.data.data || [];
             } catch (error) {
                 console.error('Error loading detail words:', error);
-                this.detailModal.error = this.t('加载单词失败', 'Failed to load words');
+                modal.error = this.t('加载单词失败', 'Failed to load words');
             } finally {
-                this.detailModal.loading = false;
+                modal.loading = false;
             }
+        },
+
+        openForecastWords(day) {
+            if (!day.count) return;
+            return this.openDetail({
+                type: 'forecast',
+                title: `${day.label}待复习`,
+                subtitle: `${day.date} · ${day.count} 个单词`,
+                url: '/memory/forecast-words',
+                params: { date: day.date }
+            });
         },
 
         openMasteryWords(level, label, count) {

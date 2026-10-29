@@ -13,6 +13,7 @@
 - [系统概览](typing-practice/SPEC.md)
 - [前端说明](typing-practice/FRONTEND.md)
 - [选词策略](typing-practice/WORD-SELECTION.md)
+- [FSRS 单词记忆与参数优化](typing-practice/SRS-PLAN.md)
 - [Docker 部署](typing-practice/DOCKER-DEPLOY.md)
 - [自动部署](typing-practice/AUTO-DEPLOY.md)
 - [本地构建说明](typing-practice/LOCAL-BUILD.md)
