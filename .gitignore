@@ -10,11 +10,11 @@ env/
 # Local environment
 .env
 .env.*
-CODEX_ENV.md
 !.env.example
 !**/.env.example
 .claude/
 .idea/
+.impeccable/review/
 
 # Generated Anki exports
 /anki_export/

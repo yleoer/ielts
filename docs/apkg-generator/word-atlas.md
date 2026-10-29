@@ -34,7 +34,7 @@
 
 ## 重新生成
 
-以下命令在本仓库根目录执行；先按 `AGENTS.md` 检查私有 `CODEX_ENV.md`。
+以下命令在本机的仓库根目录执行，使用本地 Python 虚拟环境；测试约定见 `AGENTS.md`。
 
 ```powershell
 python -m venv .venv
