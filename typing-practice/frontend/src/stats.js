@@ -1,20 +1,5 @@
 const { createApp } = Vue;
 
-// 掌握度依靠标签、数值与统一色阶呈现。
-const MASTERY_LEVELS = [
-    { key: 'mastered', zh: '已掌握', en: 'Mastered', color: '#375d4c' },
-    { key: 'learning', zh: '学习中', en: 'Learning', color: '#a1b9a4' },
-    { key: 'new', zh: '未开始', en: 'New', color: '#d4dfd1' }
-];
-
-const ERROR_TYPES = [
-    { key: 'spelling', zh: '拼写错误', en: 'Typo' },
-    { key: 'missing_letter', zh: '漏字母', en: 'Missing letter' },
-    { key: 'extra_letter', zh: '多字母', en: 'Extra letter' },
-    { key: 'completely_wrong', zh: '完全错误', en: 'Completely wrong' },
-    { key: 'skipped', zh: '不会/跳过', en: 'Skipped' }
-];
-
 createApp({
     data() {
         return {
@@ -25,10 +10,13 @@ createApp({
             memoryLoading: false,
             memoryError: false,
             optimization: { status: null, items: [], nextBeforeId: null, loading: false, error: '' },
-            mastery: null,
-            masteryError: false,
-            errorTypes: null,
-            errorTypesError: false,
+            vocabulary: null,
+            vocabularyLoading: false,
+            vocabularyError: false,
+            vocabularyFilters: [
+                { value: 'all', label: '全部' }, { value: 'new', label: '未开始' },
+                { value: 'learning', label: '学习中' }, { value: 'mastered', label: '已掌握' }
+            ],
             heatmapData: [],
             heatmapYear: Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai', year: 'numeric' }).format(new Date())),
             trendData: [],
@@ -78,9 +66,6 @@ createApp({
                     barHeight: Math.max(3, day.count / maxCount * 40)
                 };
             });
-        },
-        breakdownPanels() {
-            return [this.masteryPanel(), this.errorTypePanel()];
         }
     },
     mounted() {
@@ -96,6 +81,15 @@ createApp({
         window.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && this.detailModal.visible) {
                 this.closeDetailModal();
+            }
+            if (event.key === 'Tab' && this.detailModal.visible) {
+                const nodes = [...document.querySelectorAll('.detail-dialog button:not(:disabled), .detail-dialog [tabindex="0"]')];
+                const first = nodes[0], last = nodes[nodes.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault(); last?.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault(); first?.focus();
+                }
             }
         });
     },
@@ -126,8 +120,7 @@ createApp({
             await Promise.allSettled([
                 this.loadHeatmap(),
                 this.loadTrend(),
-                this.loadMastery(),
-                this.loadErrorTypes(),
+                this.loadVocabulary(),
                 this.loadMemory()
             ]);
 
@@ -230,25 +223,123 @@ createApp({
             return value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '尚未安排';
         },
 
-        async loadMastery() {
+        async loadVocabulary() {
+            this.vocabularyLoading = true;
+            this.vocabularyError = false;
             try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/mastery-distribution`);
-                this.mastery = response.data.data || {};
-                this.masteryError = false;
+                const response = await axios.get(`${this.apiBaseUrl}/stats/vocabulary-progress`);
+                this.vocabulary = response.data.data;
             } catch (error) {
-                console.warn('Failed to load mastery', error);
-                this.masteryError = true;
+                this.vocabularyError = true;
+            } finally {
+                this.vocabularyLoading = false;
             }
         },
 
-        async loadErrorTypes() {
+        progressPercent(group, key) {
+            return group.total ? group[key] / group.total * 100 : 0;
+        },
+
+        progressDescription(group) {
+            return `${group.value}：学习中 ${group.learning} 个，已掌握 ${group.mastered} 个，总单词数 ${group.total} 个`;
+        },
+
+        progressCounts(group) {
+            return `${group.learning} / ${group.mastered} / ${group.total}`;
+        },
+
+        memoryLabel(status) {
+            return { new: '未开始', learning: '学习中', mastered: '已掌握' }[status] || '';
+        },
+
+        highlightInput(expected, input) {
+            const raw = Array.from(String(input || ''));
+            const tokens = [];
+            raw.forEach((text, index) => {
+                if (/^[a-z'-]$/i.test(text)) tokens.push({ text: text.toLowerCase(), index });
+                else if (/\s/.test(text) && tokens.length && tokens[tokens.length - 1].text !== ' ') {
+                    tokens.push({ text: ' ', index });
+                }
+            });
+            if (tokens[tokens.length - 1]?.text === ' ') tokens.pop();
+            if (!tokens.length) return raw.map(text => ({ text, kind: 'wrong', description: '无效输入' }));
+            const actual = tokens.map(token => token.text).join('');
+            const normalize = value => value.replace(/[^a-zA-Z\s'-]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+            const candidates = String(expected || '').split('/').map(normalize).filter(Boolean);
+            let best;
+            for (const word of candidates.length ? candidates : ['']) {
+                const matrix = Array.from({ length: word.length + 1 }, (_, i) =>
+                    Array.from({ length: actual.length + 1 }, (_, j) => i ? (j ? 0 : i) : j));
+                for (let i = 1; i <= word.length; i++) {
+                    for (let j = 1; j <= actual.length; j++) {
+                        matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1,
+                            matrix[i - 1][j - 1] + (word[i - 1] === actual[j - 1] ? 0 : 1));
+                    }
+                }
+                const distance = matrix[word.length][actual.length];
+                if (!best || distance < best.distance) best = { word, matrix, distance };
+            }
+            const changes = new Map(), gaps = new Map();
+            let i = best.word.length, j = actual.length;
+            while (i || j) {
+                if (i && j && best.word[i - 1] === actual[j - 1] && best.matrix[i][j] === best.matrix[i - 1][j - 1]) {
+                    changes.set(tokens[j - 1].index, 'match'); i--; j--;
+                } else if (i && j && best.matrix[i][j] === best.matrix[i - 1][j - 1] + 1) {
+                    changes.set(tokens[j - 1].index, 'wrong'); i--; j--;
+                } else if (i && best.matrix[i][j] === best.matrix[i - 1][j] + 1) {
+                    const boundary = j < tokens.length ? tokens[j].index : tokens[j - 1].index + 1;
+                    gaps.set(boundary, (gaps.get(boundary) || 0) + 1); i--;
+                } else {
+                    changes.set(tokens[j - 1].index, 'extra'); j--;
+                }
+            }
+            const result = [];
+            const descriptions = { match: '', wrong: '拼写错误', extra: '多写字符' };
+            for (let index = 0; index <= raw.length; index++) {
+                for (let gap = 0; gap < (gaps.get(index) || 0); gap++) {
+                    result.push({ text: '□', kind: 'missing', description: '此处漏写一个字符' });
+                }
+                if (index < raw.length) {
+                    const kind = changes.get(index) || 'match';
+                    result.push({ text: raw[index], kind, description: descriptions[kind] });
+                }
+            }
+            return result;
+        },
+
+        toggleWordErrors(item) {
+            if (!item.total_attempts) return;
+            if (!item.errorHistory) {
+                item.errorHistory = { expanded: false, loaded: false, loading: false, error: '',
+                    items: [], nextBeforeId: null, retryAppend: false };
+            }
+            const history = item.errorHistory;
+            history.expanded = !history.expanded;
+            if (history.expanded && !history.loaded && !history.loading) return this.loadWordErrors(item);
+        },
+
+        async loadWordErrors(item, append = false) {
+            const history = item.errorHistory;
+            if (history.loading || (append && history.nextBeforeId == null)) return;
+            history.loading = true;
+            history.error = '';
             try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/error-types`);
-                this.errorTypes = response.data.data || {};
-                this.errorTypesError = false;
+                const response = await axios.get(`${this.apiBaseUrl}/stats/word-errors`, {
+                    params: { source_id: item.source_id, before_id: append ? history.nextBeforeId : 0, limit: 50 }
+                });
+                const data = response.data.data;
+                const records = data.items.map(record => ({ ...record,
+                    inputSegments: this.highlightInput(record.word, record.user_input) }));
+                history.items = append ? [...history.items, ...records] : records;
+                history.nextBeforeId = data.next_before_id;
+                history.loaded = true;
+                item.correct_attempts = data.correct_attempts;
+                item.total_attempts = data.total_attempts;
             } catch (error) {
-                console.warn('Failed to load error types', error);
-                this.errorTypesError = true;
+                history.error = '无法加载答错记录，请检查连接后重试。';
+                history.retryAppend = append;
+            } finally {
+                history.loading = false;
             }
         },
 
@@ -265,54 +356,6 @@ createApp({
 
         formatLocalDate(d) {
             return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-        },
-
-        buildRows(defs, data, colorFor) {
-            const total = defs.reduce((sum, def) => sum + Number(data[def.key] || 0), 0);
-            const rows = defs.map((def) => {
-                const value = Number(data[def.key] || 0);
-                return {
-                    key: def.key,
-                    label: this.t(def.zh, def.en),
-                    value,
-                    percent: total ? Math.round((value * 1000) / total) / 10 : 0,
-                    color: colorFor(def)
-                };
-            });
-            return { rows, total };
-        },
-
-        masteryPanel() {
-            const data = this.mastery || {};
-            // 记忆状态按当前词池和 FSRS 卡片计算。
-            const defs = MASTERY_LEVELS.filter((def) => def.key !== 'new' || Number(data.new || 0) > 0);
-            const { rows, total } = this.buildRows(defs, data, (def) => def.color);
-            return {
-                key: 'mastery',
-                title: this.t('单词记忆', 'Word memory'),
-                totalText: `共 ${total} 个单词`,
-                error: this.masteryError,
-                total,
-                rows,
-                open: (row) => this.openMasteryWords(row.key, row.label, row.value)
-            };
-        },
-
-        errorTypePanel() {
-            const data = this.errorTypes || {};
-            const color = '#a17764';
-            const { rows, total } = this.buildRows(ERROR_TYPES, data, () => color);
-            // 错误类型没有天然顺序，按次数从多到少排，最该关注的放最上面。
-            rows.sort((a, b) => b.value - a.value);
-            return {
-                key: 'errors',
-                title: this.t('错误类型', 'Error Types'),
-                totalText: `共 ${total} 次`,
-                error: this.errorTypesError,
-                total,
-                rows,
-                open: (row) => this.openErrorTypeWords(row.key, row.label, row.value)
-            };
         },
 
         renderTrend() {
@@ -498,10 +541,22 @@ createApp({
 
         closeDetailModal() {
             this.detailModal.visible = false;
+            if (typeof document !== 'undefined') document.body.style.overflow = this.detailBodyOverflow || '';
+            this.detailOpener?.focus();
+        },
+
+        beginDetail(values) {
+            if (!this.detailModal.visible && typeof document !== 'undefined') {
+                this.detailOpener = document.activeElement;
+                this.detailBodyOverflow = document.body.style.overflow;
+                document.body.style.overflow = 'hidden';
+            }
+            this.detailModal = { visible: true, loading: true, error: '', items: [], ...values };
+            this.$nextTick?.(() => this.$refs.detailClose?.focus());
         },
 
         async openDetail({ type, title, subtitle, url, params }) {
-            this.detailModal = { visible: true, loading: true, title, subtitle, type, error: '', items: [] };
+            this.beginDetail({ type, title, subtitle });
             const modal = this.detailModal;
             try {
                 const response = await axios.get(`${this.apiBaseUrl}${url}`, { params });
@@ -525,24 +580,50 @@ createApp({
             });
         },
 
-        openMasteryWords(level, label, count) {
-            return this.openDetail({
-                type: 'mastery',
-                title: label,
-                subtitle: this.t(`${count || 0} 个单词`, `${count || 0} words`),
-                url: '/stats/mastery-words',
-                params: { level, limit: 500 }
+        openVocabularyWords(dimension, group) {
+            if (!group.total) return;
+            this.beginDetail({
+                type: 'vocabulary', title: dimension === 'cefr' ? `${group.value} · ${group.label}` : group.label,
+                subtitle: `学习中 / 已掌握 / 总单词数：${this.progressCounts(group)}`,
+                dimension, value: group.value, status: 'all', nextOffset: null, total: 0
             });
+            return this.loadVocabularyWords();
         },
 
-        openErrorTypeWords(errorType, label, count) {
-            return this.openDetail({
-                type: 'error',
-                title: label,
-                subtitle: this.t(`${count || 0} 次错误`, `${count || 0} errors`),
-                url: '/stats/error-type-words',
-                params: { type: errorType, limit: 500 }
-            });
+        async loadVocabularyWords(append = false) {
+            const modal = this.detailModal;
+            if (append && (modal.loading || modal.nextOffset == null)) return;
+            const request = (modal.request || 0) + 1;
+            modal.request = request;
+            modal.loading = true;
+            modal.error = '';
+            const offset = append ? modal.nextOffset : 0;
+            if (!append) {
+                modal.items = [];
+                modal.nextOffset = null;
+            }
+            try {
+                const response = await axios.get(`${this.apiBaseUrl}/stats/vocabulary-words`, {
+                    params: { dimension: modal.dimension, value: modal.value, status: modal.status, offset, limit: 100 }
+                });
+                if (modal.request !== request) return;
+                const data = response.data.data;
+                modal.items = append ? [...modal.items, ...data.items] : data.items;
+                modal.total = data.total;
+                modal.nextOffset = data.next_offset;
+            } catch (error) {
+                if (modal.request === request) {
+                    modal.error = '无法加载单词，请检查连接后重试。';
+                    modal.retryAppend = append;
+                }
+            } finally {
+                if (modal.request === request) modal.loading = false;
+            }
+        },
+
+        selectVocabularyStatus(status) {
+            this.detailModal.status = status;
+            return this.loadVocabularyWords();
         }
     }
 }).mount('#app');

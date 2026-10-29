@@ -1,10 +1,10 @@
 # 打字练习系统概览
 
-“词间”使用 Python 3.12+、Flask/Jinja2、Vue 3 和 SQLite。Anki collection.anki2 只读提供已学习的 Word Atlas 词条，py-fsrs 独立管理中文提示下的英文拼写记忆。
+“词间”使用 Python 3.12+、Flask/Jinja2、Vue 3 和 SQLite。Anki collection.anki2 只读提供 Word Atlas 完整词库用于统计，已学习词条用于练习，py-fsrs 独立管理中文提示下的英文拼写记忆。
 
 ## 数据与界面
 
-只支持 Word Atlas 的固定 22 字段结构。Word、UK/US、PartOfSpeech、MeaningZH、ExampleEN/ExampleZH、Topic、Illustration、SourceId 分别提供词面、音标、词性、释义、例句、分类、插图和稳定身份。文本先去除 HTML 标签再解码实体；媒体接口只提供插图，不返回音频。
+只支持 Word Atlas 的固定 22 字段结构。Word、UK/US、PartOfSpeech、MeaningZH、ExampleEN/ExampleZH、CEFR、Topic、Illustration、SourceId 分别提供词面、音标、词性、释义、例句、等级、分类、插图和稳定身份。文本先去除 HTML 标签再解码实体；媒体接口只提供插图，不返回音频。
 
 页面沿用纸色与墨绿、系统字体、本地 CSS/SVG；Vue、Axios、ECharts 通过既有 CDN 加载。页面、静态资源和 API 由同一 Flask 进程提供。
 
@@ -27,15 +27,15 @@
 | GET /api/media/<note_id>/illustration | 受访问密码保护的插图 |
 | GET /api/sync/status、POST /api/sync/now | 同步状态和执行同步 |
 | GET /api/stats/overview、heatmap、accuracy-trend | 正式作答汇总 |
-| GET /api/stats/mastery-distribution、mastery-words | FSRS 记忆分布和明细 |
+| GET /api/stats/word-errors | 按 SourceId 分页查询每次答错记录与答对/总次数 |
+| GET /api/stats/vocabulary-progress、vocabulary-words | 完整词库 CEFR / 话题进度与状态筛选分页明细 |
 | GET /api/memory/optimization、optimization/runs、optimization/runs/<id> | 自动参数优化进度、历史分页与完整评估记录 |
-| GET /api/stats/error-types、error-type-words | 错误分类和明细 |
 
-旧 POST /api/stats/sessions 返回 410，要求旧页面刷新。未提供 speed-trend、daily-duration、streak 或 milestones 路由。
+旧 POST /api/stats/sessions 返回 410，要求旧页面刷新。已移除旧记忆分布和错误分类接口（mastery-distribution、mastery-words、error-types、error-type-words），这些路径返回 404。未提供 speed-trend、daily-duration、streak 或 milestones 路由。
 
 ## 数据切换与运行
 
-首次启用 FSRS 时，删除退役的 practice_sessions、word_attempts、word_mastery 表并写入迁移标记，后续不再创建这些表。Anki、媒体、同步历史和访问凭证保留。新复习数据使用 word_memory / word_reviews 保存，重启不会清理。
+首次启用 FSRS 时，删除退役的 practice_sessions、word_attempts、word_mastery 表并写入迁移标记，后续不再创建这些表。Anki、媒体、同步历史和访问凭证保留。新复习数据使用 word_memory / word_reviews 保存，重启不会清理。启动时自动移除旧 word_reviews.error_type 列，新作答不再计算错误分类；已有作答、卡片和旧提交的幂等响应保留，详见 [统计迁移](statistics/SPEC.md#废弃分类字段迁移)。
 
 配置来自 backend/config/config.yaml、typing-practice/.env 和进程环境变量；环境变量优先。正式部署继续使用缓存 Anki 数据库与持久化统计目录。测试全部在本地运行。
 

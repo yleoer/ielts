@@ -75,6 +75,12 @@ class AppState:
                 raise RuntimeError("Anki database is not available")
             return self.reader.get_learned_word_pool("all")
 
+    def vocabulary_pool(self) -> list[dict[str, Any]]:
+        with self.lock:
+            if not self.reader:
+                raise RuntimeError("Anki database is not available")
+            return self.reader.get_word_pool()
+
     def config_payload(self) -> dict[str, Any]:
         with self.lock:
             total = 0
@@ -330,22 +336,34 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
     def accuracy_trend():
         return _stats_response(lambda: state.stats.accuracy_trend(_int_query("days", 30)))
 
-    @app.route("/api/stats/mastery-distribution")
-    def mastery_distribution():
-        summary = state.memory.summary(state.current_pool())
-        return jsonify(success=True, data={key: summary[key] for key in ("new", "learning", "mastered")})
+    @app.route("/api/stats/vocabulary-progress")
+    def vocabulary_progress():
+        return jsonify(success=True, data=state.memory.vocabulary_progress(state.vocabulary_pool()))
 
-    @app.route("/api/stats/mastery-words")
-    def mastery_words():
-        return jsonify(success=True, data=state.memory.mastery_words(state.current_pool(), request.args.get("level", ""), _int_query("limit", 200)))
+    @app.route("/api/stats/vocabulary-words")
+    def vocabulary_words():
+        try:
+            offset = int(request.args.get("offset", "0"))
+            limit = int(request.args.get("limit", "100"))
+        except ValueError:
+            raise ValueError("无效的分页参数") from None
+        if offset < 0 or not 1 <= limit <= 200:
+            raise ValueError("无效的分页参数")
+        return jsonify(success=True, data=state.memory.vocabulary_words(
+            state.vocabulary_pool(), request.args.get("dimension", ""), request.args.get("value", ""),
+            request.args.get("status", "all"), offset, limit,
+        ))
 
-    @app.route("/api/stats/error-types")
-    def error_types():
-        return _stats_response(state.stats.error_types)
-
-    @app.route("/api/stats/error-type-words")
-    def error_type_words():
-        return _stats_response(lambda: state.stats.error_type_words(request.args.get("type", "spelling"), _int_query("limit", 200)))
+    @app.route("/api/stats/word-errors")
+    def word_errors():
+        try:
+            before_id = int(request.args.get("before_id", "0"))
+            limit = int(request.args.get("limit", "50"))
+        except ValueError:
+            raise ValueError("无效的分页参数") from None
+        if before_id < 0 or not 1 <= limit <= 200:
+            raise ValueError("无效的分页参数")
+        return jsonify(success=True, data=state.stats.word_errors(request.args.get("source_id", ""), before_id, limit))
 
     @app.route("/api/stats/overview")
     def overview():

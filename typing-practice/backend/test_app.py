@@ -10,7 +10,6 @@ from pathlib import Path
 from app import create_app
 from anki import FIELD_SEPARATOR, WORD_ATLAS_FIELDS
 from config import AnkiConfig, Config, PracticeConfig, ServerConfig, StatsConfig
-from stats import analyze_error_type
 
 
 def make_config(root: Path, anki_path: str = "") -> Config:
@@ -290,16 +289,19 @@ class FlaskAppTest(unittest.TestCase):
         for endpoint in (
             "/api/stats/heatmap",
             "/api/stats/accuracy-trend",
-            "/api/stats/mastery-distribution",
-            "/api/stats/mastery-words?level=learning",
-            "/api/stats/mastery-words?level=new",
-            "/api/stats/error-type-words?type=missing_letter",
+            "/api/stats/vocabulary-progress",
+            "/api/stats/vocabulary-words?dimension=cefr&value=B2",
+            "/api/stats/word-errors?source_id=abandon",
         ):
             result = client.get(endpoint)
             self.assertEqual(result.status_code, 200, endpoint)
             self.assertTrue(result.json["success"], endpoint)
 
         for endpoint in (
+            "/api/stats/mastery-distribution",
+            "/api/stats/mastery-words?level=learning",
+            "/api/stats/error-types",
+            "/api/stats/error-type-words?type=missing_letter",
             "/api/stats/speed-trend",
             "/api/stats/daily-duration",
             "/api/stats/streak",
@@ -325,12 +327,6 @@ class FlaskAppTest(unittest.TestCase):
         response = app.test_client().get("/api/practice/queue?session_id=test")
         self.assertEqual(response.status_code, 503)
         self.assertIn("暂不可用", response.json["error"])
-
-    def test_error_type_rules(self):
-        self.assertEqual(analyze_error_type("abandon", ""), "skipped")
-        self.assertEqual(analyze_error_type("abandon", "abandn"), "missing_letter")
-        self.assertEqual(analyze_error_type("abandon", "abandonx"), "extra_letter")
-        self.assertEqual(analyze_error_type("abandon", "zzzzzz"), "completely_wrong")
 
 
 if __name__ == "__main__":

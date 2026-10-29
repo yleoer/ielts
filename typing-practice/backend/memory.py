@@ -10,7 +10,7 @@ from uuid import uuid4
 from fsrs import Card, Rating, ReviewLog, State
 
 from srs import SRS, SHANGHAI, answer_candidates, duration, normalize_answer, parse_time, time_text, utc_now
-from stats import analyze_error_type
+from vocabulary import progress as vocabulary_progress, word_page
 
 FREE_PRACTICE_LIMIT = 20
 
@@ -53,7 +53,6 @@ CREATE TABLE IF NOT EXISTS word_reviews (
     category TEXT NOT NULL,
     user_input TEXT NOT NULL,
     is_correct INTEGER NOT NULL,
-    error_type TEXT NOT NULL,
     rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 4),
     reviewed_at TEXT NOT NULL,
     received_at TEXT NOT NULL,
@@ -104,6 +103,10 @@ class MemoryStore:
             columns = {row["name"] for row in self.db.execute("PRAGMA table_info(practice_items)")}
             if "mode" not in columns:
                 self.db.execute("ALTER TABLE practice_items ADD COLUMN mode TEXT NOT NULL DEFAULT 'scheduled'")
+            review_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(word_reviews)")}
+            if "error_type" in review_columns:
+                self.db.execute("ALTER TABLE word_reviews DROP COLUMN error_type")
+            self.db.execute("INSERT OR IGNORE INTO schema_migrations VALUES('remove-error-type-v1',?)", (time_text(self.now()),))
             # Retired tables are removed on cutover and never recreated.
             self.db.execute("DROP TABLE IF EXISTS word_attempts")
             self.db.execute("DROP TABLE IF EXISTS word_mastery")
@@ -179,7 +182,7 @@ class MemoryStore:
                 if forecast_date(card, today) == selected:
                     result.append({**word, **self.srs.describe(card, now)})
             result.sort(key=lambda item: (item["due"], item["source_id"]))
-            return result
+            return self._with_attempt_counts(result)
 
     def queue(self, pool, session_id: str, limit=None, mode="scheduled"):
         if not isinstance(session_id, str) or not 1 <= len(session_id) <= 100:
@@ -283,7 +286,6 @@ class MemoryStore:
                 card = Card(card_id=cursor.lastrowid, due=reviewed)
                 before_json = None
             correct = bool(normalize_answer(user_input)) and normalize_answer(user_input) in answer_candidates(word["word"])
-            error_type = "" if correct else analyze_error_type(word["word"], user_input)
             updated, log = self.srs.review(card, correct, elapsed, reviewed)
             version = item["card_version"] + 1
             self.db.execute("""UPDATE word_memory SET card_json=?,due=?,state=?,stability=?,last_review=?,version=?,config_version=? WHERE id=?""", (
@@ -292,33 +294,50 @@ class MemoryStore:
             ))
             response = {
                 "attempt_id": item["attempt_id"], "is_correct": correct, "rating": int(log.rating),
-                "rating_name": log.rating.name, "error_type": error_type, "reviewed_at": time_text(reviewed),
+                "rating_name": log.rating.name, "reviewed_at": time_text(reviewed),
                 "duration_ms": elapsed, "memory": self.srs.describe(updated, now), "card_version": version,
             }
-            self.db.execute("""INSERT INTO word_reviews(attempt_id,request_hash,session_id,memory_id,word_key,word,chinese_meaning,category,user_input,is_correct,error_type,rating,reviewed_at,received_at,duration_ms,first_input_ms,answer_length,before_json,after_json,config_version,response_json)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            self.db.execute("""INSERT INTO word_reviews(attempt_id,request_hash,session_id,memory_id,word_key,word,chinese_meaning,category,user_input,is_correct,rating,reviewed_at,received_at,duration_ms,first_input_ms,answer_length,before_json,after_json,config_version,response_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 item["attempt_id"], request_hash, item["session_id"], card.card_id, item["word_key"],
-                word["word"], word["chinese_meaning"], word["category"], user_input, int(correct), error_type,
+                word["word"], word["chinese_meaning"], word["category"], user_input, int(correct),
                 int(log.rating), time_text(reviewed), time_text(now), elapsed, first_input, len(normalize_answer(user_input)),
                 before_json, updated.to_json(), self.srs.version, json.dumps(response),
             ))
             return response
 
-    def mastery_words(self, pool, level, limit=200):
-        if level not in {"new", "learning", "mastered", "due"}:
-            raise ValueError("无效记忆状态")
+    def _vocabulary_entries(self, pool):
+        # Different note/card copies of the same source represent one vocabulary item.
+        unique = {}
+        for word in pool:
+            unique.setdefault(word.get("source_id", "").strip(), word)
+        words = pool_by_key(list(unique.values()))
+        states, now = self._states(), self.now()
+        return [{**word, **(self.srs.describe(Card.from_json(states[key]["card_json"]), now)
+                           if key in states else {"status": "new", "is_due": False})}
+                for key, word in words.items()]
+
+    def vocabulary_progress(self, pool):
         with self.lock:
-            words, states, _, _ = self._plan(pool, self.now())
-            counts = {row["word_key"]: row for row in self.db.execute("""SELECT word_key,COUNT(*) total_attempts,SUM(is_correct) correct_attempts,
-                AVG(duration_ms)/1000 average_time FROM word_reviews GROUP BY word_key""")}
-            result = []
-            for key, word in words.items():
-                row = states.get(key)
-                memory = self.srs.describe(Card.from_json(row["card_json"]), self.now()) if row else {"status": "new", "is_due": False}
-                if not (memory["is_due"] if level == "due" else memory["status"] == level):
-                    continue
-                values = dict(counts[key]) if key in counts else {"total_attempts": 0, "correct_attempts": 0, "average_time": 0}
-                total, correct = values["total_attempts"], values["correct_attempts"]
-                result.append({**word, **values, **memory, "accuracy": correct * 100 / total if total else 0, "incorrect_attempts": total - correct})
-            result.sort(key=lambda item: (item.get("due", ""), item["source_id"]))
-            return result[:min(max(limit, 1), 1000)]
+            return vocabulary_progress(self._vocabulary_entries(pool))
+
+    def vocabulary_words(self, pool, dimension, value, status="all", offset=0, limit=100):
+        with self.lock:
+            page = word_page(self._vocabulary_entries(pool), dimension, value, status, offset, limit)
+            page["items"] = self._with_attempt_counts(page["items"])
+            return page
+
+    def _with_attempt_counts(self, items):
+        keys = list(dict.fromkeys(f"word-atlas:{item['source_id'].strip()}" for item in items))
+        counts = {}
+        for offset in range(0, len(keys), 500):
+            batch = keys[offset:offset + 500]
+            placeholders = ",".join("?" for _ in batch)
+            for row in self.db.execute(f"""SELECT word_key, COUNT(*) total_attempts,
+                    SUM(is_correct) correct_attempts FROM word_reviews
+                    WHERE word_key IN ({placeholders}) GROUP BY word_key""", batch):
+                counts[row["word_key"]] = (row["correct_attempts"], row["total_attempts"])
+        for item in items:
+            correct, total = counts.get(f"word-atlas:{item['source_id'].strip()}", (0, 0))
+            item.update(correct_attempts=correct, total_attempts=total)
+        return items
