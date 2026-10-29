@@ -146,8 +146,8 @@ class VocabularyTest(unittest.TestCase):
         self.assertEqual((learned["correct_attempts"], learned["total_attempts"]), (1, 4))
         fresh = self.page(status="new")["items"][0]
         self.assertEqual((fresh["correct_attempts"], fresh["total_attempts"]), (0, 0))
-        forecast = self.client.get("/api/memory/forecast-words?date=2026-10-29").json["data"][0]
-        self.assertEqual((forecast["correct_attempts"], forecast["total_attempts"]), (1, 4))
+        scheduled = self.client.get("/api/stats/calendar-words?date=2026-10-29").json["data"]["due"][0]
+        self.assertEqual((scheduled["correct_attempts"], scheduled["total_attempts"]), (1, 4))
         first = self.client.get("/api/stats/word-errors?source_id=abandon&limit=2").json["data"]
         self.assertEqual((first["correct_attempts"], first["total_attempts"]), (1, 4))
         self.assertEqual([row["user_input"] for row in first["items"]], ["abando", ""])

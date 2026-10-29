@@ -19,6 +19,7 @@ from config import Config, load_config
 from memory import FREE_PRACTICE_LIMIT, MemoryStore, PracticeConflict
 from optimizer_service import OptimizationService
 from stats import StatsStore
+from srs import SHANGHAI
 from sync import copy_collection_group, latest_collection, sync_configured, sync_target_path
 
 
@@ -299,10 +300,6 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
     def memory_summary():
         return jsonify(success=True, data=state.memory.summary(state.current_pool()))
 
-    @app.route("/api/memory/forecast-words")
-    def forecast_words():
-        return jsonify(success=True, data=state.memory.forecast_words(state.current_pool(), request.args.get("date", "")))
-
     @app.route("/api/memory/optimization")
     def optimization_status():
         return jsonify(success=True, data=state.optimizer.status())
@@ -328,13 +325,17 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
     def legacy_sessions():
         return jsonify(success=False, error="练习已升级，请刷新页面后使用逐题保存", code="client_upgrade_required"), 410
 
-    @app.route("/api/stats/heatmap")
-    def heatmap():
-        return _stats_response(lambda: state.stats.heatmap(request.args.get("start_date", ""), request.args.get("end_date", "")))
+    @app.route("/api/stats/calendar")
+    def activity_calendar():
+        return jsonify(success=True, data=state.memory.activity_calendar(state.current_pool()))
 
-    @app.route("/api/stats/accuracy-trend")
-    def accuracy_trend():
-        return _stats_response(lambda: state.stats.accuracy_trend(_int_query("days", 30)))
+    @app.route("/api/stats/calendar-words")
+    def calendar_words():
+        return jsonify(success=True, data=state.memory.calendar_words(state.current_pool(), request.args.get("date", "")))
+
+    @app.route("/api/stats/monthly-activity")
+    def monthly_activity():
+        return jsonify(success=True, data=state.stats.monthly_activity(state.memory.now().astimezone(SHANGHAI).date()))
 
     @app.route("/api/stats/vocabulary-progress")
     def vocabulary_progress():
@@ -367,7 +368,7 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
 
     @app.route("/api/stats/overview")
     def overview():
-        return _stats_response(state.stats.overview)
+        return _stats_response(lambda: state.stats.overview(state.memory.now().astimezone(SHANGHAI).date()))
 
     @app.errorhandler(PracticeConflict)
     def practice_conflict(error):

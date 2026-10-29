@@ -23,15 +23,17 @@
 | GET /api/words | 只读词库列表 |
 | GET /api/practice/queue | 到期队列或自由练习词条 |
 | POST /api/practice/attempts | 逐题事务保存 |
-| GET /api/memory/summary | 当前词池的记忆状态、到期数量、未开始词数和下次到期时间 |
+| GET /api/memory/summary | 当前词池总数、到期数量、可用新词、当天引入新词和下次到期时间 |
 | GET /api/media/<note_id>/illustration | 受访问密码保护的插图 |
 | GET /api/sync/status、POST /api/sync/now | 同步状态和执行同步 |
-| GET /api/stats/overview、heatmap、accuracy-trend | 正式作答汇总 |
+| GET /api/stats/overview | 累计作答、连续天数和有效时长汇总 |
+| GET /api/stats/calendar、calendar-words | 以当月居中的一年学习记录、待复习安排与日期单词列表 |
+| GET /api/stats/monthly-activity | 北京时间自然月逐日作答量与正确率 |
 | GET /api/stats/word-errors | 按 SourceId 分页查询每次答错记录与答对/总次数 |
 | GET /api/stats/vocabulary-progress、vocabulary-words | 完整词库 CEFR / 话题进度与状态筛选分页明细 |
 | GET /api/memory/optimization、optimization/runs、optimization/runs/<id> | 自动参数优化进度、历史分页与完整评估记录 |
 
-旧 POST /api/stats/sessions 返回 410，要求旧页面刷新。已移除旧记忆分布和错误分类接口（mastery-distribution、mastery-words、error-types、error-type-words），这些路径返回 404。未提供 speed-trend、daily-duration、streak 或 milestones 路由。
+旧 POST /api/stats/sessions 返回 410，要求旧页面刷新。已移除旧记忆分布、错误分类、旧日历、滚动趋势和七天预报接口（mastery-distribution、mastery-words、error-types、error-type-words、heatmap、accuracy-trend、memory/forecast-words），这些路径返回 404。未提供 speed-trend、daily-duration、streak 或 milestones 路由。
 
 ## 数据切换与运行
 

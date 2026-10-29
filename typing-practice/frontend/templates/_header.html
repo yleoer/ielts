@@ -3,19 +3,19 @@
         <img src="/assets/favicon.svg?v=20261028-cijian" width="28" height="28" alt="">
         <span class="brand-name">词间</span>
     </a>
-    <nav class="workspace-nav" :aria-label="t('主导航', 'Main navigation')">
-        <a href="/index.html" :aria-label="t('练习', 'Notes')" class="nav-link {% if active_page == 'practice' %}is-active{% endif %}" {% if active_page == 'practice' %}aria-current="page"{% endif %}>
+    <nav class="workspace-nav" aria-label="主导航">
+        <a href="/index.html" aria-label="练习" class="nav-link {% if active_page == 'practice' %}is-active{% endif %}" {% if active_page == 'practice' %}aria-current="page"{% endif %}>
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#document"/></svg>
-            <span>{{ t('练习', 'Notes') }}</span>
+            <span>练习</span>
         </a>
-        <a href="/stats.html" :aria-label="t('统计', 'Activity')" class="nav-link {% if active_page == 'stats' %}is-active{% endif %}" {% if active_page == 'stats' %}aria-current="page"{% endif %}>
+        <a href="/stats.html" aria-label="统计" class="nav-link {% if active_page == 'stats' %}is-active{% endif %}" {% if active_page == 'stats' %}aria-current="page"{% endif %}>
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#chart"/></svg>
-            <span>{{ t('统计', 'Activity') }}</span>
+            <span>统计</span>
         </a>
     </nav>
     <div class="header-actions">
         {% if active_page == 'practice' %}
-        <button type="button" class="icon-button" @click="openSyncModal" :title="t('同步 Anki', 'Sync')" :aria-label="t('同步 Anki', 'Sync')">
+        <button type="button" class="icon-button" @click="openSyncModal" title="同步 Anki" aria-label="同步 Anki">
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#sync"/></svg>
         </button>
         {% endif %}

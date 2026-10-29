@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
-    <script src="/src/stats.js?v=20261029-stat-cleanup" defer></script>
+    <script src="/src/stats.js?v=20261029-calendar-cleanup" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -17,29 +17,36 @@
         {% set active_page = 'stats' %}
         {% include '_header.html' %}
         <main id="main-content" class="stats-workspace">
-            <div class="page-heading"><h1>{{ t('学习统计', 'Activity overview') }}</h1><span class="heading-note">{{ heatmapYear }}</span></div>
-            <div v-if="loading" class="report-sheet empty-state" role="status"><div class="loading-skeleton"><span></span><span></span><span></span></div><p>{{ t('正在加载统计…', 'Loading activity…') }}</p></div>
-            <div v-else-if="loadError" class="report-sheet empty-state" role="alert"><h2>{{ t('无法加载统计数据', 'Unable to load activity') }}</h2><p>{{ t('请确认服务正在运行，然后重试。', 'Check your connection and try again.') }}</p><button type="button" class="button button-primary" @click="loadAllData">{{ t('重试', 'Try again') }}</button></div>
+            <div class="page-heading"><h1>学习统计</h1><span class="heading-note">{{ monthLabel }}</span></div>
+            <div v-if="loading" class="report-sheet empty-state" role="status"><div class="loading-skeleton"><span></span><span></span><span></span></div><p>正在加载统计…</p></div>
+            <div v-else-if="loadError" class="report-sheet empty-state" role="alert"><h2>无法加载统计数据</h2><p>请确认服务正在运行，然后重试。</p><button type="button" class="button button-primary" @click="loadAllData">重试</button></div>
             <div v-else class="report-sheet">
                 <dl class="metrics-strip"><div v-for="card in overviewCards" :key="card.label"><dt>{{ card.label }}</dt><dd>{{ card.value }}<small v-if="card.unit">{{ card.unit }}</small></dd></div></dl>
-                <section class="report-section">
-                    <div class="section-heading"><h2>未来 7 天待复习</h2></div>
-                    <p v-if="memoryLoading" class="muted" role="status">正在加载待复习数量…</p>
-                    <div v-else-if="memoryError" role="alert">
-                        <p class="error-message">无法加载待复习数量，请检查连接后重试。</p>
-                        <button type="button" class="button button-secondary" @click="loadMemory">重试加载</button>
-                    </div>
-                    <template v-else-if="memory">
-                        <ol class="review-forecast" aria-label="未来 7 天每日待复习单词数">
-                            <li v-for="day in reviewForecast" :key="day.date">
-                                <button type="button" class="review-forecast-button" :disabled="!day.count" @click="openForecastWords(day)" :aria-haspopup="day.count ? 'dialog' : null" :aria-label="`${day.date}（${day.label}）：${day.count} 个待复习单词${day.count ? '，查看明细' : ''}`">
-                                    <span class="review-forecast-chart" aria-hidden="true"><span class="review-forecast-bar" :style="{ height: day.barHeight + 'px' }"></span></span>
-                                    <strong class="review-forecast-count">{{ day.count }}</strong>
-                                    <span class="review-forecast-date">{{ day.label }}</span>
-                                </button>
-                            </li>
-                        </ol>
+                <section class="report-section calendar-section" aria-labelledby="calendar-title">
+                    <div class="section-heading"><h2 id="calendar-title">学习日历</h2><p v-if="calendar">{{ calendarRangeLabel }} · 学习 {{ calendarActiveDays }} 天</p></div>
+                    <div v-if="calendarLoading" class="calendar-placeholder" role="status"><div class="loading-skeleton"><span></span><span></span><span></span></div><p class="muted">正在加载学习日历…</p></div>
+                    <div v-else-if="calendarError" class="calendar-placeholder" role="alert"><p class="error-message">无法加载学习日历，请检查连接后重试。</p><button type="button" class="button button-secondary" @click="loadCalendar">重试加载</button></div>
+                    <template v-else-if="calendar">
+                        <div class="calendar-scroll" ref="calendarScroll" tabindex="0" aria-label="一年学习日历，可横向滚动">
+                            <div class="github-heatmap" :style="{ '--calendar-weeks': calendarWeeks.length }">
+                                <div class="github-heatmap-months" aria-hidden="true"><span></span><span v-for="month in calendarMonths" :key="month.month" :class="{ 'calendar-current-month': month.current }" :style="{ gridColumn: month.column }">{{ month.label }}</span></div>
+                                <div class="github-heatmap-body">
+                                    <div class="github-heatmap-weekdays" aria-hidden="true"><span></span><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span></div>
+                                    <div class="github-heatmap-grid" role="group" aria-label="每日已学习与待复习单词">
+                                        <div v-for="(week, index) in calendarWeeks" :key="index" class="github-heatmap-week"><template v-for="(day, offset) in week" :key="day?.date || offset"><button v-if="day" type="button" class="github-heatmap-cell calendar-day" :class="calendarDayClass(day)" :data-date="day.date" :tabindex="day.date === calendarFocusDate ? 0 : -1" @focus="calendarFocusDate = day.date" @keydown="onCalendarKeydown($event, day)" :aria-label="calendarDayDescription(day)" :title="calendarDayDescription(day)" :aria-current="day.date === today ? 'date' : null" aria-haspopup="dialog" @click="openCalendarWords(day)"></button><span v-else class="github-heatmap-cell calendar-outside" aria-hidden="true"></span></template></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="calendar-legend"><div><span>已学习</span><span v-for="level in [1,2,3,4]" :key="level" class="calendar-swatch" :class="`calendar-history-${level}`" aria-hidden="true"></span><span class="legend-scale-note">少 → 多</span></div><div><span>待复习</span><span v-for="level in [1,2,3,4]" :key="level" class="calendar-swatch" :class="`calendar-due-${level}`" aria-hidden="true"></span><span class="legend-scale-note">少 → 多</span></div><div><span class="calendar-swatch calendar-today" aria-hidden="true"></span><span>今天</span></div></div>
                     </template>
+                </section>
+                <section class="report-section" aria-labelledby="month-title">
+                    <div class="section-heading"><h2 id="month-title">本月学习</h2><p>{{ monthLabel }} · 柱：作答次数 · 线：正确率</p></div>
+                    <p v-if="trendLoading" class="chart-empty" role="status">正在加载本月学习…</p>
+                    <div v-else-if="trendError" class="calendar-placeholder" role="alert"><p class="error-message">无法加载本月学习，请检查连接后重试。</p><button type="button" class="button button-secondary" @click="loadTrend">重试加载</button></div>
+                    <div v-else-if="trendEmpty" class="chart-empty">本月暂无练习记录</div>
+                    <div v-show="!trendLoading && !trendError && !trendEmpty" id="trend-chart" class="trend-chart" role="img" aria-label="本月每日作答次数和正确率"></div>
                 </section>
                 <section class="report-section vocabulary-section" aria-labelledby="route-title">
                     <div class="section-heading route-heading">
@@ -75,15 +82,6 @@
                             <span class="topic-track" aria-hidden="true"><span class="topic-mastered" :style="{ width: progressPercent(topic, 'mastered') + '%' }"></span><span class="topic-learning" :style="{ width: progressPercent(topic, 'learning') + '%' }"></span></span>
                         </button></li>
                     </ul>
-                </section>
-                <section class="report-section calendar-section">
-                    <div class="section-heading"><h2>{{ t('学习日历', 'Activity calendar') }}</h2><p>{{ t(`${heatmapYear} 年练习 ${heatmapActiveDays} 天`, `${heatmapActiveDays} active ${heatmapActiveDays === 1 ? 'day' : 'days'} in ${heatmapYear}`) }}</p></div>
-                    <div class="calendar-scroll" tabindex="0" :aria-label="t('学习日历，可横向滚动', 'Activity calendar, scroll horizontally')"><div id="heatmap"></div></div>
-                </section>
-                <section class="report-section">
-                    <div class="section-heading"><h2>{{ t('近 30 天', 'Last 30 days') }}</h2><p>{{ t('柱：单词数 · 线：正确率', 'Bars: entries · Line: accuracy') }}</p></div>
-                    <div v-if="trendEmpty" class="chart-empty">{{ t('近 30 天暂无练习记录', 'No activity in the last 30 days.') }}</div>
-                    <div v-show="!trendEmpty" id="trend-chart" class="trend-chart" role="img" :aria-label="t('近 30 天练习量和正确率趋势', 'Entries and accuracy over the last 30 days')"></div>
                 </section>
                 <details class="optimization-history" @toggle="onOptimizationToggle">
                     <summary><h2>参数优化记录</h2></summary>
@@ -128,23 +126,24 @@
         </main>
         <div v-if="detailModal.visible" class="dialog-backdrop" @click.self="closeDetailModal">
             <section class="dialog-panel detail-dialog" role="dialog" aria-modal="true" aria-labelledby="detail-title" aria-describedby="detail-subtitle">
-                <header class="dialog-header"><div><h2 id="detail-title">{{ detailModal.title }}</h2><p id="detail-subtitle" class="muted">{{ detailModal.subtitle }}</p></div><button type="button" class="icon-button" ref="detailClose" @click="closeDetailModal" :aria-label="t('关闭', 'Close')"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
+                <header class="dialog-header"><div><h2 id="detail-title">{{ detailModal.title }}</h2><p id="detail-subtitle" class="muted">{{ detailModal.subtitle }}</p></div><button type="button" class="icon-button" ref="detailClose" @click="closeDetailModal" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
                 <div v-if="detailModal.type === 'vocabulary'" class="vocabulary-filters" role="group" aria-label="按记忆状态筛选">
                     <button v-for="filter in vocabularyFilters" :key="filter.value" type="button" :aria-pressed="detailModal.status === filter.value" @click="selectVocabularyStatus(filter.value)">{{ filter.label }}</button>
                 </div>
+                <div v-if="detailModal.type === 'calendar' && !detailModal.loading && !detailModal.error && (detailModal.calendarGroups.practiced.length || detailModal.calendarGroups.due.length)" class="vocabulary-filters" role="group" aria-label="按日期记录类型筛选"><button type="button" :aria-pressed="detailModal.calendarMode === 'practiced'" :disabled="!detailModal.calendarGroups.practiced.length" @click="selectCalendarMode('practiced')">已学习 {{ detailModal.calendarGroups.practiced.length }}</button><button type="button" :aria-pressed="detailModal.calendarMode === 'due'" :disabled="!detailModal.calendarGroups.due.length" @click="selectCalendarMode('due')">待复习 {{ detailModal.calendarGroups.due.length }}</button></div>
                 <div class="dialog-body" tabindex="0" aria-label="单词明细">
                     <p v-if="detailModal.loading && !detailModal.items.length" class="chart-empty" role="status">加载中…</p>
-                    <div v-if="detailModal.error" role="alert"><p class="error-message">{{ detailModal.error }}</p><button v-if="detailModal.type === 'vocabulary'" type="button" class="button button-secondary" :disabled="detailModal.loading" @click="loadVocabularyWords(detailModal.retryAppend)">重试加载</button></div>
-                    <p v-if="!detailModal.loading && !detailModal.error && !detailModal.items.length" class="chart-empty">{{ detailModal.type === 'forecast' ? '这一天没有待复习的单词' : '当前筛选下没有单词' }}</p>
+                    <div v-if="detailModal.error" role="alert"><p class="error-message">{{ detailModal.error }}</p><button v-if="detailModal.type === 'vocabulary'" type="button" class="button button-secondary" :disabled="detailModal.loading" @click="loadVocabularyWords(detailModal.retryAppend)">重试加载</button><button v-else-if="detailModal.type === 'calendar'" type="button" class="button button-secondary" :disabled="detailModal.loading" @click="loadCalendarWords">重试加载</button></div>
+                    <p v-if="!detailModal.loading && !detailModal.error && !detailModal.items.length" class="chart-empty">{{ detailModal.type === 'calendar' ? '这一天暂无单词' : '当前筛选下没有单词' }}</p>
                     <ul v-if="detailModal.items.length" class="entry-list">
-                        <li v-for="item in detailModal.items" :key="item.source_id || item.id" :class="{ 'forecast-entry': detailModal.type === 'forecast', 'vocabulary-entry': detailModal.type === 'vocabulary' }">
+                        <li v-for="item in detailModal.items" :key="item.source_id || item.id" :class="{ 'calendar-entry': detailModal.type === 'calendar', 'vocabulary-entry': detailModal.type === 'vocabulary' }">
                             <div class="word-detail-row">
-                                <div><strong class="mono">{{ item.word }}</strong><p class="muted">{{ item.chinese_meaning }}</p><p v-if="detailModal.type === 'vocabulary'" class="entry-metadata">{{ item.cefr || '未分级' }} · {{ item.category || '未分类' }}</p></div>
+                                <div><strong class="mono">{{ item.word }}</strong><p class="muted">{{ item.chinese_meaning }}</p><p class="entry-metadata">{{ item.cefr || '未分级' }} · {{ item.category || '未分类' }}</p></div>
                                 <div class="detail-values">
                                     <span v-if="!item.total_attempts" class="word-attempts-empty">0/0</span>
                                     <button v-else type="button" class="word-attempts" :aria-expanded="!!item.errorHistory?.expanded" :aria-controls="`word-errors-${item.id}`" :aria-label="`${item.word}：答对 ${item.correct_attempts || 0} / ${item.total_attempts} 次，查看答错记录`" @click="toggleWordErrors(item)">答对 {{ item.correct_attempts || 0 }} / {{ item.total_attempts }}</button>
-                                    <template v-if="detailModal.type === 'vocabulary'"><p>{{ memoryLabel(item.status) }}</p><p v-if="item.due" class="muted">{{ item.is_due ? '已到期' : '下次复习' }} {{ formatDue(item.due) }}</p></template>
-                                    <template v-else-if="detailModal.type === 'forecast'"><p class="muted">{{ item.is_due ? '已到期' : '复习时间' }} {{ formatDue(item.due) }}</p></template>
+                                    <p>{{ memoryLabel(item.status) }}</p><p v-if="item.due" class="muted">{{ item.is_due ? '已到期' : '下次复习' }} {{ formatDue(item.due) }}</p>
+
                                 </div>
                             </div>
                             <section v-if="item.errorHistory?.expanded" :id="`word-errors-${item.id}`" class="word-error-history" :aria-label="`${item.word} 的答错记录`">

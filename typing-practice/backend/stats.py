@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from srs import SHANGHAI
+from activity import daily_activity, month_start
 
 
 SCHEMA = """
@@ -78,44 +79,28 @@ class StatsStore:
         with self.lock:
             self.db.close()
 
-    def heatmap(self, start_date: str = "", end_date: str = "") -> list[dict[str, Any]]:
-        today = datetime.now(SHANGHAI).date()
-        start = start_date or (today - timedelta(days=365)).isoformat()
-        end = end_date or today.isoformat()
-        date.fromisoformat(start)
-        date.fromisoformat(end)
+    def monthly_activity(self, today: date) -> dict[str, Any]:
+        start, end = month_start(today), month_start(today, 1) - timedelta(days=1)
         with self.lock:
-            rows = self.db.execute(
-                """SELECT date(reviewed_at,'+8 hours') date,COUNT(*) words,AVG(is_correct)*100 accuracy
-                   FROM word_reviews WHERE date(reviewed_at,'+8 hours') BETWEEN ? AND ?
-                   GROUP BY date ORDER BY date""", (start, end)
-            ).fetchall()
-        return [_row_dict(row) for row in rows]
+            by_date = {row["date"]: row for row in daily_activity(self.db, start, end)}
+        days = []
+        for offset in range((end - start).days + 1):
+            day = (start + timedelta(days=offset)).isoformat()
+            row = by_date.get(day)
+            days.append({"date": day, "words": row["attempts"] if row else 0,
+                         "accuracy": row["accuracy"] if row else None})
+        return {"month": start.strftime("%Y-%m"), "days": days}
 
-    def accuracy_trend(self, days: int = 30) -> list[dict[str, Any]]:
-        since = (datetime.now(SHANGHAI).date() - timedelta(days=max(1, min(days, 366)) - 1)).isoformat()
-        return [{"date": row["date"], "accuracy": row["accuracy"], "total_words": row["words"]}
-                for row in self.heatmap(since)]
-
-    def streak(self) -> dict[str, Any]:
+    def _current_streak(self, today: date) -> int:
         with self.lock:
-            rows = self.db.execute("SELECT DISTINCT date(reviewed_at,'+8 hours') date FROM word_reviews ORDER BY date").fetchall()
-        dates = [row["date"] for row in rows]
-        values = {date.fromisoformat(item) for item in dates}
+            days = {date.fromisoformat(row["date"]) for row in self.db.execute(
+                "SELECT DISTINCT date(reviewed_at,'+8 hours') date FROM word_reviews")}
+        cursor = today if today in days else today - timedelta(days=1)
         current = 0
-        cursor = datetime.now(SHANGHAI).date()
-        if cursor not in values:
-            cursor -= timedelta(days=1)
-        while cursor in values:
+        while cursor in days:
             current += 1
             cursor -= timedelta(days=1)
-        longest = run = 0
-        previous = None
-        for item in sorted(values):
-            run = run + 1 if previous and item == previous + timedelta(days=1) else 1
-            longest = max(longest, run)
-            previous = item
-        return {"current_streak": current, "longest_streak": longest, "total_days": len(dates), "practice_dates": dates}
+        return current
 
     def word_errors(self, source_id: str, before_id: int = 0, limit: int = 50) -> dict[str, Any]:
         source_id = source_id.strip()
@@ -133,14 +118,13 @@ class StatsStore:
                 "correct_attempts": counts["correct_attempts"], "total_attempts": counts["total_attempts"],
                 "next_before_id": items[-1]["id"] if len(rows) > limit else None}
 
-    def overview(self) -> dict[str, Any]:
+    def overview(self, today: date | None = None) -> dict[str, Any]:
         with self.lock:
             row = self.db.execute(
-                """SELECT COUNT(DISTINCT session_id) total_sessions,COUNT(*) total_words_practiced,
-                   COALESCE(AVG(is_correct)*100,0) overall_accuracy,
+                """SELECT COUNT(*) total_words_practiced,
                    COALESCE(SUM(duration_ms),0)/60000 total_time_minutes FROM word_reviews"""
             ).fetchone()
-        return {**_row_dict(row), "current_streak": self.streak()["current_streak"]}
+        return {**_row_dict(row), "current_streak": self._current_streak(today or datetime.now(SHANGHAI).date())}
 
     def save_sync_history(self, status: dict[str, Any]) -> None:
         words = status.get("added_word_list") or []
