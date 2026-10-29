@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from fsrs import Card, Rating, ReviewLog, State
 
+from activity import calendar_day, calendar_window, daily_activity
 from srs import SRS, SHANGHAI, answer_candidates, duration, normalize_answer, parse_time, time_text, utc_now
 from vocabulary import progress as vocabulary_progress, word_page
 
@@ -87,8 +88,8 @@ def pool_by_key(pool: list[dict]) -> dict[str, dict]:
     return result
 
 
-def forecast_date(card: Card, today: date) -> date:
-    return max(today, card.due.astimezone(SHANGHAI).date())
+def due_day(due, today: date) -> date:
+    return max(today, due.astimezone(SHANGHAI).date())
 
 
 class MemoryStore:
@@ -125,7 +126,7 @@ class MemoryStore:
         words = pool_by_key(pool)
         states = self._states()
         learning, review, fresh, future = [], [], [], []
-        for key, word in words.items():
+        for key in words:
             row = states.get(key)
             if not row:
                 fresh.append(key)
@@ -137,52 +138,63 @@ class MemoryStore:
         review.sort(key=lambda key: (states[key]["due"], key))
         fresh.sort()
         new_today = self._new_today(now)
-        today = now.astimezone(SHANGHAI).date()
         summary = {
             "total": len(words), "due_count": len(learning) + len(review),
             "new_available": len(fresh), "new_today": new_today,
             "next_due": min(future) if future else None,
-            "new": len(fresh), "learning": 0, "mastered": 0,
-            "due_forecast": [{"date": (today + timedelta(days=offset)).isoformat(), "count": 0}
-                             for offset in range(7)],
         }
-        for key in words:
-            if key in states:
-                card = Card.from_json(states[key]["card_json"])
-                summary[self.srs.describe(card, now)["status"]] += 1
-                # Outstanding overdue cards belong to today, including later today.
-                offset = (forecast_date(card, today) - today).days
-                if offset < 7:
-                    summary["due_forecast"][offset]["count"] += 1
         return words, states, learning + review + fresh, summary
 
     def summary(self, pool):
         with self.lock:
             return self._plan(pool, self.now())[3]
 
-    def forecast_words(self, pool, day: str):
-        try:
-            selected = date.fromisoformat(day)
-            if selected.isoformat() != day:
-                raise ValueError
-        except (TypeError, ValueError) as exc:
-            raise ValueError("需要 YYYY-MM-DD 格式的复习日期") from exc
+    def activity_calendar(self, pool):
+        today = self.now().astimezone(SHANGHAI).date()
+        start, end = calendar_window(today)
+        days = {(start + timedelta(days=offset)).isoformat(): {
+            "date": (start + timedelta(days=offset)).isoformat(), "practiced": 0, "attempts": 0,
+            "accuracy": None, "due_count": 0,
+        } for offset in range((end - start).days + 1)}
+        with self.lock:
+            for row in daily_activity(self.db, start, end):
+                days[row["date"]].update(row)
+            states = self._states()
+            for key in pool_by_key(pool):
+                if key in states:
+                    due = due_day(parse_time(states[key]["due"]), today).isoformat()
+                    if due in days:
+                        days[due]["due_count"] += 1
+        return {"start_date": start.isoformat(), "end_date": end.isoformat(),
+                "today": today.isoformat(), "days": list(days.values())}
+
+    def calendar_words(self, pool, day):
         now = self.now()
         today = now.astimezone(SHANGHAI).date()
-        if not 0 <= (selected - today).days < 7:
-            raise ValueError("请选择未来 7 天内的复习日期，请刷新后重试")
+        selected = calendar_day(day, today)
         with self.lock:
             states = self._states()
-            result = []
-            for key, word in pool_by_key(pool).items():
-                row = states.get(key)
-                if not row:
-                    continue
-                card = Card.from_json(row["card_json"])
-                if forecast_date(card, today) == selected:
-                    result.append({**word, **self.srs.describe(card, now)})
-            result.sort(key=lambda item: (item["due"], item["source_id"]))
-            return self._with_attempt_counts(result)
+            current = pool_by_key(pool)
+            practiced, due = [], []
+            rows = self.db.execute("""WITH ranked AS (
+                SELECT memory_id,word_key,word,chinese_meaning,category,reviewed_at,
+                    ROW_NUMBER() OVER(PARTITION BY word_key ORDER BY reviewed_at DESC,id DESC) position
+                FROM word_reviews WHERE date(reviewed_at,'+8 hours')=?
+            ) SELECT * FROM ranked WHERE position=1 ORDER BY reviewed_at DESC,word_key""", (day,)).fetchall()
+            for row in rows:
+                key = row["word_key"]
+                word = current.get(key) or {"id": f"history-{row['memory_id']}",
+                    "source_id": key.removeprefix("word-atlas:"), "word": row["word"],
+                    "chinese_meaning": row["chinese_meaning"], "category": row["category"], "cefr": ""}
+                memory = self.srs.describe(Card.from_json(states[key]["card_json"]), now) if key in states else {}
+                practiced.append({**word, **memory})
+            if selected >= today:
+                for key, word in current.items():
+                    if key in states and due_day(parse_time(states[key]["due"]), today) == selected:
+                        card = Card.from_json(states[key]["card_json"])
+                        due.append({**word, **self.srs.describe(card, now)})
+            due.sort(key=lambda item: (item["due"], item["source_id"]))
+            return {"practiced": self._with_attempt_counts(practiced), "due": self._with_attempt_counts(due)}
 
     def queue(self, pool, session_id: str, limit=None, mode="scheduled"):
         if not isinstance(session_id, str) or not 1 <= len(session_id) <= 100:

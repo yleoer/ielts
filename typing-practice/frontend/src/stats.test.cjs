@@ -13,63 +13,112 @@ function harness(get) {
     });
     const app = options.data();
     for (const [name, fn] of Object.entries(options.methods)) app[name] = fn.bind(app);
+    app.$refs = {};
+    app.$nextTick = async (callback) => callback?.();
+    for (const [name, fn] of Object.entries(options.computed)) Object.defineProperty(app, name, { get: fn.bind(app) });
     return app;
 }
 
-test('forecast detail requests the selected date and displays all returned words', async () => {
+test('calendar date detail shows every scheduled word and switches history without another request', async () => {
     const words = Array.from({ length: 501 }, (_, id) => ({ word: `word-${id}`, due: '2026-10-30T00:00:00Z' }));
+    let calls = 0;
     const app = harness(async (url, { params }) => {
-        assert.equal(url, 'http://test/api/memory/forecast-words');
+        calls++;
+        assert.equal(url, 'http://test/api/stats/calendar-words');
         assert.equal(params.date, '2026-10-30');
         assert.equal(params.limit, undefined);
-        return { data: { data: words } };
+        return { data: { data: { practiced: [{ word: 'studied' }], due: words } } };
     });
-    await app.openForecastWords({ date: '2026-10-30', label: '明天', count: 501 });
-    assert.equal(app.detailModal.visible, true);
-    assert.equal(app.detailModal.type, 'forecast');
-    assert.equal(app.detailModal.title, '明天待复习');
-    assert.equal(app.detailModal.subtitle, '2026-10-30 · 501 个单词');
+    await app.openCalendarWords({ date: '2026-10-30', practiced: 0, due_count: 501 });
+    assert.equal(app.detailModal.type, 'calendar');
+    assert.equal(app.detailModal.title, '2026-10-30');
     assert.equal(app.detailModal.items.length, 501);
-    assert.equal(app.detailModal.loading, false);
+    app.selectCalendarMode('practiced');
+    assert.equal(app.detailModal.items[0].word, 'studied');
+    assert.equal(calls, 1);
+});
+
+test('empty calendar dates open a dated empty list', async () => {
+    const app = harness(async () => ({ data: { data: { practiced: [], due: [] } } }));
+    await app.openCalendarWords({ date: '2026-10-30', practiced: 0, due_count: 0 });
+    assert.equal(app.detailModal.visible, true);
+    assert.equal(app.detailModal.title, '2026-10-30');
+    assert.equal(app.detailModal.items.length, 0);
     assert.equal(app.detailModal.error, '');
 });
 
-test('zero-count forecast days do not open a modal or request words', async () => {
-    let requests = 0;
-    const app = harness(async () => { requests++; return { data: { data: [] } }; });
-    await app.openForecastWords({ date: '2026-10-30', label: '明天', count: 0 });
-    assert.equal(requests, 0);
-    assert.equal(app.detailModal.visible, false);
+test('calendar detail distinguishes empty results from failures and supports retry', async () => {
+    let fail = true;
+    const app = harness(async () => {
+        if (fail) throw new Error('offline');
+        return { data: { data: { practiced: [], due: [] } } };
+    });
+    await app.openCalendarWords({ date: '2026-10-30', practiced: 0, due_count: 1 });
+    assert.match(app.detailModal.error, /重试/);
+    assert.equal(app.detailModal.loading, false);
+    fail = false;
+    await app.loadCalendarWords();
+    assert.equal(app.detailModal.error, '');
+    assert.equal(app.detailModal.items.length, 0);
 });
 
-test('empty and failed forecast requests keep distinct modal states', async () => {
-    const day = { date: '2026-10-30', label: '明天', count: 1 };
-    const empty = harness(async () => ({ data: { data: [] } }));
-    await empty.openForecastWords(day);
-    assert.equal(empty.detailModal.visible, true);
-    assert.equal(empty.detailModal.items.length, 0);
-    assert.equal(empty.detailModal.error, '');
-    assert.equal(empty.detailModal.loading, false);
-
-    const failed = harness(async () => { throw new Error('offline'); });
-    await failed.openForecastWords(day);
-    assert.equal(failed.detailModal.error, '加载单词失败');
-    assert.equal(failed.detailModal.loading, false);
-});
-
-test('an older detail response cannot overwrite a newer selected day', async () => {
+test('a late calendar response cannot overwrite a newer selected date', async () => {
     const pending = [];
     const app = harness(() => new Promise(resolve => pending.push(resolve)));
-    const first = app.openForecastWords({ date: '2026-10-29', label: '今天', count: 1 });
-    const second = app.openForecastWords({ date: '2026-10-30', label: '明天', count: 1 });
-    pending[1]({ data: { data: [{ word: 'tomorrow' }] } });
+    const first = app.openCalendarWords({ date: '2026-10-29', practiced: 1, due_count: 0 });
+    const second = app.openCalendarWords({ date: '2026-10-30', practiced: 0, due_count: 1 });
+    pending[1]({ data: { data: { practiced: [], due: [{ word: 'tomorrow' }] } } });
     await second;
-    pending[0]({ data: { data: [{ word: 'today' }] } });
+    pending[0]({ data: { data: { practiced: [{ word: 'today' }], due: [] } } });
     await first;
-    assert.equal(app.detailModal.title, '明天待复习');
+    assert.equal(app.detailModal.title, '2026-10-30');
     assert.equal(app.detailModal.items[0].word, 'tomorrow');
     app.closeDetailModal();
     assert.equal(app.detailModal.visible, false);
+});
+
+test('centered calendar covers all leap-year dates and marks the current month once', () => {
+    const app = harness(async () => {});
+    const days = [];
+    for (let d = new Date('2023-08-01T00:00:00Z'); d <= new Date('2024-07-31T00:00:00Z'); d.setUTCDate(d.getUTCDate()+1)) {
+        days.push({ date: d.toISOString().slice(0, 10), practiced: 0, due_count: 0 });
+    }
+    app.today = '2024-02-29';
+    app.calendar = { start_date: '2023-08-01', end_date: '2024-07-31', days };
+    assert.equal(app.calendarWeeks.flat().filter(Boolean).length, 366);
+    assert.equal(app.calendarWeeks[0][0], null);
+    assert.equal(app.calendarWeeks[0][2].date, '2023-08-01');
+    assert.equal(app.calendarMonths.length, 12);
+    assert.equal(app.calendarMonths.filter(month => month.current).length, 1);
+    assert.equal(app.calendarMonths.find(month => month.current).month, '2024-02');
+    assert.equal(app.calendarWeeks.flat().filter(Boolean).map(day => day.date).join(','), days.map(day => day.date).join(','));
+});
+
+test('top metrics count unique learned and mastered words and avoid false zeroes on failure', () => {
+    const app = harness(async () => {});
+    app.overview = { current_streak: 3, total_time_minutes: 125, total_words_practiced: 900 };
+    app.vocabulary = { overall: { learned: 42, mastered: 12 } };
+    assert.equal(app.overviewCards.map(card => card.label).join(','), '连续学习,已学习,已掌握,累计时长');
+    assert.equal(app.overviewCards.map(card => card.value).join(','), '3,42,12,2.1');
+    app.vocabularyError = true;
+    assert.equal(app.overviewCards[1].value, '—');
+});
+
+test('calendar and natural-month activity load independently and use separate color scales', async () => {
+    const app = harness(async (url) => ({ data: { data: url.endsWith('/calendar')
+        ? { today: '2026-02-10', start_date: '2025-08-01', end_date: '2026-07-31', days: [
+            { date: '2026-02-10', practiced: 4, due_count: 2 }, { date: '2026-02-11', practiced: 0, due_count: 4 }] }
+        : { month: '2026-02', days: Array.from({ length: 28 }, (_, i) => ({ date: `2026-02-${String(i+1).padStart(2,'0')}`, words: 0, accuracy: null })) }
+    } }));
+    app.renderTrend = () => {};
+    await app.loadCalendar();
+    await app.loadTrend();
+    assert.equal(app.calendarDayClass(app.calendar.days[0])[0], 'calendar-history-4');
+    assert.equal(app.calendarDayClass(app.calendar.days[1])[0], 'calendar-due-4');
+    assert.equal(app.trendData.length, 28);
+    assert.equal(app.monthLabel, '2026 年 2 月');
+    assert.equal(app.calendarError, false);
+    assert.equal(app.trendError, false);
 });
 
 test('optimization history loads pages without replacing newer records', async () => {

@@ -131,9 +131,8 @@ class FlaskAppTest(unittest.TestCase):
         self.assertEqual(client.post("/api/practice/attempts", json=payload).json, response.json)
         overview = client.get("/api/stats/overview").json["data"]
         self.assertEqual(overview["total_words_practiced"], 21)
-        self.assertEqual(overview["total_sessions"], 2)
-        heatmap = client.get("/api/stats/heatmap?start_date=2026-10-29&end_date=2026-10-29").json["data"]
-        self.assertEqual(heatmap[0]["words"], 21)
+        month = client.get("/api/stats/monthly-activity").json["data"]
+        self.assertEqual(next(day for day in month["days"] if day["date"] == "2026-10-29")["words"], 21)
 
     def test_optimization_history_api_and_invalid_cursors(self):
         from test_optimizer_service import seed_history, candidate
@@ -269,26 +268,21 @@ class FlaskAppTest(unittest.TestCase):
         self.assertEqual(client.post("/api/practice/attempts", json=payload).json, first.json)
         self.assertEqual(client.post("/api/stats/sessions", json={}).status_code, 410)
         overview = client.get("/api/stats/overview").json["data"]
-        self.assertEqual(overview["total_sessions"], 1)
+        self.assertEqual(set(overview), {"total_words_practiced", "total_time_minutes", "current_streak"})
         self.assertEqual(overview["total_words_practiced"], 1)
-        heatmap = client.get("/api/stats/heatmap?start_date=2026-10-27&end_date=2026-10-27").json["data"]
-        self.assertEqual(heatmap, [{"date": "2026-10-27", "words": 1, "accuracy": 100.0}])
+        calendar = client.get("/api/stats/calendar").json["data"]
+        day = next(day for day in calendar["days"] if day["date"] == "2026-10-27")
+        self.assertEqual((day["practiced"], day["attempts"], day["accuracy"], day["due_count"]), (1, 1, 100.0, 1))
         memory = client.get("/api/memory/summary").json["data"]
-        self.assertEqual(memory["learning"], 1)
-        self.assertEqual(len(memory["due_forecast"]), 7)
-        self.assertEqual(memory["due_forecast"][0], {"date": "2026-10-27", "count": 1})
-        self.assertEqual(sum(day["count"] for day in memory["due_forecast"]), 1)
-        forecast_words = client.get("/api/memory/forecast-words?date=2026-10-27")
-        self.assertEqual(forecast_words.status_code, 200)
-        self.assertEqual([item["word"] for item in forecast_words.json["data"]], ["abandon"])
-        self.assertIn("due", forecast_words.json["data"][0])
-        self.assertEqual(client.get("/api/memory/forecast-words?date=2026-10-28").json["data"], [])
-        for endpoint in ("/api/memory/forecast-words", "/api/memory/forecast-words?date=2026-10-26",
-                         "/api/memory/forecast-words?date=2026-11-03"):
-            self.assertEqual(client.get(endpoint).status_code, 400, endpoint)
+        self.assertEqual(set(memory), {"total", "due_count", "new_available", "new_today", "next_due"})
+        self.assertEqual(memory["new_available"], 0)
+        day_words = client.get("/api/stats/calendar-words?date=2026-10-27").json["data"]
+        self.assertEqual([item["word"] for item in day_words["practiced"]], ["abandon"])
+        self.assertEqual([item["word"] for item in day_words["due"]], ["abandon"])
         for endpoint in (
-            "/api/stats/heatmap",
-            "/api/stats/accuracy-trend",
+            "/api/stats/calendar",
+            "/api/stats/calendar-words?date=2026-10-27",
+            "/api/stats/monthly-activity",
             "/api/stats/vocabulary-progress",
             "/api/stats/vocabulary-words?dimension=cefr&value=B2",
             "/api/stats/word-errors?source_id=abandon",
@@ -298,6 +292,9 @@ class FlaskAppTest(unittest.TestCase):
             self.assertTrue(result.json["success"], endpoint)
 
         for endpoint in (
+            "/api/stats/heatmap",
+            "/api/stats/accuracy-trend",
+            "/api/memory/forecast-words?date=2026-10-27",
             "/api/stats/mastery-distribution",
             "/api/stats/mastery-words?level=learning",
             "/api/stats/error-types",

@@ -6,9 +6,10 @@ createApp({
             loading: true,
             loadError: false,
             overview: {},
-            memory: null,
-            memoryLoading: false,
-            memoryError: false,
+            calendar: null,
+            calendarLoading: false,
+            calendarError: false,
+            calendarFocusDate: '',
             optimization: { status: null, items: [], nextBeforeId: null, loading: false, error: '' },
             vocabulary: null,
             vocabularyLoading: false,
@@ -17,8 +18,10 @@ createApp({
                 { value: 'all', label: '全部' }, { value: 'new', label: '未开始' },
                 { value: 'learning', label: '学习中' }, { value: 'mastered', label: '已掌握' }
             ],
-            heatmapData: [],
-            heatmapYear: Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai', year: 'numeric' }).format(new Date())),
+            today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
+            trendMonth: '',
+            trendLoading: false,
+            trendError: false,
             trendData: [],
             trendChart: null,
             detailModal: {
@@ -40,32 +43,50 @@ createApp({
             const o = this.overview || {};
             const minutes = Number(o.total_time_minutes || 0);
             const time = minutes >= 60
-                ? { value: (minutes / 60).toFixed(1), unit: this.t('小时', 'h') }
-                : { value: Math.round(minutes), unit: this.t('分钟', 'min') };
+                ? { value: (minutes / 60).toFixed(1), unit: '小时' }
+                : { value: Math.round(minutes), unit: '分钟' };
+            const totals = !this.vocabularyError && this.vocabulary?.overall;
             return [
-                { label: this.t('累计练习单词', 'Words practiced'), value: o.total_words_practiced || 0, unit: '' },
-                { label: this.t('整体正确率', 'Accuracy'), value: Number(o.overall_accuracy || 0).toFixed(1), unit: '%' },
-                { label: this.t('连续学习', 'Streak'), value: o.current_streak || 0, unit: this.t('天', Number(o.current_streak) === 1 ? 'day' : 'days') },
-                { label: this.t('累计时长', 'Total time'), value: time.value, unit: time.unit }
+                { label: '连续学习', value: o.current_streak || 0, unit: '天' },
+                { label: '已学习', value: totals ? totals.learned : '—', unit: '词' },
+                { label: '已掌握', value: totals ? totals.mastered : '—', unit: '词' },
+                { label: '累计时长', value: time.value, unit: time.unit }
             ];
         },
-        heatmapActiveDays() {
-            return this.heatmapData.filter((item) => Number(item.words || 0) > 0).length;
+        calendarWeeks() {
+            return this.calendar ? this.buildCalendarWeeks(this.calendar) : [];
+        },
+        calendarMaxima() {
+            const days = this.calendar?.days || [];
+            return { practiced: Math.max(1, ...days.map(day => day.practiced)),
+                due_count: Math.max(1, ...days.map(day => day.due_count)) };
+        },
+        calendarMonths() {
+            const labels = [];
+            const seen = new Set();
+            this.calendarWeeks.forEach((week, index) => {
+                const day = week.find(day => day && !seen.has(day.date.slice(0, 7)));
+                if (day) {
+                    const month = day.date.slice(0, 7);
+                    seen.add(month);
+                    labels.push({ month, label: `${Number(month.slice(5))}月`, column: index + 2,
+                        current: month === this.today.slice(0, 7) });
+                }
+            });
+            return labels;
+        },
+        calendarActiveDays() {
+            return this.calendar?.days.filter(day => day.practiced > 0).length || 0;
+        },
+        calendarRangeLabel() {
+            return this.calendar ? `${this.calendar.start_date.slice(0, 7).replace('-', '.')} — ${this.calendar.end_date.slice(0, 7).replace('-', '.')}` : '';
+        },
+        monthLabel() {
+            const [year, month] = (this.trendMonth || this.today.slice(0, 7)).split('-');
+            return `${year} 年 ${Number(month)} 月`;
         },
         trendEmpty() {
-            return !this.trendData.some((item) => item.words > 0);
-        },
-        reviewForecast() {
-            const days = this.memory?.due_forecast || [];
-            const maxCount = Math.max(1, ...days.map((day) => day.count));
-            return days.map((day, index) => {
-                const [, month, date] = day.date.split('-');
-                return {
-                    ...day,
-                    label: index === 0 ? '今天' : index === 1 ? '明天' : `${Number(month)}/${Number(date)}`,
-                    barHeight: Math.max(3, day.count / maxCount * 40)
-                };
-            });
+            return !this.trendData.some(item => item.words > 0);
         }
     },
     mounted() {
@@ -94,10 +115,6 @@ createApp({
         });
     },
     methods: {
-        t(zh) {
-            return zh;
-        },
-
         updatePageAppearance() {
             document.title = '词间 · 统计';
             document.documentElement.lang = 'zh-CN';
@@ -116,64 +133,42 @@ createApp({
                 return;
             }
 
-            // 各模块独立加载，单个失败不影响其它模块。
-            await Promise.allSettled([
-                this.loadHeatmap(),
-                this.loadTrend(),
-                this.loadVocabulary(),
-                this.loadMemory()
-            ]);
-
             this.loading = false;
             await this.$nextTick();
-            this.renderHeatmap();
-            this.renderTrend();
+            await Promise.allSettled([this.loadCalendar(), this.loadTrend(), this.loadVocabulary()]);
         },
 
-        async loadHeatmap() {
-            const year = this.heatmapYear;
+        async loadCalendar() {
+            this.calendarLoading = true;
+            this.calendarError = false;
             try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/heatmap`, {
-                    params: { start_date: `${year}-01-01`, end_date: `${year}-12-31` }
-                });
-                this.heatmapData = response.data.data || [];
+                const response = await axios.get(`${this.apiBaseUrl}/stats/calendar`);
+                this.calendar = response.data.data;
+                this.today = this.calendar.today;
+                this.calendarFocusDate = this.today;
             } catch (error) {
-                console.warn('Failed to load heatmap', error);
-                this.heatmapData = [];
+                this.calendarError = true;
+            } finally {
+                this.calendarLoading = false;
             }
+            await this.$nextTick();
+            this.centerCalendar();
         },
 
         async loadTrend() {
+            this.trendLoading = true;
+            this.trendError = false;
             try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/accuracy-trend`, { params: { days: 30 } });
-                const byDate = new Map((response.data.data || []).map((item) => [item.date, item]));
-                // 补齐没有练习的日期，x 轴是连续的 30 天，断档一目了然。
-                this.trendData = this.lastNDays(30).map((date) => {
-                    const item = byDate.get(date);
-                    const words = item ? Number(item.total_words || 0) : 0;
-                    return {
-                        date,
-                        words,
-                        accuracy: words > 0 ? Number(item.accuracy || 0) : null
-                    };
-                });
+                const response = await axios.get(`${this.apiBaseUrl}/stats/monthly-activity`);
+                this.trendMonth = response.data.data.month;
+                this.trendData = response.data.data.days;
             } catch (error) {
-                console.warn('Failed to load trend', error);
-                this.trendData = [];
-            }
-        },
-
-        async loadMemory() {
-            this.memoryLoading = true;
-            this.memoryError = false;
-            try {
-                const response = await axios.get(`${this.apiBaseUrl}/memory/summary`);
-                this.memory = response.data.data;
-            } catch (error) {
-                this.memoryError = true;
+                this.trendError = true;
             } finally {
-                this.memoryLoading = false;
+                this.trendLoading = false;
             }
+            await this.$nextTick();
+            this.renderTrend();
         },
 
         onOptimizationToggle(event) {
@@ -343,21 +338,6 @@ createApp({
             }
         },
 
-        lastNDays(days) {
-            const result = [];
-            const today = new Date(this.formatLocalDate(new Date()) + 'T00:00:00Z');
-            for (let offset = days - 1; offset >= 0; offset--) {
-                const d = new Date(today);
-                d.setUTCDate(d.getUTCDate() - offset);
-                result.push(d.toISOString().slice(0, 10));
-            }
-            return result;
-        },
-
-        formatLocalDate(d) {
-            return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-        },
-
         renderTrend() {
             const container = document.getElementById('trend-chart');
             if (!container || typeof echarts === 'undefined' || this.trendEmpty) {
@@ -370,8 +350,7 @@ createApp({
 
             const barColor = '#c8d5cc';
             const lineColor = '#375d4c';
-            const dates = this.trendData.map((item) => item.date.slice(5));
-            const t = this.t.bind(this);
+            const dates = this.trendData.map(item => String(Number(item.date.slice(8))));
 
             this.trendChart.setOption({
                 animation: false,
@@ -382,9 +361,9 @@ createApp({
                     formatter: (params) => {
                         const item = this.trendData[params[0].dataIndex];
                         if (!item.words) {
-                            return `${item.date}<br/>${t('未练习', 'No practice')}`;
+                            return `${item.date}<br/>未练习`;
                         }
-                        return `${item.date}<br/>${t('单词', 'Words')}: ${item.words}<br/>${t('正确率', 'Accuracy')}: ${item.accuracy.toFixed(1)}%`;
+                        return `${item.date}<br/>作答: ${item.words} 次<br/>正确率: ${item.accuracy.toFixed(1)}%`;
                     }
                 },
                 xAxis: {
@@ -392,7 +371,7 @@ createApp({
                     data: dates,
                     axisTick: { show: false },
                     axisLine: { lineStyle: { color: '#e5e7eb' } },
-                    axisLabel: { color: '#626b77', fontSize: 12, interval: 6 }
+                    axisLabel: { color: '#5f6b62', fontSize: 12, interval: 4 }
                 },
                 yAxis: [
                     {
@@ -412,14 +391,14 @@ createApp({
                 ],
                 series: [
                     {
-                        name: t('单词', 'Words'),
+                        name: '作答次数',
                         type: 'bar',
                         data: this.trendData.map((item) => item.words),
                         barMaxWidth: 14,
                         itemStyle: { color: barColor, borderRadius: [3, 3, 0, 0] }
                     },
                     {
-                        name: t('正确率', 'Accuracy'),
+                        name: '正确率',
                         type: 'line',
                         yAxisIndex: 1,
                         data: this.trendData.map((item) => item.accuracy),
@@ -433,103 +412,59 @@ createApp({
             }, true);
         },
 
-        renderHeatmap() {
-            const container = document.getElementById('heatmap');
-            if (!container) {
-                return;
-            }
-
-            const year = this.heatmapYear;
-            const countsByDate = new Map(this.heatmapData.map((item) => [
-                item.date,
-                { words: Number(item.words || 0), accuracy: Number(item.accuracy || 0) }
-            ]));
-            const maxWords = Math.max(0, ...this.heatmapData.map((item) => Number(item.words || 0)));
-            const weeks = this.buildHeatmapWeeks(year);
-            const monthLabels = this.buildHeatmapMonthLabels(year, weeks);
-            const today = this.formatLocalDate(new Date());
-
-            container.innerHTML = `
-                <div class="github-heatmap">
-                    <div class="github-heatmap-months" aria-hidden="true">
-                        <span></span>
-                        ${monthLabels.map((m) => `<span style="grid-column:${m.column};">${m.label}</span>`).join('')}
-                    </div>
-                    <div class="github-heatmap-body">
-                        <div class="github-heatmap-weekdays" aria-hidden="true">
-                            <span></span><span>${this.t('一', 'Mon')}</span><span></span>
-                            <span>${this.t('三', 'Wed')}</span><span></span>
-                            <span>${this.t('五', 'Fri')}</span><span></span>
-                        </div>
-                        <div class="github-heatmap-grid" role="img" aria-label="${this.t('学习日历', 'Practice calendar')}">
-                    ${weeks.map((week) => `
-                                <div class="github-heatmap-week">
-                            ${week.map((date) => this.renderHeatmapCell(date, countsByDate, maxWords, year, today)).join('')}
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                    <div class="github-heatmap-legend">
-                        <span>${this.t('少', 'Less')}</span>
-                        ${[0, 1, 2, 3, 4].map((level) => `<span class="github-heatmap-cell github-heatmap-level-${level}"></span>`).join('')}
-                        <span>${this.t('多', 'More')}</span>
-                    </div>
-                </div>
-            `;
-        },
-
-        renderHeatmapCell(date, countsByDate, maxWords, year, today) {
-            const dateText = date.toISOString().slice(0, 10);
-            const inYear = date.getUTCFullYear() === year;
-            const item = countsByDate.get(dateText) || { words: 0, accuracy: 0 };
-            const level = inYear ? this.heatmapLevel(item.words, maxWords) : 0;
-            const text = item.words
-                ? this.t(`${dateText}：${item.words} 个单词，正确率 ${item.accuracy.toFixed(1)}%`,
-                    `${dateText}: ${item.words} words, ${item.accuracy.toFixed(1)}% accuracy`)
-                : this.t(`${dateText}：未练习`, `${dateText}: no practice`);
-            const classes = [
-                'github-heatmap-cell',
-                `github-heatmap-level-${level}`,
-                inYear ? '' : 'github-heatmap-outside',
-                dateText === today ? 'github-heatmap-today' : ''
-            ].filter(Boolean).join(' ');
-            return `<span class="${classes}" title="${text}"></span>`;
-        },
-
-        buildHeatmapWeeks(year) {
-            const start = new Date(Date.UTC(year, 0, 1));
+        buildCalendarWeeks(calendar) {
+            const byDate = new Map(calendar.days.map(day => [day.date, day]));
+            const start = new Date(calendar.start_date + 'T00:00:00Z');
             start.setUTCDate(start.getUTCDate() - start.getUTCDay());
-            const end = new Date(Date.UTC(year, 11, 31));
-            end.setUTCDate(end.getUTCDate() + (6 - end.getUTCDay()));
-
+            const end = new Date(calendar.end_date + 'T00:00:00Z');
+            end.setUTCDate(end.getUTCDate() + 6 - end.getUTCDay());
             const weeks = [];
-            for (let cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 7)) {
+            for (let cursor = new Date(start); cursor <= end;) {
                 const week = [];
-                for (let day = 0; day < 7; day++) {
-                    const date = new Date(cursor);
-                    date.setUTCDate(cursor.getUTCDate() + day);
-                    week.push(date);
+                for (let index = 0; index < 7; index++) {
+                    week.push(byDate.get(cursor.toISOString().slice(0, 10)) || null);
+                    cursor.setUTCDate(cursor.getUTCDate() + 1);
                 }
                 weeks.push(week);
             }
             return weeks;
         },
 
-        buildHeatmapMonthLabels(year, weeks) {
-            const names = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
-            const labels = [];
-            const seen = new Set();
-            weeks.forEach((week, index) => {
-                const first = week.find((date) => date.getUTCFullYear() === year && date.getUTCDate() <= 7);
-                if (first && !seen.has(first.getUTCMonth())) {
-                    seen.add(first.getUTCMonth());
-                    labels.push({ label: names[first.getUTCMonth()], column: index + 2 });
-                }
-            });
-            return labels;
+        calendarDayClass(day) {
+            const field = day.practiced ? 'practiced' : 'due_count';
+            const max = this.calendarMaxima[field];
+            return [day.practiced ? `calendar-history-${this.calendarLevel(day.practiced, max)}`
+                : `calendar-due-${this.calendarLevel(day.due_count, max)}`,
+                day.date === this.today ? 'calendar-today' : ''];
         },
 
-        heatmapLevel(count, maxCount) {
+        calendarDayDescription(day) {
+            return `${day.date}：已学习 ${day.practiced} 个词，待复习 ${day.due_count} 个词`;
+        },
+
+        centerCalendar() {
+            const scroll = this.$refs.calendarScroll;
+            const today = scroll?.querySelector(`[data-date="${this.today}"]`);
+            if (today && scroll.scrollWidth > scroll.clientWidth) {
+                scroll.scrollLeft += today.getBoundingClientRect().left - scroll.getBoundingClientRect().left - scroll.clientWidth / 2;
+            }
+        },
+
+        onCalendarKeydown(event, day) {
+            const offsets = { ArrowDown: 1, ArrowUp: -1, ArrowRight: 7, ArrowLeft: -7 };
+            const selected = new Date(day.date + 'T00:00:00Z');
+            const offset = event.key === 'Home' ? -selected.getUTCDay()
+                : event.key === 'End' ? 6 - selected.getUTCDay() : offsets[event.key];
+            if (offset == null) return;
+            event.preventDefault();
+            selected.setUTCDate(selected.getUTCDate() + offset);
+            const date = selected.toISOString().slice(0, 10);
+            this.calendarFocusDate = date < this.calendar.start_date ? this.calendar.start_date
+                : date > this.calendar.end_date ? this.calendar.end_date : date;
+            this.$nextTick(() => this.$refs.calendarScroll.querySelector(`[data-date="${this.calendarFocusDate}"]`)?.focus());
+        },
+
+        calendarLevel(count, maxCount) {
             if (!count) return 0;
             if (maxCount <= 4) return Math.min(4, count);
             const ratio = count / maxCount;
@@ -555,29 +490,36 @@ createApp({
             this.$nextTick?.(() => this.$refs.detailClose?.focus());
         },
 
-        async openDetail({ type, title, subtitle, url, params }) {
-            this.beginDetail({ type, title, subtitle });
+        openCalendarWords(day) {
+            this.beginDetail({ type: 'calendar', title: day.date,
+                subtitle: '学习记录与复习安排', calendarDate: day.date,
+                calendarMode: day.practiced ? 'practiced' : 'due',
+                calendarGroups: { practiced: [], due: [] } });
+            return this.loadCalendarWords();
+        },
+
+        async loadCalendarWords() {
             const modal = this.detailModal;
+            modal.loading = true;
+            modal.error = '';
             try {
-                const response = await axios.get(`${this.apiBaseUrl}${url}`, { params });
-                modal.items = response.data.data || [];
+                const response = await axios.get(`${this.apiBaseUrl}/stats/calendar-words`, { params: { date: modal.calendarDate } });
+                modal.calendarGroups = response.data.data;
+                modal.subtitle = `已学习 ${modal.calendarGroups.practiced.length} 个词 · 待复习 ${modal.calendarGroups.due.length} 个词`;
+                if (!modal.calendarGroups[modal.calendarMode].length) {
+                    modal.calendarMode = modal.calendarMode === 'practiced' ? 'due' : 'practiced';
+                }
+                modal.items = modal.calendarGroups[modal.calendarMode];
             } catch (error) {
-                console.error('Error loading detail words:', error);
-                modal.error = this.t('加载单词失败', 'Failed to load words');
+                modal.error = '无法加载这一天的单词，请检查连接后重试。';
             } finally {
                 modal.loading = false;
             }
         },
 
-        openForecastWords(day) {
-            if (!day.count) return;
-            return this.openDetail({
-                type: 'forecast',
-                title: `${day.label}待复习`,
-                subtitle: `${day.date} · ${day.count} 个单词`,
-                url: '/memory/forecast-words',
-                params: { date: day.date }
-            });
+        selectCalendarMode(mode) {
+            this.detailModal.calendarMode = mode;
+            this.detailModal.items = this.detailModal.calendarGroups[mode];
         },
 
         openVocabularyWords(dimension, group) {

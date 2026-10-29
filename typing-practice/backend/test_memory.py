@@ -227,13 +227,13 @@ class MemoryTest(unittest.TestCase):
         payload = self.payload(self.question())
         self.pool[0]["id"] = 987
         self.memory.submit(payload, self.pool)
-        self.assertEqual(self.memory.summary(self.pool)["new"], 0)
+        self.assertEqual(self.memory.summary(self.pool)["new_available"], 0)
         with self.assertRaises(ValueError):
             self.memory.summary([word(), word(note_id=20)])
         with self.assertRaises(ValueError):
             self.memory.summary([{**word(), "source_id": ""}])
         self.assertEqual(self.memory.summary([])["total"], 0)
-        self.assertEqual(self.memory.summary(self.pool)["learning"], 1)
+        self.assertEqual(self.memory.vocabulary_progress(self.pool)["overall"]["learning"], 1)
 
     def test_daily_new_count_and_shanghai_midnight(self):
         self.pool += [word("book", 2)]
@@ -245,8 +245,8 @@ class MemoryTest(unittest.TestCase):
         self.assertEqual(self.memory.summary(self.pool)["new_today"], 0)
         self.assertEqual(self.memory.summary(self.pool)["new_available"], 1)
         self.memory.submit(self.payload(self.question(), "book", 1000), self.pool)
-        rows = self.stats.heatmap("2026-10-29", "2026-10-30")
-        self.assertEqual([(row["date"], row["words"]) for row in rows], [("2026-10-29", 1), ("2026-10-30", 1)])
+        rows = self.memory.activity_calendar(self.pool)["days"]
+        self.assertEqual([(row["date"], row["attempts"]) for row in rows if row["attempts"]], [("2026-10-29", 1), ("2026-10-30", 1)])
 
     def test_outstanding_new_questions_can_both_be_submitted(self):
         a = self.question()
@@ -273,7 +273,7 @@ class MemoryTest(unittest.TestCase):
         items = self.memory.queue(self.pool, "next", limit=3)["items"]
         self.assertEqual([item["source_id"] for item in items], ["book", "apple", "cat"])
 
-    def test_seven_day_forecast_counts_current_pool_at_shanghai_midnight(self):
+    def test_calendar_due_counts_current_pool_at_shanghai_midnight(self):
         self.now = datetime(2026, 10, 29, 15, 59, tzinfo=timezone.utc)
         schedule = [
             ("overdue", datetime(2026, 10, 27, 10, tzinfo=timezone.utc), State.Learning),
@@ -296,44 +296,35 @@ class MemoryTest(unittest.TestCase):
                     ))
                 if source != "removed":
                     self.pool.append(word(source, index))
-        forecast = self.memory.summary(self.pool)["due_forecast"]
-        self.assertEqual([day["date"] for day in forecast], [
-            "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01",
-            "2026-11-02", "2026-11-03", "2026-11-04",
-        ])
-        self.assertEqual([day["count"] for day in forecast], [2, 1, 0, 0, 0, 0, 1])
-        for day in forecast:
-            items = self.memory.forecast_words(self.pool, day["date"])
-            self.assertEqual(len(items), day["count"])
-        today_words = self.memory.forecast_words(self.pool, "2026-10-29")
+        days = {day["date"]: day for day in self.memory.activity_calendar(self.pool)["days"]}
+        self.assertEqual(days["2026-10-29"]["due_count"], 2)
+        self.assertEqual(days["2026-10-30"]["due_count"], 1)
+        self.assertEqual(days["2026-11-04"]["due_count"], 1)
+        self.assertEqual(days["2026-11-05"]["due_count"], 1)
+        self.assertEqual(sum(day["due_count"] for day in days.values()), 5)
+        for day in ("2026-10-29", "2026-10-30", "2026-11-04", "2026-11-05"):
+            self.assertEqual(len(self.memory.calendar_words(self.pool, day)["due"]), days[day]["due_count"])
+        today_words = self.memory.calendar_words(self.pool, "2026-10-29")["due"]
         self.assertEqual([item["source_id"] for item in today_words], ["overdue", "today"])
         self.assertTrue(today_words[0]["is_due"])
         self.assertFalse(today_words[1]["is_due"])
-        self.assertEqual([item["source_id"] for item in self.memory.forecast_words(self.pool, "2026-10-30")], ["tomorrow"])
         self.now = datetime(2026, 10, 29, 16, tzinfo=timezone.utc)
-        forecast = self.memory.summary(self.pool)["due_forecast"]
-        self.assertEqual(forecast[0]["date"], "2026-10-30")
-        self.assertEqual(forecast[-1]["date"], "2026-11-05")
-        self.assertEqual([day["count"] for day in forecast], [3, 0, 0, 0, 0, 1, 1])
-        self.assertEqual([item["source_id"] for item in self.memory.forecast_words(self.pool, "2026-10-30")], ["overdue", "today", "tomorrow"])
-        self.assertEqual([item["source_id"] for item in self.memory.forecast_words(self.pool, "2026-11-05")], ["outside"])
+        days = {day["date"]: day for day in self.memory.activity_calendar(self.pool)["days"]}
+        self.assertEqual(days["2026-10-29"]["due_count"], 0)
+        self.assertEqual(days["2026-10-30"]["due_count"], 3)
+        self.assertEqual([item["source_id"] for item in self.memory.calendar_words(self.pool, "2026-10-30")["due"]], ["overdue", "today", "tomorrow"])
         self.assertEqual(self.stats.db.execute("SELECT COUNT(*) FROM word_reviews").fetchone()[0], 0)
 
-    def test_empty_forecast_keeps_seven_dates_across_year_boundary(self):
+    def test_empty_calendar_covers_twelve_months_across_year_boundary(self):
         self.now = datetime(2026, 12, 31, 16, tzinfo=timezone.utc)
         for pool in ([], self.pool):
             with self.subTest(pool=pool):
-                forecast = self.memory.summary(pool)["due_forecast"]
-                self.assertEqual(len(forecast), 7)
-                self.assertEqual(forecast[0], {"date": "2027-01-01", "count": 0})
-                self.assertEqual(forecast[-1], {"date": "2027-01-07", "count": 0})
-                self.assertEqual(sum(day["count"] for day in forecast), 0)
-                self.assertEqual(self.memory.forecast_words(pool, forecast[0]["date"]), [])
-
-    def test_forecast_detail_rejects_invalid_or_expired_dates(self):
-        for value in (None, "", "20261029", "2026-02-30", "2026-10-28", "2026-11-05"):
-            with self.subTest(date=value), self.assertRaises(ValueError):
-                self.memory.forecast_words(self.pool, value)
+                calendar = self.memory.activity_calendar(pool)
+                self.assertEqual(calendar["today"], "2027-01-01")
+                self.assertEqual(calendar["start_date"], "2026-07-01")
+                self.assertEqual(calendar["end_date"], "2027-06-30")
+                self.assertEqual(sum(day["due_count"] for day in calendar["days"]), 0)
+                self.assertEqual(self.memory.calendar_words(pool, "2027-01-01")["due"], [])
 
     def test_parameter_change_keeps_due_and_replays_on_next_review(self):
         result = self.memory.submit(self.payload(self.question()), self.pool)
