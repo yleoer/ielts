@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
@@ -15,7 +16,8 @@ from flask import Flask, abort, current_app, jsonify, render_template, request, 
 from anki import AnkiReader
 from auth import install_access_gate
 from config import Config, load_config
-from practice import normalize_word, select_words
+from memory import MemoryStore, PracticeConflict
+from optimizer_service import OptimizationService
 from stats import StatsStore
 from sync import copy_collection_group, latest_collection, sync_configured, sync_target_path
 
@@ -42,6 +44,9 @@ class AppState:
         self.reader: AnkiReader | None = None
         self.sync: dict[str, Any] = {}
         self.stats = StatsStore(config.stats.db_path)
+        self.memory = MemoryStore(self.stats, config.memory)
+        self.optimizer = OptimizationService(self.stats, self.memory, config.optimization)
+        self.closed = False
         try:
             if config.anki.db_path:
                 self.reader = AnkiReader(config.anki.db_path, config.anki.deck_name, config.anki.deck_id)
@@ -50,27 +55,25 @@ class AppState:
             LOG.warning("Anki reader disabled: %s", exc)
 
     def close(self) -> None:
+        if self.closed:
+            return
+        self.optimizer.stop()
         with self.lock:
             if self.reader:
                 self.reader.close()
                 self.reader = None
             self.stats.close()
+            self.closed = True
 
     def get_words(self, limit: int, category: str) -> list[dict[str, Any]]:
-        with self.lock:
-            if not self.reader:
-                raise RuntimeError("Anki database is not available")
-            pool = self.reader.get_learned_word_pool(category)
-            try:
-                selection = self.stats.selection_stats()
-            except Exception as exc:
-                LOG.exception("Unable to load practice statistics")
-                raise RuntimeError("Practice statistics are unavailable") from exc
-            return select_words(pool, selection, limit)
+        # Read-only vocabulary endpoint for integrations and free practice.
+        return [word for word in self.current_pool() if category == "all" or word["category"] == category][:limit]
 
     def current_pool(self) -> list[dict[str, Any]]:
         with self.lock:
-            return self.reader.get_learned_word_pool("all") if self.reader else []
+            if not self.reader:
+                raise RuntimeError("Anki database is not available")
+            return self.reader.get_learned_word_pool("all")
 
     def config_payload(self) -> dict[str, Any]:
         with self.lock:
@@ -92,6 +95,9 @@ class AppState:
                 "total_learned": total,
                 "default_limit": self.config.practice.default_limit,
                 "max_limit": self.config.practice.max_limit,
+                "daily_new": self.config.memory.daily_new,
+                "easy_seconds": self.config.memory.easy_seconds,
+                "hard_seconds": self.config.memory.hard_seconds,
             }
 
     def sync_status(self) -> dict[str, Any]:
@@ -181,22 +187,7 @@ def _stats_response(callback):
         return jsonify(success=False, error=str(exc)), 500
 
 
-def _unpracticed_details(words: list[dict[str, Any]], selection: dict[str, dict[str, Any]], limit: int = 0) -> list[dict[str, Any]]:
-    practiced = {normalize_word(key) for key in selection}
-    result = []
-    seen: set[str] = set()
-    for word in words:
-        key = normalize_word(word.get("word", ""))
-        if not key or key in seen or key in practiced:
-            continue
-        seen.add(key)
-        result.append({"word": word["word"], "chinese_meaning": word.get("chinese_meaning", ""), "total_attempts": 0, "correct_attempts": 0, "incorrect_attempts": 0, "accuracy": 0, "average_time": 0})
-        if limit and len(result) >= limit:
-            break
-    return result
-
-
-def create_app(config: Config | None = None) -> Flask:
+def create_app(config: Config | None = None, *, start_background_tasks: bool = True) -> Flask:
     cfg = config or load_config()
     root = Path(__file__).resolve().parent.parent
     app = Flask(__name__, template_folder=str(root / "frontend" / "templates"), static_folder=None)
@@ -207,12 +198,6 @@ def create_app(config: Config | None = None) -> Flask:
     state = AppState(cfg)
     app.extensions["typing_practice_state"] = state
     install_access_gate(app, cfg.access_password, cfg.stats.db_path)
-
-    @app.teardown_appcontext
-    def _close_on_shutdown(_exc):
-        # Flask invokes teardown for every request; the shared state must stay
-        # alive, so resources are closed only by the process shutdown path.
-        return None
 
     @app.after_request
     def _cors(response):
@@ -285,14 +270,56 @@ def create_app(config: Config | None = None) -> Flask:
         status["history"] = state.stats.list_sync_history(50)
         return (jsonify(success=False, error=error, data=status), 400) if error else jsonify(success=True, data=status)
 
-    @app.route("/api/stats/sessions", methods=["POST"])
-    def save_session():
-        payload = request.get_json(silent=True) or {}
+    @app.route("/api/practice/queue")
+    def practice_queue():
+        data = state.memory.queue(
+            state.current_pool(), request.args.get("session_id", ""),
+            min(_int_query("limit", 1), cfg.practice.max_limit), request.args.get("mode", "scheduled"),
+        )
+        return jsonify(success=True, data=data, session_limit=cfg.practice.default_limit)
+
+    @app.route("/api/practice/attempts", methods=["POST"])
+    def practice_attempt():
+        payload = request.get_json(silent=True)
+        # A committed retry can be acknowledged even if Anki is temporarily unavailable.
         try:
-            state.stats.save_session(payload)
-            return jsonify(success=True, message="Session saved successfully", session_id=payload.get("session_id"))
-        except (TypeError, ValueError, KeyError) as exc:
-            return jsonify(success=False, error=str(exc)), 400
+            pool = state.current_pool()
+        except RuntimeError:
+            pool = None
+        return jsonify(success=True, data=state.memory.submit(payload, pool))
+
+    @app.route("/api/memory/summary")
+    def memory_summary():
+        return jsonify(success=True, data=state.memory.summary(state.current_pool()))
+
+    @app.route("/api/memory/forecast-words")
+    def forecast_words():
+        return jsonify(success=True, data=state.memory.forecast_words(state.current_pool(), request.args.get("date", "")))
+
+    @app.route("/api/memory/optimization")
+    def optimization_status():
+        return jsonify(success=True, data=state.optimizer.status())
+
+    @app.route("/api/memory/optimization/runs")
+    def optimization_history():
+        try:
+            before_id = int(request.args.get("before_id", "0"))
+        except ValueError as exc:
+            raise ValueError("无效的记录游标") from exc
+        if before_id < 0:
+            raise ValueError("无效的记录游标")
+        return jsonify(success=True, data=state.optimizer.history(before_id, _int_query("limit", 20)))
+
+    @app.route("/api/memory/optimization/runs/<int:run_id>")
+    def optimization_record(run_id):
+        record = state.optimizer.run_record(run_id)
+        if record is None:
+            abort(404)
+        return jsonify(success=True, data=record)
+
+    @app.route("/api/stats/sessions", methods=["POST"])
+    def legacy_sessions():
+        return jsonify(success=False, error="练习已升级，请刷新页面后使用逐题保存", code="client_upgrade_required"), 410
 
     @app.route("/api/stats/heatmap")
     def heatmap():
@@ -304,18 +331,12 @@ def create_app(config: Config | None = None) -> Flask:
 
     @app.route("/api/stats/mastery-distribution")
     def mastery_distribution():
-        def fetch():
-            data = state.stats.mastery_distribution()
-            data["new"] = len(_unpracticed_details(state.current_pool(), state.stats.selection_stats()))
-            return data
-        return _stats_response(fetch)
+        summary = state.memory.summary(state.current_pool())
+        return jsonify(success=True, data={key: summary[key] for key in ("new", "learning", "mastered")})
 
     @app.route("/api/stats/mastery-words")
     def mastery_words():
-        level = request.args.get("level", "")
-        if level != "new":
-            return _stats_response(lambda: state.stats.mastery_words(level, _int_query("limit", 200)))
-        return _stats_response(lambda: _unpracticed_details(state.current_pool(), state.stats.selection_stats(), min(_int_query("limit", 200), 1000)))
+        return jsonify(success=True, data=state.memory.mastery_words(state.current_pool(), request.args.get("level", ""), _int_query("limit", 200)))
 
     @app.route("/api/stats/error-types")
     def error_types():
@@ -329,14 +350,34 @@ def create_app(config: Config | None = None) -> Flask:
     def overview():
         return _stats_response(state.stats.overview)
 
+    @app.errorhandler(PracticeConflict)
+    def practice_conflict(error):
+        return jsonify(success=False, error=str(error), code="practice_conflict"), 409
+
+    @app.errorhandler(ValueError)
+    def invalid_request(error):
+        return jsonify(success=False, error=str(error)), 400
+
+    @app.errorhandler(sqlite3.Error)
+    @app.errorhandler(OSError)
+    def storage_unavailable(error):
+        LOG.exception("Practice storage unavailable")
+        return jsonify(success=False, error="练习数据暂不可用，请稍后重试"), 503
+
+    @app.errorhandler(RuntimeError)
+    def unavailable(error):
+        return jsonify(success=False, error=str(error)), 503
+
     @app.errorhandler(404)
     def not_found(_error):
         if request.method == "GET" and not request.path.startswith("/api/"):
             return render_template("index.html", page_title="打字练习")
         return jsonify(success=False, error="not found"), 404
 
-    if sync_configured() and not app.testing:
-        start_sync_scheduler(app)
+    if start_background_tasks and not app.testing:
+        state.optimizer.start()
+        if sync_configured():
+            start_sync_scheduler(app)
     return app
 
 
@@ -362,5 +403,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     application = create_app()
     cfg = application.extensions["typing_practice_state"].config
-    application.run(host=cfg.server.host, port=cfg.server.port)
+    try:
+        application.run(host=cfg.server.host, port=cfg.server.port)
+    finally:
+        application.extensions["typing_practice_state"].close()
 

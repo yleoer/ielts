@@ -40,16 +40,19 @@ Docs:
 
 Runs the web app for spelling practice and learning statistics.
 
-The app reads learned words from Anki, selects practice words with a weighted strategy, checks spelling in the browser, and stores normal practice sessions in SQLite.
+The app reads learned words from Anki and schedules spelling recall with py-fsrs. The backend grades and saves each formal answer transactionally in SQLite; due reviews precede new words.
 
 Highlights:
 
 - Chinese meaning prompt with English spelling input.
-- Local answer checking during practice, without per-word backend requests.
+- Automatic Again/Hard/Good/Easy grades from correctness and configurable 6/20-second thresholds.
 - Fast correct-answer animation before moving to the next word.
-- Draft session restore after refresh or reopening the page.
+- Draft and pending-answer recovery, with idempotent submissions across retries.
 - Same-session mistake review that does not affect historical statistics.
-- Clear empty state when no practice words are available.
+- Next-review time and optional free practice when nothing is due.
+- Automatic background parameter optimization after 1,000 effective reviews, followed by monthly evaluations; default weights work immediately.
+
+On the first FSRS startup, legacy practice statistics are cleared once. Anki data, media, sync history and access credentials are preserved.
 
 Key paths:
 
@@ -63,6 +66,7 @@ Docs:
 - [Typing practice overview](docs/typing-practice/SPEC.md)
 - [Frontend notes](docs/typing-practice/FRONTEND.md)
 - [Word selection](docs/typing-practice/WORD-SELECTION.md)
+- [FSRS configuration and optimization](docs/typing-practice/SRS-PLAN.md)
 - [Docker deployment](docs/typing-practice/DOCKER-DEPLOY.md)
 - [Statistics summary](docs/typing-practice/statistics/SUMMARY.md)
 

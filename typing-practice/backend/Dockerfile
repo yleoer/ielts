@@ -9,9 +9,10 @@ RUN apt-get update \
 WORKDIR /app/backend
 
 COPY backend/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip install --no-cache-dir -r requirements.txt
 
-COPY backend/app.py backend/anki.py backend/auth.py backend/config.py backend/practice.py backend/stats.py backend/sync.py ./
+COPY backend/app.py backend/anki.py backend/auth.py backend/config.py backend/memory.py backend/srs.py backend/stats.py backend/sync.py backend/optimizer_service.py backend/optimize_fsrs.py ./
 RUN mkdir -p config
 COPY backend/config/config.yaml ./config/config.yaml
 COPY frontend ../frontend

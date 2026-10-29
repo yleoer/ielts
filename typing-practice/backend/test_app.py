@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app import create_app
@@ -45,6 +46,30 @@ def make_anki_db(path: Path) -> None:
 
 
 class FlaskAppTest(unittest.TestCase):
+    def test_optimization_history_api_and_invalid_cursors(self):
+        from test_optimizer_service import seed_history, candidate
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        app = create_app(make_config(Path(temporary.name)), start_background_tasks=False)
+        self.addCleanup(app.extensions["typing_practice_state"].close)
+        client = app.test_client()
+        state = app.extensions["typing_practice_state"]
+        self.assertEqual(client.get("/api/memory/optimization/runs").json["data"]["items"], [])
+        seed_history(state.stats, state.memory)
+        state.optimizer.trainer = candidate
+        result = state.optimizer.check_once()
+        status = client.get("/api/memory/optimization").json["data"]
+        self.assertEqual(status["effective_reviews"], 1000)
+        self.assertEqual(status["desired_retention"], 0.9)
+        history = client.get("/api/memory/optimization/runs?limit=1").json["data"]
+        self.assertEqual(history["items"][0]["id"], result["id"])
+        record = client.get(f"/api/memory/optimization/runs/{result['id']}").json["data"]
+        self.assertIn("candidate", record["report"])
+        self.assertNotIn("owner", record)
+        self.assertEqual(client.get("/api/memory/optimization/runs/999").status_code, 404)
+        for query in ("before_id=-1", "before_id=abc"):
+            self.assertEqual(client.get(f"/api/memory/optimization/runs?{query}").status_code, 400)
+
     def test_media_api_serves_illustrations_and_rejects_audio(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -56,7 +81,7 @@ class FlaskAppTest(unittest.TestCase):
             audio_content = b"ID3-test-audio"
             (media / "wa_abandon_img.webp").write_bytes(image_content)
             (media / "wa_abandon_uk.mp3").write_bytes(audio_content)
-            app = create_app(make_config(root, str(collection)))
+            app = create_app(make_config(root, str(collection)), start_background_tasks=False)
             try:
                 client = app.test_client()
                 word = client.get("/api/words").json["data"][0]
@@ -82,7 +107,7 @@ class FlaskAppTest(unittest.TestCase):
             (media / "wa_abandon_img.webp").write_bytes(b"test-image")
             cfg = make_config(root, str(collection))
             cfg.anki.media_dir = str(media)
-            app = create_app(replace(cfg, access_password="test-password"))
+            app = create_app(replace(cfg, access_password="test-password"), start_background_tasks=False)
             try:
                 client = app.test_client()
                 path = "/api/media/101/illustration"
@@ -97,7 +122,7 @@ class FlaskAppTest(unittest.TestCase):
     def test_health_and_jinja_rendered_pages(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        app = create_app(make_config(Path(temporary.name)))
+        app = create_app(make_config(Path(temporary.name)), start_background_tasks=False)
         app.testing = True
         self.addCleanup(app.extensions["typing_practice_state"].close)
         client = app.test_client()
@@ -127,7 +152,7 @@ class FlaskAppTest(unittest.TestCase):
         root = Path(temporary.name)
         anki_path = root / "collection.anki2"
         make_anki_db(anki_path)
-        app = create_app(make_config(root, str(anki_path)))
+        app = create_app(make_config(root, str(anki_path)), start_background_tasks=False)
         app.testing = True
         self.addCleanup(app.extensions["typing_practice_state"].close)
         client = app.test_client()
@@ -142,28 +167,36 @@ class FlaskAppTest(unittest.TestCase):
         self.assertEqual(response.json["data"][0]["example_cn"], "永不放弃希望。")
         self.assertEqual(response.json["data"][0]["category"], "思维")
 
-        payload = {
-                "session_id": "test-session",
-                "start_time": "2026-10-27T08:00:00Z",
-                "end_time": "2026-10-27T08:01:00Z",
-                "total_words": 2,
-                "correct_words": 1,
-                "incorrect_words": 1,
-                "accuracy": 50,
-                "duration_seconds": 60,
-                "word_attempts": [
-                    {"word": "abandon", "chinese_meaning": "放弃", "user_input": "abandon", "is_correct": True, "time_spent": 2},
-                    {"word": "wrong", "chinese_meaning": "错误", "user_input": "wron", "is_correct": False, "time_spent": 5},
-                ],
-        }
-        self.assertEqual(client.post("/api/stats/sessions", json=payload).status_code, 200)
-        self.assertEqual(client.post("/api/stats/sessions", json=payload).status_code, 200)
+        state = app.extensions["typing_practice_state"]
+        now = datetime(2026, 10, 27, 8, tzinfo=timezone.utc)
+        state.memory.now = lambda: now
+        question = client.get("/api/practice/queue?session_id=test-session").json["data"]["items"][0]
+        now += timedelta(seconds=7)
+        payload = {"attempt_id": question["attempt_id"], "session_id": "test-session", "user_input": "abandon",
+                   "duration_ms": 7000, "reviewed_at": now.isoformat()}
+        first = client.post("/api/practice/attempts", json=payload)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json["data"]["rating"], 3)
+        self.assertEqual(client.post("/api/practice/attempts", json=payload).json, first.json)
+        self.assertEqual(client.post("/api/stats/sessions", json={}).status_code, 410)
         overview = client.get("/api/stats/overview").json["data"]
         self.assertEqual(overview["total_sessions"], 1)
-        self.assertEqual(overview["total_words_practiced"], 2)
+        self.assertEqual(overview["total_words_practiced"], 1)
         heatmap = client.get("/api/stats/heatmap?start_date=2026-10-27&end_date=2026-10-27").json["data"]
-        self.assertEqual(heatmap, [{"date": "2026-10-27", "words": 2, "accuracy": 50.0}])
-        self.assertEqual(client.get("/api/stats/error-types").json["data"]["missing_letter"], 1)
+        self.assertEqual(heatmap, [{"date": "2026-10-27", "words": 1, "accuracy": 100.0}])
+        memory = client.get("/api/memory/summary").json["data"]
+        self.assertEqual(memory["learning"], 1)
+        self.assertEqual(len(memory["due_forecast"]), 7)
+        self.assertEqual(memory["due_forecast"][0], {"date": "2026-10-27", "count": 1})
+        self.assertEqual(sum(day["count"] for day in memory["due_forecast"]), 1)
+        forecast_words = client.get("/api/memory/forecast-words?date=2026-10-27")
+        self.assertEqual(forecast_words.status_code, 200)
+        self.assertEqual([item["word"] for item in forecast_words.json["data"]], ["abandon"])
+        self.assertIn("due", forecast_words.json["data"][0])
+        self.assertEqual(client.get("/api/memory/forecast-words?date=2026-10-28").json["data"], [])
+        for endpoint in ("/api/memory/forecast-words", "/api/memory/forecast-words?date=2026-10-26",
+                         "/api/memory/forecast-words?date=2026-11-03"):
+            self.assertEqual(client.get(endpoint).status_code, 400, endpoint)
         for endpoint in (
             "/api/stats/heatmap",
             "/api/stats/accuracy-trend",
@@ -190,18 +223,18 @@ class FlaskAppTest(unittest.TestCase):
         root = Path(temporary.name)
         anki_path = root / "collection.anki2"
         make_anki_db(anki_path)
-        app = create_app(make_config(root, str(anki_path)))
+        app = create_app(make_config(root, str(anki_path)), start_background_tasks=False)
         app.testing = True
         self.addCleanup(app.extensions["typing_practice_state"].close)
         state = app.extensions["typing_practice_state"]
 
-        def fail_selection():
+        def fail_selection(*args, **kwargs):
             raise OSError("stats database is unavailable")
 
-        state.stats.selection_stats = fail_selection
-        response = app.test_client().get("/api/words?limit=5")
+        state.memory.queue = fail_selection
+        response = app.test_client().get("/api/practice/queue?session_id=test")
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json["error"], "Practice statistics are unavailable")
+        self.assertIn("暂不可用", response.json["error"])
 
     def test_error_type_rules(self):
         self.assertEqual(analyze_error_type("abandon", ""), "skipped")

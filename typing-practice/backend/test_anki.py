@@ -34,7 +34,7 @@ class WordAtlasFieldTest(unittest.TestCase):
     def test_maps_word_atlas_fields_without_positional_mixups(self):
         word = parse_word(101, atlas_fields())
         self.assertEqual(word, {
-            "id": 101, "word": "library", "phonetic": "/ˈlaɪbrəri/",
+            "id": 101, "source_id": "library", "word": "library", "phonetic": "/ˈlaɪbrəri/",
             "part_of_speech": "n.", "chinese_meaning": "图书馆；藏书室",
             "example_en": "I borrowed books from the library.",
             "example_cn": "我从图书馆借了书。", "category": "教育",

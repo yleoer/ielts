@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
+from srs import MemoryConfig
+from optimizer_service import OptimizationConfig
 
 DEFAULT_DECK_NAME = "Word Atlas"
 DEFAULT_DECK_ID = 1958430017
@@ -45,6 +47,8 @@ class Config:
     practice: PracticeConfig
     stats: StatsConfig
     access_password: str = ""
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
+    optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
 
 
 def discover_anki_db(anki_root: Path) -> str:
@@ -113,6 +117,8 @@ def load_config() -> Config:
     anki = raw.get("anki", {}) or {}
     practice = raw.get("practice", {}) or {}
     stats = raw.get("stats", {}) or {}
+    memory = raw.get("memory", {}) or {}
+    optimization = raw.get("optimization", {}) or {}
 
     cfg = Config(
         server=ServerConfig(
@@ -131,6 +137,8 @@ def load_config() -> Config:
         ),
         stats=StatsConfig(db_path=str(stats.get("db_path", "data/stats.db") or "data/stats.db")),
         access_password=os.environ.get("ACCESS_PASSWORD", ""),
+        memory=MemoryConfig(**memory),
+        optimization=OptimizationConfig(**optimization),
     )
 
     env = os.environ
@@ -152,6 +160,27 @@ def load_config() -> Config:
         cfg.practice.max_limit = _as_int(env["PRACTICE_MAX_LIMIT"], cfg.practice.max_limit)
     if env.get("STATS_DB_PATH", "").strip():
         cfg.stats.db_path = env["STATS_DB_PATH"].strip()
+    for name, attribute, convert in (
+        ("FSRS_DESIRED_RETENTION", "desired_retention", float),
+        ("FSRS_DAILY_NEW", "daily_new", int),
+        ("FSRS_EASY_SECONDS", "easy_seconds", float),
+        ("FSRS_HARD_SECONDS", "hard_seconds", float),
+        ("FSRS_PARAMETERS_PATH", "parameters_path", str),
+    ):
+        if env.get(name, "").strip():
+            setattr(cfg.memory, attribute, convert(env[name].strip()))
+    cfg.memory.validate()
+    if "FSRS_AUTO_OPTIMIZE" in env:
+        value = env["FSRS_AUTO_OPTIMIZE"].strip().lower()
+        if value not in {"true", "false", "1", "0"}:
+            raise ValueError("FSRS_AUTO_OPTIMIZE 必须为 true/false 或 1/0")
+        cfg.optimization.enabled = value in {"true", "1"}
+    for name, attribute in (("FSRS_OPTIMIZER_CHECK_SECONDS", "check_interval_seconds"),
+                            ("FSRS_OPTIMIZER_MIN_NEW_REVIEWS", "min_new_reviews"),
+                            ("FSRS_OPTIMIZER_TIMEOUT_SECONDS", "timeout_seconds")):
+        if env.get(name, "").strip():
+            setattr(cfg.optimization, attribute, int(env[name]))
+    cfg.optimization.validate()
 
     if not cfg.anki.db_path.strip():
         cfg.anki.db_path = default_anki_db_path()

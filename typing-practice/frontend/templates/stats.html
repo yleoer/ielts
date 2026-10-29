@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
-    <script src="/src/stats.js?v=20261028-cijian" defer></script>
+    <script src="/src/stats.js?v=20261029-fsrs-cleanup" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -22,6 +22,25 @@
             <div v-else-if="loadError" class="report-sheet empty-state" role="alert"><h2>{{ t('无法加载统计数据', 'Unable to load activity') }}</h2><p>{{ t('请确认服务正在运行，然后重试。', 'Check your connection and try again.') }}</p><button type="button" class="button button-primary" @click="loadAllData">{{ t('重试', 'Try again') }}</button></div>
             <div v-else class="report-sheet">
                 <dl class="metrics-strip"><div v-for="card in overviewCards" :key="card.label"><dt>{{ card.label }}</dt><dd>{{ card.value }}<small v-if="card.unit">{{ card.unit }}</small></dd></div></dl>
+                <section class="report-section">
+                    <div class="section-heading"><h2>未来 7 天待复习</h2></div>
+                    <p v-if="memoryLoading" class="muted" role="status">正在加载待复习数量…</p>
+                    <div v-else-if="memoryError" role="alert">
+                        <p class="error-message">无法加载待复习数量，请检查连接后重试。</p>
+                        <button type="button" class="button button-secondary" @click="loadMemory">重试加载</button>
+                    </div>
+                    <template v-else-if="memory">
+                        <ol class="review-forecast" aria-label="未来 7 天每日待复习单词数">
+                            <li v-for="day in reviewForecast" :key="day.date">
+                                <button type="button" class="review-forecast-button" :disabled="!day.count" @click="openForecastWords(day)" :aria-haspopup="day.count ? 'dialog' : null" :aria-label="`${day.date}（${day.label}）：${day.count} 个待复习单词${day.count ? '，查看明细' : ''}`">
+                                    <span class="review-forecast-chart" aria-hidden="true"><span class="review-forecast-bar" :style="{ height: day.barHeight + 'px' }"></span></span>
+                                    <strong class="review-forecast-count">{{ day.count }}</strong>
+                                    <span class="review-forecast-date">{{ day.label }}</span>
+                                </button>
+                            </li>
+                        </ol>
+                    </template>
+                </section>
                 <section class="report-section calendar-section">
                     <div class="section-heading"><h2>{{ t('学习日历', 'Activity calendar') }}</h2><p>{{ t(`${heatmapYear} 年练习 ${heatmapActiveDays} 天`, `${heatmapActiveDays} active ${heatmapActiveDays === 1 ? 'day' : 'days'} in ${heatmapYear}`) }}</p></div>
                     <div class="calendar-scroll" tabindex="0" :aria-label="t('学习日历，可横向滚动', 'Activity calendar, scroll horizontally')"><div id="heatmap"></div></div>
@@ -35,10 +54,49 @@
                     <section v-for="panel in breakdownPanels" :key="panel.key" class="report-section">
                         <div class="section-heading"><h2>{{ panel.title }}</h2><p>{{ panel.totalText }}</p></div>
                         <p v-if="panel.error" class="chart-empty">{{ t('加载失败，请刷新重试', 'Unable to load. Refresh to try again.') }}</p>
-                        <p v-else-if="!panel.total" class="chart-empty">{{ t('完成一轮练习后，这里将显示明细。', 'Complete a session to see the breakdown.') }}</p>
+                        <p v-else-if="!panel.total" class="chart-empty">{{ t('完成正式作答后，这里将显示明细。', 'Complete a session to see the breakdown.') }}</p>
                         <ul v-else class="breakdown-list"><li v-for="row in panel.rows" :key="row.key"><button type="button" :disabled="!row.value" @click="panel.open(row)" :aria-label="`${row.label} ${row.value}`"><span class="row-between"><span>{{ row.label }}</span><span class="muted"><strong>{{ row.value }}</strong><span class="row-percent">{{ row.percent }}%</span></span></span><span class="breakdown-track"><span :style="{ width: row.percent + '%', background: row.color }"></span></span></button></li></ul>
                     </section>
                 </div>
+                <details class="optimization-history" @toggle="onOptimizationToggle">
+                    <summary><h2>参数优化记录</h2></summary>
+                    <div class="optimization-content">
+                        <div class="row-between optimization-toolbar">
+                            <p v-if="optimization.status" role="status">{{ optimizationSummary(optimization.status) }}</p>
+                            <span v-else class="muted">自动评估与参数版本</span>
+                            <button type="button" class="button button-secondary" :disabled="optimization.loading" @click="loadOptimization(false)">刷新记录</button>
+                        </div>
+                        <p v-if="optimization.status" class="muted optimization-version">现用版本 <code>{{ optimization.status.current_version }}</code> · 保持率 {{ optimization.status.desired_retention }}</p>
+                        <div v-if="optimization.error" role="alert"><p class="error-message">{{ optimization.error }}</p><button type="button" class="button button-secondary" @click="loadOptimization(!!optimization.nextBeforeId)">重试加载</button></div>
+                        <p v-if="optimization.loading" class="muted" role="status">正在加载优化记录…</p>
+                        <p v-else-if="!optimization.error && !optimization.items.length" class="chart-empty">暂无优化记录。后台将在满足条件后自动评估，并在这里保留每次结果。</p>
+                        <ol v-if="optimization.items.length" class="optimization-runs">
+                            <li v-for="run in optimization.items" :key="run.id">
+                                <details>
+                                    <summary><strong>{{ optimizationOutcome(run.status) }}</strong><time :datetime="run.started_at">{{ formatDue(run.started_at) }}</time><span class="muted">{{ run.effective_reviews }} 条有效复习</span></summary>
+                                    <div class="optimization-run-body">
+                                        <p>{{ run.reason }}</p>
+                                        <dl class="optimization-facts">
+                                            <div><dt>数据范围</dt><dd>{{ formatDue(run.report.training_start) }} 至 {{ formatDue(run.report.validation_through) }}</dd></div>
+                                            <div v-if="run.report.training_before"><dt>验证起点</dt><dd>{{ formatDue(run.report.training_before) }}</dd></div>
+                                            <div><dt>复习记录</dt><dd>共 {{ run.total_events }} 条 · 新增有效 {{ run.new_effective_reviews }} 条<span v-if="run.report.training_effective_reviews != null"> · 训练有效 {{ run.report.training_effective_reviews }} 条</span></dd></div>
+                                            <div><dt>原用版本</dt><dd><code>{{ run.baseline_version }}</code></dd></div>
+                                            <div v-if="run.activated_version"><dt>启用版本</dt><dd><code>{{ run.activated_version }}</code></dd></div>
+                                            <div v-if="run.finished_at"><dt>完成时间</dt><dd>{{ formatDue(run.finished_at) }}</dd></div>
+                                        </dl>
+                                        <table v-if="run.report.baseline" class="optimization-metrics">
+                                            <caption>验证误差（越低越好）· {{ run.report.baseline.reviews }} 条记录</caption>
+                                            <thead><tr><th scope="col">参数</th><th scope="col">Log loss</th><th scope="col">Brier</th></tr></thead>
+                                            <tbody><tr v-for="entry in [{ key: 'default', label: '默认' }, { key: 'baseline', label: '原用' }, { key: 'candidate', label: '候选' }]" :key="entry.key"><th scope="row">{{ entry.label }}</th><td>{{ formatMetric(run.report[entry.key]?.log_loss) }}</td><td>{{ formatMetric(run.report[entry.key]?.brier_score) }}</td></tr></tbody>
+                                        </table>
+                                        <a :href="`${apiBaseUrl}/memory/optimization/runs/${run.id}`" target="_blank" rel="noopener">查看完整记录（JSON，新标签页）</a>
+                                    </div>
+                                </details>
+                            </li>
+                        </ol>
+                        <button v-if="optimization.nextBeforeId" type="button" class="button button-secondary optimization-more" :disabled="optimization.loading" @click="loadOptimization(true)">加载更早记录</button>
+                    </div>
+                </details>
             </div>
         </main>
         <div v-if="detailModal.visible" class="dialog-backdrop" @click.self="closeDetailModal">
@@ -47,8 +105,25 @@
                 <div class="dialog-body">
                     <p v-if="detailModal.loading" class="chart-empty" role="status">{{ t('加载中…', 'Loading…') }}</p>
                     <p v-else-if="detailModal.error" class="error-message" role="alert">{{ detailModal.error }}</p>
-                    <p v-else-if="!detailModal.items.length" class="chart-empty">{{ t('暂无单词', 'No entries to show.') }}</p>
-                    <ul v-else class="entry-list"><li v-for="(item, index) in detailModal.items" :key="index"><div><strong class="mono">{{ item.word }}</strong><p class="muted">{{ item.chinese_meaning }}</p></div><div class="detail-values"><template v-if="detailModal.type === 'mastery'"><p>{{ item.correct_attempts }} / {{ item.total_attempts }}</p><p class="muted">{{ formatPercent(item.accuracy) }}</p></template><template v-else><p>× {{ item.error_count }}</p><del v-if="item.user_input" class="mono muted">{{ item.user_input }}</del></template></div></li></ul>
+                    <p v-else-if="!detailModal.items.length" class="chart-empty">{{ detailModal.type === 'forecast' ? '这一天没有待复习的单词' : t('暂无单词', 'No entries to show.') }}</p>
+                    <ul v-else class="entry-list">
+                        <li v-for="(item, index) in detailModal.items" :key="index" :class="{ 'forecast-entry': detailModal.type === 'forecast' }">
+                            <div><strong class="mono">{{ item.word }}</strong><p class="muted">{{ item.chinese_meaning }}</p></div>
+                            <div class="detail-values">
+                                <template v-if="detailModal.type === 'mastery'">
+                                    <p>答对 {{ item.correct_attempts }} / {{ item.total_attempts }}</p>
+                                    <p v-if="item.due" class="muted">{{ item.is_due ? '已到期' : '下次复习' }} {{ formatDue(item.due) }}</p>
+                                </template>
+                                <template v-else-if="detailModal.type === 'forecast'">
+                                    <p class="muted">{{ item.is_due ? '已到期' : '复习时间' }} {{ formatDue(item.due) }}</p>
+                                </template>
+                                <template v-else>
+                                    <p>× {{ item.error_count }}</p>
+                                    <del v-if="item.user_input" class="mono muted">{{ item.user_input }}</del>
+                                </template>
+                            </div>
+                        </li>
+                    </ul>
                 </div>
             </section>
         </div>

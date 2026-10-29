@@ -7,7 +7,7 @@
     {% include '_appearance.html' %}
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
-    <script src="/src/app.js?v=20261028-cijian" defer></script>
+    <script src="/src/app.js?v=20261029-fsrs-cleanup" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -16,13 +16,18 @@
         {% set active_page = 'practice' %}
         {% include '_header.html' %}
         <main id="main-content" class="practice-workspace">
-            <div v-if="isMistakePractice" class="page-heading">
-                <span class="session-label" v-if="isMistakePractice">{{ t('错词重练', 'Review') }}</span>
+            <div v-if="!isFormalPractice" class="page-heading">
+                <span class="session-label">{{ isMistakePractice ? '错词重练' : '自由练习' }} · 不计入记忆与统计</span>
+            </div>
+            <p v-if="summary && isFormalPractice" class="memory-summary">待复习 {{ summary.due_count }} 个 · 今日可学 {{ summary.new_available }} 个</p>
+            <div v-if="storageError" class="submission-status" role="alert">
+                <p class="error-message">{{ storageError }}</p>
+                <button v-if="!pendingAttempt" type="button" class="button button-secondary" @click="retryDraftSave">重试保存进度</button>
             </div>
             <template v-if="!isFinished">
                 <div class="session-progress">
-                    <span class="progress-count">{{ progressCurrent }} <span class="muted">/ {{ words.length }}</span></span>
-                    <div class="progress-track" role="progressbar" :aria-label="t('练习进度', 'Session progress')" :aria-valuenow="progressCurrent" aria-valuemin="0" :aria-valuemax="words.length">
+                    <span class="progress-count">{{ progressCurrent }} <span class="muted">/ {{ progressTotal }}</span></span>
+                    <div class="progress-track" role="progressbar" :aria-label="t('练习进度', 'Session progress')" :aria-valuenow="progressCurrent" aria-valuemin="0" :aria-valuemax="progressTotal">
                         <div :style="{ width: progressPercentage + '%' }"></div>
                     </div>
                     <span class="progress-accuracy">{{ t('正确率', 'Accuracy') }} <strong>{{ accuracy }}%</strong></span>
@@ -36,10 +41,18 @@
                         </p>
                         <div class="answer-area">
                             <div class="answer-row">
-                                <input id="answer-input" ref="inputField" v-model="userInput" @beforeinput="handleBeforeInput" @input="handleInput" @keydown="handleKeydown" @compositionstart="handleCompositionStart" @compositionend="handleCompositionEnd" @keyup.esc="quitPractice" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" :aria-label="showAnswer ? '订正拼写' : '英文拼写'" class="answer-input" :class="inputClass" :readonly="isAdvancing" :disabled="isChecking">
+                                <input id="answer-input" ref="inputField" v-model="userInput" @beforeinput="handleBeforeInput" @input="handleInput" @keydown="handleKeydown" @compositionstart="handleCompositionStart" @compositionend="handleCompositionEnd" @keyup.esc="quitPractice" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" :aria-label="showAnswer ? '订正拼写' : '英文拼写'" class="answer-input" :class="inputClass" :readonly="isAdvancing || Boolean(pendingAttempt)" :disabled="isChecking">
                             </div>
                         </div>
                         <p class="sr-only" aria-live="polite">{{ feedbackMessage }}</p>
+                        <div v-if="pendingAttempt" class="submission-status" aria-live="polite">
+                            <p v-if="isChecking" class="muted">正在保存答案…</p>
+                            <template v-else>
+                                <p class="error-message">{{ submitError || storageError || '答案等待保存。' }}</p>
+                                <button v-if="submissionConflict" type="button" class="button button-secondary" @click="continueAfterConflict">获取下一题</button>
+                                <button v-else type="button" class="button button-primary" @click="retryPending">重试保存</button>
+                            </template>
+                        </div>
                         <div v-if="showAnswer && !isAdvancing" class="correction-area">
                             <p class="feedback-text">{{ feedbackMessage }}</p>
                             <p class="answer-spelling"><span v-for="(segment, index) in answerDisplay.segments" :key="index" :class="segment.ok ? answerOkClass : answerMissClass">{{ segment.ch }}</span></p>
@@ -59,20 +72,24 @@
                     </div>
                     <div v-else-if="wordsError" class="empty-state" role="alert">
                         <h2>{{ t('单词加载失败', 'Unable to load entries') }}</h2><p>{{ wordsError }}</p>
-                        <button type="button" class="button button-primary" @click="fetchWords">{{ t('重试', 'Try again') }}</button>
+                        <button type="button" class="button button-primary" @click="loadNextWord">{{ t('重试', 'Try again') }}</button>
                     </div>
                     <div v-else class="empty-state">
                         <svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#document"/></svg>
-                        <h2>{{ t('暂无可练习单词', 'No entries yet') }}</h2><p>{{ t('先同步 Anki，再重新开始练习。', 'Sync your collection, then refresh this session.') }}</p>
-                        <div class="button-row"><button type="button" class="button button-primary" @click="openSyncModal">{{ t('同步 Anki', 'Sync collection') }}</button><button type="button" class="button button-secondary" @click="fetchWords">{{ t('重试', 'Refresh') }}</button></div>
+                        <h2>{{ summary && summary.total ? '当前复习已完成' : '暂无可练习单词' }}</h2>
+                        <p v-if="nextDueText">下次复习：{{ nextDueText }}（北京时间）</p>
+                        <p v-else-if="summary && summary.total">今日新词额度已用完，明天再来继续。</p>
+                        <p v-else>先在 Anki 学习单词，再同步词库。</p>
+                        <div class="button-row"><button v-if="summary && summary.total" type="button" class="button button-secondary" @click="startFreePractice">自由练习</button><button v-else type="button" class="button button-primary" @click="openSyncModal">同步 Anki</button><button type="button" class="button button-secondary" @click="fetchWords">检查待复习</button></div>
                     </div>
                 </section>
             </template>
             <section v-else class="results-sheet">
-                <div class="result-heading"><svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#check"/></svg><h2>{{ isPracticeAbandoned ? t('已退出练习', 'Session closed') : isMistakePractice ? t('错词重练完成', 'Review complete') : t('练习完成', 'Session complete') }}</h2></div>
+                <div class="result-heading"><svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#check"/></svg><h2>{{ isPracticeAbandoned ? '已退出练习' : isMistakePractice ? '错词重练完成' : practiceMode === 'free' ? '自由练习完成' : '本轮练习完成' }}</h2></div>
+                <p v-if="isFormalPractice" class="result-save-status">{{ attemptedTotal }} 次作答已保存<span v-if="nextDueText"> · 下次复习 {{ nextDueText }}</span></p>
                 <dl class="metrics-strip result-metrics"><div><dt>{{ t('总题数', 'Entries') }}</dt><dd>{{ resultTotal }}</dd></div><div><dt>{{ t('正确', 'Correct') }}</dt><dd>{{ stats.correct }}</dd></div><div><dt>{{ t('错误', 'To revise') }}</dt><dd>{{ stats.incorrect }}</dd></div><div><dt>{{ t('正确率', 'Accuracy') }}</dt><dd>{{ accuracy }}<small>%</small></dd></div></dl>
                 <div v-if="stats.errors.length" class="mistakes-section"><h3>{{ t('错题回顾', 'Revisions') }}</h3><ul class="entry-list"><li v-for="(error, index) in stats.errors" :key="index"><div><strong class="mono">{{ error.word }}</strong><p class="muted">{{ error.meaning }}</p></div><del class="mono muted">{{ error.user_input }}</del></li></ul></div>
-                <div class="button-row"><button v-if="mistakePracticeWords.length" type="button" class="button button-secondary" @click="startMistakePractice">{{ t('错词重练', 'Review revisions') }}</button><button type="button" class="button button-primary" @click="restartPractice">{{ t('重新开始', 'New session') }}<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button></div>
+                <div class="button-row"><button v-if="mistakePracticeWords.length" type="button" class="button button-secondary" @click="startMistakePractice">错词重练</button><button type="button" class="button button-secondary" @click="startFreePractice">自由练习</button><button type="button" class="button button-primary" @click="restartPractice">继续计划<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button></div>
             </section>
         </main>
         <div v-if="syncModal.visible" class="dialog-backdrop" @click.self="closeSyncModal">
