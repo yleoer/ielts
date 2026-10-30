@@ -39,6 +39,6 @@
 
 首次启用 FSRS 时，删除退役的 practice_sessions、word_attempts、word_mastery 表并写入迁移标记，后续不再创建这些表。Anki、媒体、同步历史和访问凭证保留。新复习数据使用 word_memory / word_reviews 保存，重启不会清理。启动时自动移除旧 word_reviews.error_type 列，新作答不再计算错误分类；已有作答、卡片和旧提交的幂等响应保留，详见 [统计迁移](statistics/SPEC.md#废弃分类字段迁移)。
 
-配置来自 backend/config/config.yaml、typing-practice/.env 和进程环境变量；环境变量优先。正式部署继续使用缓存 Anki 数据库与持久化统计目录。测试全部在本地运行。
+配置来自 backend/config/config.yaml、typing-practice/.env 和进程环境变量；环境变量优先。正式部署继续使用缓存 Anki 数据库与持久化统计目录。Python 单元测试在本机按改动范围运行，镜像冒烟检查统一在 SSH 测试机 `typetest` 运行，连接失败立即报错并停止镜像流程；GitHub Actions 只负责构建、发布和部署，不运行测试。详见 [测试范围](TESTING.md) 与 [镜像验证](IMAGE-CHECK.md)。
 
 详见 [选词](WORD-SELECTION.md)、[前端](FRONTEND.md)、[统计](statistics/SPEC.md)、[FSRS 参数与优化](SRS-PLAN.md)、[部署](DOCKER-DEPLOY.md)。

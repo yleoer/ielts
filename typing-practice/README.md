@@ -135,7 +135,7 @@ Invoke-RestMethod 'http://127.0.0.1:8080/api/words?limit=20'
 
 ## 本地测试
 
-在仓库根目录运行，无需额外环境配置文件：
+在仓库根目录运行，无需额外环境配置文件。以下为全量命令；日常局部改动只运行受影响测试，共享核心、依赖改动或发布前运行全量，选择方法与耗时分析见 [测试范围](../docs/typing-practice/TESTING.md)：
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s typing-practice/backend -p 'test_*.py'
@@ -145,6 +145,8 @@ node --test typing-practice/frontend/src/app.test.cjs typing-practice/frontend/s
 ## Docker
 
 标准部署仍使用 `docker-compose.yml`；本地构建使用 `docker-compose.local-build.yml`。应用和页面在同一个 Flask 进程中运行，不需要单独启动前端开发服务器。
+
+两份 Dockerfile 自动复制后端 `*.py`（排除测试文件），并在构建时导入应用以检查模块依赖。单元测试在本机执行，Docker 镜像检查统一通过 SSH 在 `typetest` 测试机执行；先检查 SSH 连接，失败时立即报错并停止，不自动换主机。保留 `scripts/check_image.py` 作为实际镜像检查入口，操作见 [镜像验证](../docs/typing-practice/IMAGE-CHECK.md)。GitHub Actions 只负责构建、推送多架构镜像和部署，不运行独立测试任务。无需为测试机维护另一套应用依赖或 `.env`。
 
 Compose 将 `typing-practice/data/anki-media/` 只读挂载到 `/app/anki-media`。把 Anki 的 `collection.media/` 文件复制到该目录，保留原文件名；媒体文件不提交 Git。当前数据库同步只复制 `collection.anki2` 及其 SQLite 附属文件，不自动复制媒体目录；新增媒体需要同步更新该目录。
 

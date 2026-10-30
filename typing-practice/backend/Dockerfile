@@ -9,10 +9,12 @@ RUN apt-get update \
 WORKDIR /app/backend
 
 COPY backend/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir --index-url "$TORCH_INDEX_URL" torch \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY backend/app.py backend/anki.py backend/auth.py backend/config.py backend/memory.py backend/srs.py backend/stats.py backend/sync.py backend/optimizer_service.py backend/optimize_fsrs.py ./
+COPY backend/*.py ./
+RUN python -c "import app"
 RUN mkdir -p config
 COPY backend/config/config.yaml ./config/config.yaml
 COPY frontend ../frontend
