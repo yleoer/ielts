@@ -33,6 +33,14 @@ def progress(entries):
     return {"overall": overall, "levels": list(levels.values()), "topics": list(topics.values())}
 
 
+def word_sort_key(word):
+    """Put practiced words first, prioritizing a smoothed lifetime error rate."""
+    total = word.get("total_attempts", 0)
+    errors = total - word.get("correct_attempts", 0)
+    return (total == 0, -(errors + 1) / (total + 2), -errors,
+            word["word"].casefold(), word["source_id"])
+
+
 def word_page(entries, dimension, value, status, offset, limit):
     if dimension not in {"cefr", "topic"}:
         raise ValueError("无效的词库分组")
@@ -40,7 +48,7 @@ def word_page(entries, dimension, value, status, offset, limit):
         raise ValueError("无效的词库筛选")
     matches = [word for word in entries if group_value(word, dimension) == value
                and (status == "all" or word["status"] == status)]
-    matches.sort(key=lambda word: (word["word"].casefold(), word["source_id"]))
+    matches.sort(key=word_sort_key)
     items = matches[offset:offset + limit]
     return {"items": items, "total": len(matches),
             "next_offset": offset + len(items) if offset + len(items) < len(matches) else None}

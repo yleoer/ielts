@@ -11,7 +11,7 @@ from fsrs import Card, Rating, ReviewLog, State
 
 from activity import calendar_day, calendar_window, daily_activity
 from srs import SRS, SHANGHAI, answer_candidates, duration, normalize_answer, parse_time, time_text, utc_now
-from vocabulary import progress as vocabulary_progress, word_page
+from vocabulary import progress as vocabulary_progress, word_page, word_sort_key
 
 FREE_PRACTICE_LIMIT = 20
 
@@ -180,7 +180,7 @@ class MemoryStore:
                 SELECT memory_id,word_key,word,chinese_meaning,category,reviewed_at,
                     ROW_NUMBER() OVER(PARTITION BY word_key ORDER BY reviewed_at DESC,id DESC) position
                 FROM word_reviews WHERE date(reviewed_at,'+8 hours')=?
-            ) SELECT * FROM ranked WHERE position=1 ORDER BY reviewed_at DESC,word_key""", (day,)).fetchall()
+            ) SELECT * FROM ranked WHERE position=1""", (day,)).fetchall()
             for row in rows:
                 key = row["word_key"]
                 word = current.get(key) or {"id": f"history-{row['memory_id']}",
@@ -193,8 +193,8 @@ class MemoryStore:
                     if key in states and due_day(parse_time(states[key]["due"]), today) == selected:
                         card = Card.from_json(states[key]["card_json"])
                         due.append({**word, **self.srs.describe(card, now)})
-            due.sort(key=lambda item: (item["due"], item["source_id"]))
-            return {"practiced": self._with_attempt_counts(practiced), "due": self._with_attempt_counts(due)}
+            return {"practiced": sorted(self._with_attempt_counts(practiced), key=word_sort_key),
+                    "due": sorted(self._with_attempt_counts(due), key=word_sort_key)}
 
     def queue(self, pool, session_id: str, limit=None, mode="scheduled"):
         if not isinstance(session_id, str) or not 1 <= len(session_id) <= 100:
@@ -335,9 +335,8 @@ class MemoryStore:
 
     def vocabulary_words(self, pool, dimension, value, status="all", offset=0, limit=100):
         with self.lock:
-            page = word_page(self._vocabulary_entries(pool), dimension, value, status, offset, limit)
-            page["items"] = self._with_attempt_counts(page["items"])
-            return page
+            entries = self._with_attempt_counts(self._vocabulary_entries(pool))
+            return word_page(entries, dimension, value, status, offset, limit)
 
     def _with_attempt_counts(self, items):
         keys = list(dict.fromkeys(f"word-atlas:{item['source_id'].strip()}" for item in items))
