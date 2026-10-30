@@ -152,7 +152,8 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(report["mode"], "full")
             self.assertEqual(Path(report["package"]).name, "Word Atlas.apkg")
             self.assertEqual(report["verification"]["deck_name"], "Word Atlas")
-            self.assertEqual(report["verification"]["cards"], 4)
+            self.assertEqual((report["notes"], report["cards"]), (2, 2))
+            self.assertEqual(report["verification"]["cards"], 2)
             self.assertEqual(report["verification"]["new_card_positions"], "ok")
             self.assertEqual(report["verification"]["missing_media_references"], 0)
 
@@ -161,7 +162,7 @@ class PackageTests(unittest.TestCase):
             output = Path(temporary)
             report = atlas.generate(Path("D:/me/word-atlas-main"), Path("D:/me/genanki"),
                                     output, list(TEST_IDS))
-            self.assertEqual((report["notes"], report["cards"]), (10, 20))
+            self.assertEqual((report["notes"], report["cards"]), (10, 10))
             with zipfile.ZipFile(report["package"]) as package:
                 self.assertIsNone(package.testzip())
                 media = json.loads(package.read("media"))
@@ -172,7 +173,9 @@ class PackageTests(unittest.TestCase):
                 with closing(sqlite3.connect(output / "collection.anki2")) as connection:
                     self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
                     self.assertEqual(connection.execute("SELECT count(*) FROM notes").fetchone()[0], 10)
-                    self.assertEqual(connection.execute("SELECT count(*) FROM cards").fetchone()[0], 20)
+                    self.assertEqual(connection.execute("SELECT ord, count(*) FROM cards GROUP BY ord").fetchall(), [(0, 10)])
+                    model = json.loads(connection.execute("SELECT models FROM col").fetchone()[0])[str(atlas.MODEL_ID)]
+                    self.assertEqual([(t["name"], t["ord"]) for t in model["tmpls"]], [("英→中 · 词义回忆", 0)])
                     rows = connection.execute("SELECT guid, flds FROM notes ORDER BY id").fetchall()
                     genanki, chevron = atlas.load_genanki(Path("D:/me/genanki"))
                     for (guid, raw), word_id in zip(rows, TEST_IDS):
@@ -180,18 +183,16 @@ class PackageTests(unittest.TestCase):
                         for match in re.finditer(r'src="([^"]+)"|\[sound:([^\]]+)\]', raw):
                             self.assertIn(match.group(1) or match.group(2), media_by_name)
                         fields = dict(zip(atlas.FIELDS, raw.split("\x1f")))
-                        front = render_anki_template((atlas.TEMPLATES / "front.html").read_text(encoding="utf-8"), fields, chevron)
-                        reverse = render_anki_template((atlas.TEMPLATES / "reverse.html").read_text(encoding="utf-8"), fields, chevron)
+                        front = render_anki_template(model["tmpls"][0]["qfmt"], fields, chevron)
+                        back = render_anki_template(model["tmpls"][0]["afmt"], fields, chevron)
+                        self.assertIn(fields["Word"], front)
                         self.assertNotIn(fields["MeaningZH"], front)
                         self.assertNotIn("<img", front)
-                        reverse_text = html.unescape(re.sub(r"<[^>]*>", "", reverse))
-                        self.assertNotIn(html.unescape(fields["Word"]), reverse_text)
-                        self.assertIn("<img", reverse)
-                        self.assertNotIn(fields["Word"], re.search(r'alt="([^"]*)"', reverse).group(1))
-                        self.assertNotIn("[sound:", reverse)
+                        self.assertIn(html.unescape(fields["MeaningZH"]), html.unescape(back))
+                        self.assertIn("<img", back)
                     models, configs, decks = connection.execute("SELECT models, dconf, decks FROM col").fetchone()
                     model = json.loads(models)[str(atlas.MODEL_ID)]
-                    self.assertEqual(len(model["tmpls"]), 2)
+                    self.assertEqual(len(model["tmpls"]), 1)
                     self.assertEqual([field["name"] for field in model["flds"]], list(atlas.FIELDS))
                     self.assertEqual(json.loads(decks)[str(atlas.DECK_ID)]["conf"], atlas.CONFIG_ID)
                     self.assertFalse(json.loads(configs)[str(atlas.CONFIG_ID)]["autoplay"])
@@ -202,6 +203,45 @@ class PackageTests(unittest.TestCase):
                 self.assertNotEqual(media_by_name["wa_sustainable_uk.mp3"], media_by_name["wa_sustainable_us.mp3"])
                 self.assertIn("wa_library_ex2.mp3", media_by_name)
                 self.assertNotIn("wa_sustainable_ex2.mp3", media_by_name)
+
+    def test_verifier_rejects_reverse_cards_but_plan_update_preserves_legacy_package(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            report = atlas.generate(Path("D:/me/word-atlas-main"), Path("D:/me/genanki"),
+                                    output, ["library"])
+            package_path = Path(report["package"])
+            with zipfile.ZipFile(package_path) as package:
+                members = {name: package.read(name) for name in package.namelist()}
+            database = output / "legacy.anki2"
+            database.write_bytes(members["collection.anki2"])
+            with closing(sqlite3.connect(database)) as connection:
+                models = json.loads(connection.execute("SELECT models FROM col").fetchone()[0])
+                model = models[str(atlas.MODEL_ID)]
+                model["tmpls"].append({**model["tmpls"][0], "name": "中→英 · 表达回忆",
+                                       "ord": 1, "qfmt": "{{MeaningZH}}"})
+                model["req"].append([1, "all", [atlas.FIELDS.index("MeaningZH")]])
+                connection.execute("UPDATE col SET models = ?", (json.dumps(models),))
+                reverse = list(connection.execute("SELECT * FROM cards").fetchone())
+                reverse[0] += 1000
+                reverse[3] = 1
+                connection.execute("INSERT INTO cards VALUES (" + ",".join("?" for _ in reverse) + ")", reverse)
+                connection.commit()
+                before = connection.execute("SELECT * FROM cards ORDER BY id").fetchall()
+            members["collection.anki2"] = database.read_bytes()
+            with zipfile.ZipFile(package_path, "w") as package:
+                for name, content in members.items():
+                    package.writestr(name, content)
+            genanki, _ = atlas.load_genanki(Path("D:/me/genanki"))
+            with self.assertRaisesRegex(ValueError, "模板方向"):
+                atlas.verify_package(package_path, ["library"], genanki)
+            result = atlas.update_package_study_plan(package_path, genanki)
+            self.assertEqual(result["verification"]["cards"], 2)
+            self.assertTrue(result["notes_cards_unchanged"])
+            self.assertTrue(result["media_unchanged"])
+            with zipfile.ZipFile(package_path) as package:
+                database.write_bytes(package.read("collection.anki2"))
+            with closing(sqlite3.connect(database)) as connection:
+                self.assertEqual(connection.execute("SELECT * FROM cards ORDER BY id").fetchall(), before)
 
 
 if __name__ == "__main__":

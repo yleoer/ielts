@@ -1192,15 +1192,6 @@ def model_json(mod_time: int) -> dict[str, Any]:
             "bafmt": "",
             "did": None,
         },
-        {
-            "name": "Reverse",
-            "ord": 1,
-            "qfmt": FRONT_REVERSE,
-            "afmt": BACK_REVERSE,
-            "bqfmt": "",
-            "bafmt": "",
-            "did": None,
-        },
     ]
     return {
         "id": MODEL_ID,
@@ -1215,7 +1206,7 @@ def model_json(mod_time: int) -> dict[str, Any]:
         "css": CSS,
         "latexPre": LATEX_PRE,
         "latexPost": LATEX_POST,
-        "req": [[0, "any", [0]], [1, "any", [3]]],
+        "req": [[0, "any", [0]]],
     }
 
 
@@ -1349,31 +1340,30 @@ def write_collection(db_path: Path, notes: list[dict[str, Any]]) -> None:
                     "",
                 )
             )
-            for ord_value in (0, 1):
-                card_id = next_id
-                next_id += 1
-                card_rows.append(
-                    (
-                        card_id,
-                        note_id,
-                        DECK_ID,
-                        ord_value,
-                        now_sec,
-                        -1,
-                        0,
-                        0,
-                        due,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        "",
-                    )
+            card_id = next_id
+            next_id += 1
+            card_rows.append(
+                (
+                    card_id,
+                    note_id,
+                    DECK_ID,
+                    0,
+                    now_sec,
+                    -1,
+                    0,
+                    0,
+                    due,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    "",
                 )
+            )
 
         conn.executemany("INSERT INTO notes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", note_rows)
         conn.executemany("INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", card_rows)
@@ -1474,7 +1464,7 @@ def build_export(
 
     return {
         "notes": len(notes),
-        "cards": len(notes) * 2,
+        "cards": len(notes),
         "media": len(media_sources),
         "missing_audio": missing_audio,
     }

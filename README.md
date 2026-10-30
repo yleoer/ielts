@@ -21,7 +21,7 @@ The code is intentionally self-hostable and low ceremony. The typing app can run
 
 Creates an Anki deck package from the vocabulary assets under `apkg-generator/`.
 
-The [Word Atlas deck](docs/apkg-generator/word-atlas.md) exports all 7,298 words as 14,596 illustrated cards with offline audio, using the local `genanki` source.
+The [Word Atlas deck](docs/apkg-generator/word-atlas.md) exports all 7,298 words as 7,298 English-to-Chinese cards with illustrations and offline audio, using the local `genanki` source. Both generators create one English-to-Chinese card per word.
 
 Use it when the source vocabulary or card content changes and a new importable deck is needed.
 

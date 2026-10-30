@@ -203,7 +203,8 @@ def write_package(genanki, model, notes: list, media: list[Path], target: Path,
     AtlasPackage(deck, media_files=[str(path) for path in media]).write_to_file(str(target))
 
 
-def verify_package(package_path: Path, entry_ids: list[str], genanki) -> dict:
+def verify_package(package_path: Path, entry_ids: list[str], genanki,
+                   card_ordinals: tuple[int, ...] = (0,)) -> dict:
     """Check the actual archive, every note/card, and every media reference."""
     with zipfile.ZipFile(package_path) as package:
         broken = package.testzip()
@@ -241,11 +242,15 @@ def verify_package(package_path: Path, entry_ids: list[str], genanki) -> dict:
                         if filename not in known_names:
                             raise ValueError(f"{entry_id} 媒体引用缺失：{filename}")
                         references.add(filename)
+                models = json.loads(connection.execute("SELECT models FROM col").fetchone()[0])
+                model = models[str(MODEL_ID)]
+                if tuple(template["ord"] for template in model["tmpls"]) != card_ordinals:
+                    raise ValueError("Anki 卡片模板方向不匹配。")
                 cards = connection.execute("SELECT nid, did, ord, due FROM cards").fetchall()
                 expected_cards = {(nid, DECK_ID, ordinal, position)
-                                  for position, (nid, _, _) in enumerate(rows, 1) for ordinal in (0, 1)}
+                                  for position, (nid, _, _) in enumerate(rows, 1) for ordinal in card_ordinals}
                 if len(cards) != len(expected_cards) or set(cards) != expected_cards:
-                    raise ValueError("Anki 正反向卡片数量、所属牌组或新卡位置不匹配。")
+                    raise ValueError("Anki 卡片方向、数量、所属牌组或新卡位置不匹配。")
                 decks = json.loads(connection.execute("SELECT decks FROM col").fetchone()[0])
                 name = decks[str(DECK_ID)]["name"]
                 configs = json.loads(connection.execute("SELECT dconf FROM col").fetchone()[0])
@@ -275,6 +280,9 @@ def update_package_study_plan(package_path: Path, genanki, deck_name: str = "Wor
             with closing(sqlite3.connect(database)) as connection:
                 before_notes = connection.execute("SELECT * FROM notes ORDER BY id").fetchall()
                 before_cards = connection.execute("SELECT * FROM cards ORDER BY id").fetchall()
+                models = json.loads(connection.execute("SELECT models FROM col").fetchone()[0])
+                # A metadata-only update also preserves cards in older bidirectional packages.
+                card_ordinals = tuple(template["ord"] for template in models[str(MODEL_ID)]["tmpls"])
                 entry_ids = [row[0].split("\x1f")[-1] for row in connection.execute("SELECT flds FROM notes ORDER BY id")]
                 plan = configure_study_plan(connection.cursor(), deck_name)
                 connection.commit()
@@ -288,7 +296,7 @@ def update_package_study_plan(package_path: Path, genanki, deck_name: str = "Wor
                     else:
                         with original.open(item) as src, result.open(copy.copy(item), "w") as dst:
                             shutil.copyfileobj(src, dst, length=1024 * 1024)
-        verification = verify_package(updated, entry_ids, genanki)
+        verification = verify_package(updated, entry_ids, genanki, card_ordinals)
         with zipfile.ZipFile(updated) as result:
             updated_members = {item.filename: (item.CRC, item.file_size) for item in result.infolist()
                                if item.filename != "collection.anki2"}
@@ -312,12 +320,11 @@ def generate(source: Path, genanki_source: Path, output: Path, ids: list[str] | 
     deck_name = deck_name or "Word Atlas"
     genanki, _ = load_genanki(genanki_source)
     templates = {name: (TEMPLATES / f"{name}.html").read_text(encoding="utf-8")
-                 for name in ("front", "reverse", "back")}
+                 for name in ("front", "back")}
     css = (TEMPLATES / "card.css").read_text(encoding="utf-8")
     model = genanki.Model(MODEL_ID, "Word Atlas IELTS · 词义与表达 v1",
                           fields=[{"name": name} for name in FIELDS], css=css,
-                          templates=[{"name": "英→中 · 词义回忆", "qfmt": templates["front"], "afmt": templates["back"]},
-                                     {"name": "中→英 · 表达回忆", "qfmt": templates["reverse"], "afmt": templates["back"]}])
+                          templates=[{"name": "英→中 · 词义回忆", "qfmt": templates["front"], "afmt": templates["back"]}])
     fonts = sorted((source / "dist/assets").glob("fraunces-latin-opsz-normal-*.woff2"))
     if not fonts:
         raise ValueError("dist/assets 中缺少 Fraunces Latin WOFF2 字体，请先构建源项目。")
@@ -351,7 +358,7 @@ def generate(source: Path, genanki_source: Path, output: Path, ids: list[str] | 
     report = {"source": source.as_posix(), "source_count": len(all_entries), "mode": "full" if len(entries) == len(all_entries) else "selection",
               "deck_name": deck_name, "entry_ids": ids,
               "cefr_counts": dict(Counter(e["cefr"] for e in all_entries)),
-              "notes": len(notes), "cards": len(notes) * 2,
+              "notes": len(notes), "cards": len(notes),
               "media_count": len(package_media), "genanki_source": str(Path(genanki.__file__).parent),
               "package": str(output / package_name), "media": media_report,
               "media_counts_by_kind": dict(Counter(item["kind"] for row in media_report for item in row["media"] if item["available"])),

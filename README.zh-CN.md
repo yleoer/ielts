@@ -21,6 +21,8 @@ Anki 是我的词汇数据源。这个仓库把周边流程放在一起：生成
 
 用于在词表或卡片内容变化后，重新生成可导入 Anki 的牌组包。
 
+两套生成器均只生成英→汉卡片，每词一张；Word Atlas 完整牌组包含 7,298 词、7,298 张卡。
+
 关键路径：
 
 - `apkg-generator/scripts/generate_anki_import.py`
