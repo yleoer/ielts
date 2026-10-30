@@ -438,6 +438,10 @@ createApp({
                 day.date === this.today ? 'calendar-today' : ''];
         },
 
+        calendarDayHasWords(day) {
+            return day.practiced > 0 || day.due_count > 0;
+        },
+
         calendarDayDescription(day) {
             return `${day.date}：已学习 ${day.practiced} 个词，待复习 ${day.due_count} 个词`;
         },
@@ -491,6 +495,7 @@ createApp({
         },
 
         openCalendarWords(day) {
+            if (!this.calendarDayHasWords(day)) return;
             this.beginDetail({ type: 'calendar', title: day.date,
                 subtitle: '学习记录与复习安排', calendarDate: day.date,
                 calendarMode: day.practiced ? 'practiced' : 'due',
