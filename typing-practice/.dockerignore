@@ -6,6 +6,7 @@ backend/tmp/
 backend/typing-practice
 backend/__pycache__/
 backend/**/*.pyc
+backend/test_*.py
 frontend/node_modules/
 *.log
 *.tmp
