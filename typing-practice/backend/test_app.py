@@ -50,6 +50,73 @@ def make_anki_db(path: Path, word_count: int = 1) -> None:
 
 
 class FlaskAppTest(unittest.TestCase):
+    def test_answer_can_return_the_new_queue_and_retries_only_commit_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            collection = root / "collection.anki2"
+            make_anki_db(collection, word_count=4)
+            app = create_app(make_config(root, str(collection)), start_background_tasks=False)
+            try:
+                state = app.extensions["typing_practice_state"]
+                now = datetime(2026, 10, 30, 8, tzinfo=timezone.utc)
+                state.memory.now = lambda: now
+                client = app.test_client()
+                first = client.get("/api/practice/queue?session_id=fast&limit=3").json["data"]["items"][0]
+                now += timedelta(seconds=2)
+                payload = {"attempt_id": first["attempt_id"], "session_id": "fast", "user_input": first["word"],
+                           "duration_ms": 2000, "reviewed_at": now.isoformat()}
+                for limit in ("-1", "4", "bad"):
+                    self.assertEqual(client.post(f"/api/practice/attempts?next_limit={limit}", json=payload).status_code, 400)
+                self.assertEqual(state.stats.overview()["total_words_practiced"], 0)
+                saved = client.post("/api/practice/attempts?next_limit=3", json=payload)
+                self.assertEqual(saved.status_code, 200)
+                following = saved.json["next_queue"]
+                self.assertEqual(len(following["items"]), 3)
+                self.assertEqual(following["summary"]["new_available"], 3)
+                self.assertNotIn(first["source_id"], [item["source_id"] for item in following["items"]])
+                retry = client.post("/api/practice/attempts?next_limit=3", json=payload)
+                self.assertEqual(retry.json["data"], saved.json["data"])
+                self.assertEqual(state.stats.overview()["total_words_practiced"], 1)
+
+                # A newly due learning item must beat the earlier media previews.
+                state.stats.db.execute("UPDATE word_memory SET due=?", (now.isoformat(),))
+                state.stats.db.commit()
+                due = client.post("/api/practice/attempts?next_limit=3", json=payload).json["next_queue"]
+                self.assertEqual(due["items"][0]["source_id"], first["source_id"])
+            finally:
+                app.extensions["typing_practice_state"].close()
+
+    def test_next_queue_failure_does_not_hide_a_committed_answer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            collection = root / "collection.anki2"
+            make_anki_db(collection)
+            app = create_app(make_config(root, str(collection)), start_background_tasks=False)
+            try:
+                state = app.extensions["typing_practice_state"]
+                now = datetime(2026, 10, 30, 8, tzinfo=timezone.utc)
+                state.memory.now = lambda: now
+                client = app.test_client()
+                first = client.get("/api/practice/queue?session_id=fallback").json["data"]["items"][0]
+                now += timedelta(seconds=2)
+                original_queue = state.memory.queue
+                def fail_queue(*args, **kwargs):
+                    raise RuntimeError("queue unavailable")
+                state.memory.queue = fail_queue
+                with self.assertLogs("app", level="ERROR"):
+                    saved = client.post("/api/practice/attempts?next_limit=3", json={
+                        "attempt_id": first["attempt_id"], "session_id": "fallback", "user_input": first["word"],
+                        "duration_ms": 2000, "reviewed_at": now.isoformat(),
+                    })
+                self.assertEqual(saved.status_code, 200)
+                self.assertTrue(saved.json["data"]["is_correct"])
+                self.assertNotIn("next_queue", saved.json)
+                self.assertEqual(state.stats.overview()["total_words_practiced"], 1)
+                state.memory.queue = original_queue
+                self.assertEqual(client.get("/api/practice/queue?session_id=fallback").json["data"]["items"], [])
+            finally:
+                app.extensions["typing_practice_state"].close()
+
     def test_scheduled_practice_uses_the_entire_pool_without_session_or_daily_quotas(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -204,6 +271,26 @@ class FlaskAppTest(unittest.TestCase):
                 with client.get(path) as response:
                     self.assertEqual(response.status_code, 200)
                     self.assertEqual(response.data, b"test-image")
+                    self.assertTrue(response.cache_control.no_store)
+                versioned = client.get("/api/practice/queue?session_id=media").json["data"]["items"][0]["illustration_url"]
+                self.assertIn("?v=", versioned)
+                with client.get(versioned) as response:
+                    self.assertTrue(response.cache_control.private)
+                    self.assertEqual(response.cache_control.max_age, 31536000)
+                    self.assertFalse(response.cache_control.no_store)
+                    etag = response.headers["ETag"]
+                with client.get(versioned, headers={"If-None-Match": etag}) as response:
+                    self.assertEqual(response.status_code, 304)
+                    self.assertTrue(response.cache_control.private)
+                unauthorized = app.test_client().get(versioned)
+                self.assertEqual(unauthorized.status_code, 401)
+                self.assertTrue(unauthorized.cache_control.no_store)
+                (media / "wa_abandon_img.webp").write_bytes(b"changed-image")
+                changed = client.get("/api/practice/queue?session_id=media").json["data"]["items"][0]["illustration_url"]
+                self.assertNotEqual(changed, versioned)
+                with client.get(versioned) as response:
+                    self.assertEqual(response.data, b"changed-image")
+                    self.assertTrue(response.cache_control.no_store)
             finally:
                 app.extensions["typing_practice_state"].close()
 

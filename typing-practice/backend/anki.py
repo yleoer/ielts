@@ -83,6 +83,8 @@ class AnkiReader:
         self.deck_ids: list[int] = []
         self._lock = threading.RLock()
         self.db = self._open()
+        self._pool_version = None
+        self._pool_cache: dict[str, list[dict[str, Any]]] = {}
         try:
             self.deck_ids = self._resolve_deck_ids()
             if self.deck_ids:
@@ -210,7 +212,20 @@ class AnkiReader:
             )
             ORDER BY n.id
         """
-        return self._read_words(query, self._learned_deck_ids(), category)
+        words = self._cached_pool("learned", query)
+        return [word for word in words if category.lower() == "all" or word["category"].lower() == category.lower()]
+
+    def _cached_pool(self, name: str, query: str) -> list[dict[str, Any]]:
+        with self._lock:
+            # data_version also notices commits still in a live collection's WAL.
+            version = self.db.execute("PRAGMA data_version").fetchone()[0]
+            if version != self._pool_version:
+                self._pool_cache.clear()
+                self._pool_version = version
+            if name not in self._pool_cache:
+                self._pool_cache[name] = self._read_words(query, self._learned_deck_ids(), "all")
+            # API consumers must not mutate the shared parsed vocabulary.
+            return [dict(word) for word in self._pool_cache[name]]
 
     def get_word_pool(self) -> list[dict[str, Any]]:
         """All vocabulary in the configured deck tree, regardless of learning state."""
@@ -221,7 +236,7 @@ class AnkiReader:
             )
             ORDER BY n.id
         """
-        return self._read_words(query, self._learned_deck_ids(), "all")
+        return self._cached_pool("all", query)
 
     def get_word_by_id(self, note_id: int) -> dict[str, Any]:
         with self._lock:

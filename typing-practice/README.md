@@ -31,6 +31,8 @@ $env:STATS_DB_PATH = (Join-Path (Get-Location) 'typing-practice\data\stats\stats
 
 卡片依次显示 200px 圆角插图、同一行的词性与中文含义，然后显示输入框。插图缺失或加载失败时隐藏。浏览器练习页不提供发音按钮、不加载音频；Word Atlas 音频字段保留在原始 22 字段结构中，但练习接口不读取或返回它们。
 
+练习即时反馈拼写，保存期间可订正；服务器确认后才计数和切题，并直接返回下一题。插图提前加载并按文件版本使用浏览器私有缓存，Anki 词库缓存随数据库变化自动刷新。访问验证、动态到期优先和逐题可靠保存继续保留，详见 [前端流程](../docs/typing-practice/FRONTEND.md) 与 [接口说明](../docs/typing-practice/SPEC.md)。
+
 直接读取 Anki 时，媒体目录默认为数据库旁的 `collection.media/`。如数据库是复制的缓存，需指定原始媒体目录，例如：
 
 ```powershell

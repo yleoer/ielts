@@ -64,6 +64,9 @@ def install_access_gate(app: Flask, password: str, stats_path: str) -> None:
 
     @app.after_request
     def prevent_private_caching(response):
+        if (request.endpoint == "word_media" and response.status_code in {200, 304}
+                and response.cache_control.private and response.cache_control.max_age):
+            return response
         if not request.path.startswith(("/assets/", "/src/")):
             response.headers["Cache-Control"] = "no-store"
         return response

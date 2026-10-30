@@ -7,7 +7,7 @@
     {% include '_appearance.html' %}
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
-    <script src="/src/app.js?v=20261029-free-fsrs" defer></script>
+    <script src="/src/app.js?v=20261030-practice-latency" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -41,7 +41,7 @@
                         </p>
                         <div class="answer-area">
                             <div class="answer-row">
-                                <input id="answer-input" ref="inputField" v-model="userInput" @beforeinput="handleBeforeInput" @input="handleInput" @keydown="handleKeydown" @compositionstart="handleCompositionStart" @compositionend="handleCompositionEnd" @keyup.esc="quitPractice" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" :aria-label="showAnswer ? '订正拼写' : '英文拼写'" class="answer-input" :class="inputClass" :readonly="isAdvancing || Boolean(pendingAttempt)" :disabled="isChecking">
+                                <input id="answer-input" ref="inputField" v-model="userInput" @beforeinput="handleBeforeInput" @input="handleInput" @keydown="handleKeydown" @compositionstart="handleCompositionStart" @compositionend="handleCompositionEnd" @keyup.esc="quitPractice" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" :aria-label="showAnswer ? '订正拼写' : '英文拼写'" class="answer-input" :class="inputClass" :readonly="isAdvancing || Boolean(pendingAttempt && !showAnswer)" :aria-busy="isChecking">
                             </div>
                         </div>
                         <p class="sr-only" aria-live="polite">{{ feedbackMessage }}</p>
@@ -63,7 +63,7 @@
                                 <p v-if="currentWord.example_en">{{ currentWord.example_en }}</p>
                                 <p v-if="currentWord.example_cn" class="muted">{{ currentWord.example_cn }}</p>
                             </div>
-                            <button type="button" class="button button-secondary" @click="nextWord">{{ t('下一题', 'Continue') }}<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button>
+                            <button type="button" class="button button-secondary" :disabled="Boolean(pendingAttempt) || Boolean(storageError)" @click="nextWord">{{ t('下一题', 'Continue') }}<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button>
                         </div>
                     </div>
                     <div v-else-if="isLoadingWords" class="empty-state" role="status">

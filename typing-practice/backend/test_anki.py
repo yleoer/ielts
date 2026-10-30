@@ -100,6 +100,38 @@ class WordAtlasFieldTest(unittest.TestCase):
 
 
 class WordAtlasReaderTest(unittest.TestCase):
+    def test_pool_cache_refreshes_external_commits_including_wal_and_keeps_results_independent(self):
+        for journal in ("DELETE", "WAL"):
+            with self.subTest(journal=journal), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "collection.anki2"
+                with closing(sqlite3.connect(path)) as writer:
+                    writer.execute(f"PRAGMA journal_mode={journal}")
+                    writer.executescript("""
+                        CREATE TABLE cards(id INTEGER PRIMARY KEY,nid INTEGER,did INTEGER,type INTEGER,queue INTEGER);
+                        CREATE TABLE notes(id INTEGER PRIMARY KEY,flds TEXT);
+                        INSERT INTO cards VALUES(1,101,1,1,1),(2,102,1,0,0);
+                    """)
+                    writer.executemany("INSERT INTO notes VALUES(?,?)", [(101, atlas_fields()), (102, atlas_fields(Word="new"))])
+                    writer.commit()
+                    reader = AnkiReader(str(path), "Word Atlas", 1)
+                    try:
+                        with patch("anki.parse_word", wraps=parse_word) as parse:
+                            reader.get_learned_word_pool()[0]["word"] = "client mutation"
+                            self.assertEqual(reader.get_learned_word_pool()[0]["word"], "library")
+                            self.assertEqual(parse.call_count, 1)
+                            self.assertEqual(len(reader.get_word_pool()), 2)
+                            self.assertEqual(parse.call_count, 3)
+                            reader.get_word_pool()
+                            self.assertEqual(parse.call_count, 3)
+                            writer.execute("UPDATE notes SET flds=? WHERE id=101", (atlas_fields(Word="updated"),))
+                            writer.execute("UPDATE cards SET type=1,queue=1 WHERE nid=102")
+                            writer.commit()
+                            self.assertEqual([word["word"] for word in reader.get_learned_word_pool()], ["updated", "new"])
+                            self.assertEqual(reader.get_word_pool()[0]["word"], "updated")
+                            self.assertEqual(parse.call_count, 7)
+                    finally:
+                        reader.close()
+
     def test_learned_words_are_unique_and_include_child_decks(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "collection.anki2"

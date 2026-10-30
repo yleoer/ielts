@@ -252,19 +252,47 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
     def config_endpoint():
         return jsonify(state.config_payload())
 
-    @app.route("/api/media/<int:note_id>/<kind>")
-    def word_media(note_id: int, kind: str):
-        if kind != "illustration":
-            abort(404)
+    def illustration_path(note_id: int) -> Path | None:
         with state.lock:
-            filename = state.reader.get_media_filename(note_id, kind) if state.reader else ""
+            filename = state.reader.get_media_filename(note_id, "illustration") if state.reader else ""
         if not filename:
-            abort(404)
+            return None
         media_dir = Path(cfg.anki.media_dir or Path(cfg.anki.db_path).parent / "collection.media").expanduser().resolve()
         media_path = (media_dir / filename).resolve()
         if media_path.parent != media_dir or not media_path.is_file():
+            return None
+        return media_path
+
+    def illustration_version(path: Path) -> str:
+        info = path.stat()
+        return f"{info.st_mtime_ns:x}-{info.st_size:x}-{path.name.encode('utf-8').hex()}"
+
+    def prepare_queue(data: dict) -> dict:
+        for word in data["items"]:
+            if word.get("illustration_url"):
+                path = illustration_path(word["id"])
+                try:
+                    if path:
+                        word["illustration_url"] += f"?v={illustration_version(path)}"
+                except OSError:
+                    pass  # An illustration disappearing must not block practice.
+        return data
+
+    @app.route("/api/media/<int:note_id>/<kind>")
+    def word_media(note_id: int, kind: str):
+        path = illustration_path(note_id) if kind == "illustration" else None
+        if not path:
             abort(404)
-        return send_from_directory(media_dir, filename, conditional=True)
+        try:
+            versioned = request.args.get("v") == illustration_version(path)
+        except OSError:
+            abort(404)
+        response = send_from_directory(path.parent, path.name, conditional=True,
+                                       max_age=31536000 if versioned else None)
+        if versioned:
+            response.cache_control.public = False
+            response.cache_control.private = True
+        return response
 
     @app.route("/api/sync/status")
     def sync_status_endpoint():
@@ -284,17 +312,34 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
             state.current_pool(), request.args.get("session_id", ""),
             limit, mode,
         )
-        return jsonify(success=True, data=data)
+        return jsonify(success=True, data=prepare_queue(data))
 
     @app.route("/api/practice/attempts", methods=["POST"])
     def practice_attempt():
         payload = request.get_json(silent=True)
+        try:
+            next_limit = int(request.args.get("next_limit", "0"))
+        except (TypeError, ValueError):
+            raise ValueError("next_limit 必须在 0–3 之间") from None
+        if not 0 <= next_limit <= 3:
+            raise ValueError("next_limit 必须在 0–3 之间")
         # A committed retry can be acknowledged even if Anki is temporarily unavailable.
         try:
             pool = state.current_pool()
         except RuntimeError:
             pool = None
-        return jsonify(success=True, data=state.memory.submit(payload, pool))
+        result = state.memory.submit(payload, pool)
+        response = {"success": True, "data": result}
+        if next_limit and pool is not None:
+            try:
+                response["next_queue"] = prepare_queue(state.memory.queue(
+                    pool, payload["session_id"], min(next_limit, cfg.practice.max_limit), "scheduled",
+                ))
+            except Exception:
+                # Saving the answer has already committed. A follow-up selection
+                # failure falls back to GET /queue without hiding that success.
+                LOG.exception("Could not select the next practice item after saving")
+        return jsonify(response)
 
     @app.route("/api/memory/summary")
     def memory_summary():
