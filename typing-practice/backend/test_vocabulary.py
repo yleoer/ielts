@@ -95,6 +95,43 @@ class VocabularyTest(unittest.TestCase):
             self.assertEqual(topic["total"], 1)
             self.assertEqual(self.state.stats.db.total_changes, changes)
 
+    def test_detail_lists_prioritize_smoothed_errors_before_paging_and_filtering(self):
+        pool = {word["source_id"]: word for word in self.state.vocabulary_pool()}
+        # Deliberately put the highest-priority word after lower-priority entries.
+        histories = [("abandon", 1, 0), ("word-ab", 1, 1), ("word-ac", 10, 8),
+                     ("word-ad", 2, 1), ("word-ae", 4, 2), ("word-af", 4, 2)]
+        for source, total, errors in histories:
+            word = pool[source]
+            for index in range(total):
+                question = self.state.memory.queue([word], "sort-test", 1, "free")["items"][0]
+                self.now += timedelta(seconds=7)
+                self.state.memory.submit({
+                    "attempt_id": question["attempt_id"], "session_id": "sort-test",
+                    "user_input": "" if index < errors else word["word"],
+                    "duration_ms": 7000, "reviewed_at": self.now.isoformat(),
+                }, [word])
+
+        changes = self.state.stats.db.total_changes
+        expected = ["word-ac", "word-ab", "word-ae", "word-af", "word-ad", "abandon"]
+        for group in ({"dimension": "cefr", "value": "B2"}, {"dimension": "topic", "value": "思维"}):
+            with self.subTest(**group):
+                sources = []
+                for offset in (0, 2, 4):
+                    data = self.page(**group, offset=offset, limit=2)
+                    self.assertEqual(data["total"], 205)
+                    self.assertEqual(data["next_offset"], offset + 2)
+                    sources.extend(word["source_id"] for word in data["items"])
+                self.assertEqual(sources, expected)
+                self.assertEqual(self.page(**group, offset=6, limit=1)["items"][0]["source_id"], "word-ag")
+                learned = self.page(**group, status="learning")["items"]
+                self.assertEqual([word["source_id"] for word in learned], expected)
+                self.assertEqual((learned[0]["correct_attempts"], learned[0]["total_attempts"]), (2, 10))
+                fresh = self.page(**group, status="new", limit=1)
+                self.assertEqual(fresh["total"], 199)
+                self.assertEqual((fresh["items"][0]["correct_attempts"], fresh["items"][0]["total_attempts"]), (0, 0))
+        self.assertEqual(self.state.stats.db.total_changes, changes)
+        self.assertEqual([word["source_id"] for word in self.state.current_pool()], ["abandon"])
+
     def test_pagination_can_reach_every_word_without_duplicates(self):
         sources, offset = [], 0
         while offset is not None:

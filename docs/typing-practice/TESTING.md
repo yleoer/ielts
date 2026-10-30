@@ -54,7 +54,7 @@
 .\.venv\Scripts\python.exe -m unittest discover -s typing-practice/backend -p 'test_*.py'
 ```
 
-仅验证词库模块的 9 项测试：
+仅验证词库模块（含易错优先排序、筛选与分页）的测试：
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s typing-practice/backend -p 'test_vocabulary.py'

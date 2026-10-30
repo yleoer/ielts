@@ -86,6 +86,36 @@ class ActivityTest(unittest.TestCase):
         self.assertEqual(self.state.stats.db.total_changes, changes)
         self.assertEqual([tuple(row) for row in self.state.stats.db.execute("SELECT * FROM word_memory")], before)
 
+    def test_calendar_history_and_due_share_smoothed_error_order_without_writes(self):
+        pool = {word["source_id"]: word for word in self.state.current_pool()}
+        histories = [("word-ac", 10, 8), ("word-ab", 1, 1), ("abandon", 1, 0)]
+        for source, total, errors in histories:
+            word = pool[source]
+            for index in range(total):
+                question = self.state.memory.queue([word], "calendar-sort", 1, "free")["items"][0]
+                self.now += timedelta(seconds=1)
+                self.state.memory.submit({
+                    "attempt_id": question["attempt_id"], "session_id": "calendar-sort",
+                    "user_input": "" if index < errors else word["word"],
+                    "duration_ms": 1000, "reviewed_at": time_text(self.now),
+                }, [word])
+        # Due time and latest practice time both oppose the desired error order.
+        with self.state.stats.db:
+            for index, (source, _, _) in enumerate(histories):
+                row = self.state.stats.db.execute("SELECT * FROM word_memory WHERE word_key=?",
+                                                  (f"word-atlas:{source}",)).fetchone()
+                card = Card.from_json(row["card_json"])
+                card.due = self.now + timedelta(hours=3 - index)
+                self.state.stats.db.execute("UPDATE word_memory SET due=?,card_json=? WHERE id=?",
+                                            (time_text(card.due), card.to_json(), row["id"]))
+        changes = self.state.stats.db.total_changes
+        data = self.get("/api/stats/calendar-words?date=2026-10-29")
+        for group in ("practiced", "due"):
+            self.assertEqual([word["source_id"] for word in data[group]], ["word-ac", "word-ab", "abandon"])
+            self.assertEqual([(word["correct_attempts"], word["total_attempts"]) for word in data[group]],
+                             [(2, 10), (0, 1), (1, 1)])
+        self.assertEqual(self.state.stats.db.total_changes, changes)
+
     def test_beijing_midnight_and_removed_words_preserve_historical_detail(self):
         self.now = datetime(2026, 10, 28, 15, 59, 58, tzinfo=timezone.utc)
         self.review()

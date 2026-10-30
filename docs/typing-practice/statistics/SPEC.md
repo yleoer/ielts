@@ -31,7 +31,7 @@ GET /api/stats/overview 仅返回累计作答次数、当前连续学习天数�
 
 `GET /api/stats/calendar` 返回 `{start_date,end_date,today,days}`，日期边界统一由服务端北京时间确定。范围是前六个月、当月和后五个月，共 12 个完整自然月；days 包含范围内的所有日期，缺少记录补零。每项为 `{date,practiced,attempts,accuracy,due_count}`：practiced 为当日作答去重词数，attempts 为作答次数，accuracy 为当日正确率（无作答时 null）；due_count 为当前练习池已有 FSRS 卡片的到期词数，逾期归今天，过去日期的 due_count 为 0。学习记录包含当前已移出词池的历史，待复习不包含移出词和未开始词，不预测重复复习。
 
-`GET /api/stats/calendar-words?date=YYYY-MM-DD` 返回 `{practiced:[...],due:[...]}`，两个数组均不截断。practiced 每个稳定词条取当天最新快照，当前词条可用时使用当前信息，否则回退日志中的拼写和释义；due 只按当前计划、当前练习池计算，按到期时间及 SourceId 排序。两组均提供 correct_attempts/total_attempts、当前 FSRS 字段（如有）。没有数据的日期返回两个空数组；非法或超出当前 12 个月范围的日期返回 400。接口只读，日历格子与明细共用范围、去重和到期分桶规则。
+`GET /api/stats/calendar-words?date=YYYY-MM-DD` 返回 `{practiced:[...],due:[...]}`，两个数组均不截断。practiced 每个稳定词条取当天最新快照，当前词条可用时使用当前信息，否则回退日志中的拼写和释义；due 只按当前计划、当前练习池计算。两组均提供 correct_attempts/total_attempts、当前 FSRS 字段（如有）。没有数据的日期返回两个空数组；非法或超出当前 12 个月范围的日期返回 400。接口只读，日历格子与明细共用范围、去重和到期分桶规则。
 
 `GET /api/stats/monthly-activity` 返回 `{month,days}`，month 为服务端北京时间 YYYY-MM，days 固定覆盖当月每一天（28–31 天），每项为 `{date,words,accuracy}`。words 是网站正式/自由练习有效作答次数，accuracy 是正确率，缺记录时分别为 0/null；不再使用滚动 30 天范围。
 
@@ -41,9 +41,15 @@ GET /api/stats/overview 仅返回累计作答次数、当前连续学习天数�
 
 `GET /api/stats/vocabulary-progress` 返回 `{overall,levels,topics}`。每个分组含 `value,label,total,learned,new,learning,mastered`；`learned=learning+mastered`，`total=new+learning+mastered`。页面按“学习中 / 已掌握 / 总单词数”依次展示 `learning / mastered / total`，不将 learned 当作学习中。levels 始终按 A1、A2、B1、B2、C1、C2 排列，包含零值；异常或空 CEFR 汇入“未分级”，有词时追加该组。CEFR 去 HTML、去空格并大写；话题取 Topic（接口字段 category），空值归入“未分类”，按首次出现顺序输出。
 
-`GET /api/stats/vocabulary-words?dimension=cefr&value=A1&status=all&offset=0&limit=100` 返回 `{items,total,next_offset}`。dimension 支持 `cefr/topic`，value 为进度接口的原分组值，status 支持 `all/new/learning/mastered`。每词提供现有词条字段（含 cefr/category）、记忆状态、FSRS 到期字段（如有），以及 `correct_attempts/total_attempts`（无网站作答记录时均为 0），按英文词面和 SourceId 排序。total 为当前筛选匹配数，next_offset 为下一页偏移，无后续数据时为 null；不静默截断整个分组。offset 必须为非负整数，limit 为 1–200，默认为 100；非法参数返回 400。两接口只读，不签发题目、不写入记忆或作答日志；数据源不可用返回 503。
+`GET /api/stats/vocabulary-words?dimension=cefr&value=A1&status=all&offset=0&limit=100` 返回 `{items,total,next_offset}`。dimension 支持 `cefr/topic`，value 为进度接口的原分组值，status 支持 `all/new/learning/mastered`。每词提供现有词条字段（含 cefr/category）、记忆状态、FSRS 到期字段（如有），以及 `correct_attempts/total_attempts`（无网站作答记录时均为 0），在整个筛选结果中按“易错优先”排序后分页。total 为当前筛选匹配数，next_offset 为下一页偏移，无后续数据时为 null；不静默截断整个分组。offset 必须为非负整数，limit 为 1–200，默认为 100；非法参数返回 400。两接口只读，不签发题目、不写入记忆或作答日志；数据源不可用返回 503。
 
 已移除不再使用的 mastery-distribution/mastery-words、error-types/error-type-words 接口及其统计查询，旧路径返回 404。原练习队列、自由练习、待复习预报及 `/api/words` 仍使用 Anki 已学习词池。
+
+## 单词列表排序
+
+日历的 practiced/due 两组、CEFR 等级（含未分级）和话题单词列表统一使用“易错优先”：已作答词按 `(total_attempts - correct_attempts + 1) / (total_attempts + 2)` 降序；分数相同时，依次按累计答错次数降序、英文词面（忽略大小写）升序、SourceId 升序。未作答词统一放最后，按英文词面与 SourceId 排序。分数使用网站全部有效历史作答次数，日历所选日期只限定词条范围，不把计数缩减为当日。
+
+词库列表先补齐作答次数，再对完整筛选结果排序并分页；日历两组分别排序。排序不写数据库、不修改 FSRS 到期计划或练习队列，响应继续提供真实 `correct_attempts/total_attempts`，不把排序分数当作实际错误率展示。
 
 ## 单词答错记录接口
 
