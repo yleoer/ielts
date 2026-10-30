@@ -5,7 +5,7 @@
 
 下面的命令默认在仓库根目录执行。
 
-另有基于本地 Word Atlas 词库和 `genanki` 的 [完整牌组](word-atlas.md)，含 7,298 词、14,596 张卡、插画与离线英美发音，正式牌组名为 Word Atlas，无需 AI 接口。以下仍是原词表生成流程。
+另有基于本地 Word Atlas 词库和 `genanki` 的 [完整牌组](word-atlas.md)，含 7,298 词、7,298 张英→汉卡、插画与离线英美发音，正式牌组名为 Word Atlas，无需 AI 接口。两套生成器均为每词一张英→汉卡。以下仍是原词表生成流程。
 
 ## 文件说明
 
@@ -121,8 +121,8 @@ python apkg-generator\scripts\generate_anki_import.py --cached-ai-only
 
 ## Anki 学习配置
 
-生成的牌组默认适合每天学习 10 个单词。由于每个单词包含正向和反向卡片，
-所以每天新卡数为 20 张。
+生成的牌组每个单词只包含一张英→汉卡片。每天新卡额度保持 20 张，
+最多可引入 20 个新词。
 
 - 每天新卡：`20`
 - 学习步骤：`15m 4h 8h`
@@ -133,7 +133,7 @@ python apkg-generator\scripts\generate_anki_import.py --cached-ai-only
 
 推荐学习节奏：
 
-- 早上地铁：先熟悉 10 个新单词。
+- 早上地铁：先熟悉当天新单词，最多 20 个。
 - 中午吃饭：再记忆一遍。
 - 晚上下班地铁：强化复习。
 - 睡前：查漏补缺，清理当天到期卡片。
@@ -146,6 +146,9 @@ python apkg-generator\scripts\generate_anki_import.py --cached-ai-only
 3. 选择 `apkg-generator/anki_export/ielts_vocabulary.apkg`。
 4. 导入牌组。
 5. 导入后检查牌组选项，尤其是每天新卡数量和 FSRS 设置。
+
+重新导入不会自动清除 Anki 中已有的汉→英卡片。已有牌组可打开卡片模板编辑器，
+选择 `Reverse` 并移除该卡片类型。保留笔记本身，以保留英→汉卡片及其学习进度。
 
 ## 常用命令
 

@@ -5,7 +5,7 @@ typing practice web app lives in `typing-practice/`.
 
 Commands below are intended to be run from the repository root.
 
-A separate [Word Atlas deck](word-atlas.md) uses the local Word Atlas dataset and local `genanki` source. The full deck contains 7,298 words and 14,596 cards with illustrations and offline UK/US audio, without AI calls. The instructions below describe the original generator.
+A separate [Word Atlas deck](word-atlas.md) uses the local Word Atlas dataset and local `genanki` source. The full deck contains 7,298 words and 7,298 English-to-Chinese cards with illustrations and offline UK/US audio, without AI calls. Both generators create one English-to-Chinese card per word. The instructions below describe the original generator.
 
 This repository contains the source files and script for generating an Anki
 deck package (`.apkg`) from the IELTS vocabulary list and local pronunciation
@@ -123,8 +123,8 @@ that was in progress when the process was stopped.
 
 ## Anki Study Settings
 
-The generated deck is configured for 10 words per day, with forward and reverse
-cards:
+The generated deck contains one English-to-Chinese card per word. The default
+limit of 20 new cards introduces up to 20 new words per day:
 
 - New cards per day: `20`
 - Learning steps: `15m 4h 8h`
@@ -135,7 +135,7 @@ cards:
 
 Suggested daily rhythm:
 
-- Morning commute: first pass through 10 new words.
+- Morning commute: first pass through up to 20 new words.
 - Lunch: memory pass.
 - Evening commute: reinforcement.
 - Before sleep: clear due cards and review weak items.
@@ -147,6 +147,10 @@ Suggested daily rhythm:
 3. Select `apkg-generator/anki_export/ielts_vocabulary.apkg`.
 4. Import the deck.
 5. Check the deck options after import, especially new-card limits and FSRS.
+
+Reimporting a package does not automatically remove reverse cards already in Anki.
+For an existing deck, open its card template editor, select `Reverse`, and remove
+that card type. Keep the note itself to retain its English-to-Chinese card and progress.
 
 ## Useful Commands
 
