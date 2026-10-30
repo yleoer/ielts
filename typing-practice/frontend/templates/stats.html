@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
-    <script src="/src/stats.js?v=20261029-calendar-cleanup" defer></script>
+    <script src="/src/stats.js?v=20261030-calendar-empty-days" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -33,7 +33,7 @@
                                 <div class="github-heatmap-body">
                                     <div class="github-heatmap-weekdays" aria-hidden="true"><span></span><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span></div>
                                     <div class="github-heatmap-grid" role="group" aria-label="每日已学习与待复习单词">
-                                        <div v-for="(week, index) in calendarWeeks" :key="index" class="github-heatmap-week"><template v-for="(day, offset) in week" :key="day?.date || offset"><button v-if="day" type="button" class="github-heatmap-cell calendar-day" :class="calendarDayClass(day)" :data-date="day.date" :tabindex="day.date === calendarFocusDate ? 0 : -1" @focus="calendarFocusDate = day.date" @keydown="onCalendarKeydown($event, day)" :aria-label="calendarDayDescription(day)" :title="calendarDayDescription(day)" :aria-current="day.date === today ? 'date' : null" aria-haspopup="dialog" @click="openCalendarWords(day)"></button><span v-else class="github-heatmap-cell calendar-outside" aria-hidden="true"></span></template></div>
+                                        <div v-for="(week, index) in calendarWeeks" :key="index" class="github-heatmap-week"><template v-for="(day, offset) in week" :key="day?.date || offset"><button v-if="day" type="button" class="github-heatmap-cell calendar-day" :class="calendarDayClass(day)" :data-date="day.date" :tabindex="day.date === calendarFocusDate ? 0 : -1" @focus="calendarFocusDate = day.date" @keydown="onCalendarKeydown($event, day)" :aria-label="calendarDayDescription(day)" :title="calendarDayHasWords(day) ? calendarDayDescription(day) : null" :aria-current="day.date === today ? 'date' : null" :aria-disabled="!calendarDayHasWords(day)" :aria-haspopup="calendarDayHasWords(day) ? 'dialog' : null" @click="openCalendarWords(day)"></button><span v-else class="github-heatmap-cell calendar-outside" aria-hidden="true"></span></template></div>
                                     </div>
                                 </div>
                             </div>

@@ -38,13 +38,12 @@ test('calendar date detail shows every scheduled word and switches history witho
     assert.equal(calls, 1);
 });
 
-test('empty calendar dates open a dated empty list', async () => {
-    const app = harness(async () => ({ data: { data: { practiced: [], due: [] } } }));
+test('empty calendar dates do not open a dialog or request words', async () => {
+    let calls = 0;
+    const app = harness(async () => { calls++; });
     await app.openCalendarWords({ date: '2026-10-30', practiced: 0, due_count: 0 });
-    assert.equal(app.detailModal.visible, true);
-    assert.equal(app.detailModal.title, '2026-10-30');
-    assert.equal(app.detailModal.items.length, 0);
-    assert.equal(app.detailModal.error, '');
+    assert.equal(app.detailModal.visible, false);
+    assert.equal(calls, 0);
 });
 
 test('calendar detail distinguishes empty results from failures and supports retry', async () => {
