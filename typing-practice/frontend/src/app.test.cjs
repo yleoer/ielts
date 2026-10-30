@@ -22,7 +22,9 @@ function harness() {
     const sessionStorage = storage();
     const context = {
         Vue: { createApp: value => { options = value; return { mount() {} }; } },
-        window: { location: { origin: 'http://test' }, setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout() {} },
+        window: { location: { origin: 'http://test' },
+            setTimeout: (fn, delay) => { timers.push({ fn, delay, active: true }); return timers.length; },
+            clearTimeout: id => { if (timers[id - 1]) timers[id - 1].active = false; } },
         document, localStorage, sessionStorage,
         performance: { now: () => now }, crypto: { randomUUID: () => 'session' },
         console, Date, Map, JSON, Math,
@@ -176,7 +178,7 @@ for (const count of [3, 25]) {
         const summary = () => ({ total: count, due_count: 0, new_available: count - h.app.attemptedTotal });
         h.context.axios.get = async (url, { params } = {}) => {
             if (url.endsWith('/memory/summary')) return { data: { data: summary() } };
-            assert.equal(params.limit, 1);
+            assert.equal(params.limit, 3);
             const index = h.app.attemptedTotal;
             return { data: { data: {
                 items: index < count ? [{ word: 'apple', source_id: `apple-${index}`, attempt_id: `attempt-${index}` }] : [],
@@ -308,4 +310,125 @@ test('an empty pool shows zero progress and no current question', async () => {
     assert.equal(h.app.currentWord, null);
     assert.equal(h.app.progressTotal, 0);
     assert.equal(h.app.progressCurrent, 0);
+});
+
+test('correct feedback is immediate but counts and advancement wait for server confirmation', async () => {
+    const h = harness();
+    let confirm;
+    h.context.axios.post = (url, payload, config) => {
+        assert.equal(config.params.next_limit, 3);
+        return new Promise(resolve => { confirm = resolve; });
+    };
+    h.context.axios.get = async () => { throw new Error('unnecessary queue request'); };
+    h.app.beginCurrentWord();
+    h.tick(1000);
+    const submission = h.app.submitInput('apple');
+    assert.equal(h.app.isCorrect, true);
+    assert.equal(h.app.cardClass, 'is-success');
+    assert.equal(h.app.answerAccepted, false);
+    assert.equal(h.app.attemptedTotal, 0);
+    await h.app.nextWord();
+    assert.equal(h.app.currentIndex, 0);
+    h.tick(500);
+    confirm({ data: { data: { attempt_id: 'attempt', is_correct: true }, next_queue: {
+        items: [{ word: 'book', source_id: 'book', attempt_id: 'next' }],
+        summary: { total: 2, due_count: 0, new_available: 1 }, server_time: new Date().toISOString()
+    } } });
+    await submission;
+    assert.equal(h.app.attemptedTotal, 1);
+    assert.equal(h.timers.at(-1).delay, 0); // Network waiting already covered the feedback interval.
+    const draft = JSON.parse(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'));
+    assert.equal('nextQueue' in draft, false);
+    await h.app.nextWord();
+    assert.equal(h.app.currentWord.word, 'book');
+    assert.equal(h.app.currentIndex, 1);
+    assert.equal(h.app.attemptedTotal, 1);
+});
+
+test('restoring a saved answer fetches a fresh queue instead of persisting short-lived candidates', async () => {
+    const h = harness();
+    h.context.axios.post = async () => ({ data: { data: { attempt_id: 'attempt', is_correct: true } } });
+    await h.app.submitInput('apple');
+    let fetched = 0;
+    h.context.axios.get = async () => {
+        fetched++;
+        return { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: 'fresh' }],
+            summary: { total: 2 }, server_time: new Date().toISOString() } } };
+    };
+    const restored = h.mount();
+    assert.equal(await restored.restoreDraftSession(), true);
+    assert.equal(fetched, 1);
+    assert.equal(restored.currentWord.word, 'book');
+    assert.equal(restored.currentIndex, 1);
+    assert.equal(restored.attemptedTotal, 1);
+});
+
+test('correction can begin during a slow save and survives confirmation without another review', async () => {
+    const h = harness();
+    let confirm;
+    h.context.axios.post = () => new Promise(resolve => { confirm = resolve; });
+    const submission = h.app.submitInput('aple');
+    assert.equal(h.app.showAnswer, true);
+    assert.equal(h.app.lastWrongInput, 'aple');
+    let blocked = false;
+    h.app.handleBeforeInput({ data: 'a', preventDefault() { blocked = true; } });
+    assert.equal(blocked, false);
+    h.app.userInput = 'apple';
+    h.app.startCorrectAdvance();
+    h.timers.at(-1).fn();
+    assert.equal(h.app.currentIndex, 0);
+    assert.equal(h.app.attemptedTotal, 0);
+    confirm({ data: { data: { attempt_id: 'attempt', is_correct: false } } });
+    await submission;
+    assert.equal(h.app.userInput, 'apple');
+    assert.equal(h.app.stats.incorrect, 1);
+    assert.equal(h.app.isAdvancing, true);
+    assert.equal(h.timers.at(-1).delay, 0);
+});
+
+test('server correction overrides a local preview and is the only result counted', async () => {
+    const h = harness();
+    h.context.axios.post = async () => ({ data: { data: { attempt_id: 'attempt', is_correct: false } } });
+    await h.app.submitInput('apple');
+    assert.equal(h.app.isCorrect, false);
+    assert.equal(h.app.showAnswer, true);
+    assert.equal(h.app.stats.correct, 0);
+    assert.equal(h.app.stats.incorrect, 1);
+    assert.equal(h.app.isAdvancing, false);
+});
+
+for (const reason of ['expired', 'newly-due']) {
+    test(`a ${reason} buffered queue is refreshed before selecting the next real item`, async () => {
+        const h = harness();
+        h.app.nextQueue = { items: [{ word: 'stale' }], summary: {
+            next_due: reason === 'newly-due' ? new Date(0).toISOString() : null
+        }, server_time: new Date().toISOString() };
+        h.app.nextQueueReceivedAt = Date.now() - (reason === 'expired' ? 6000 : 0);
+        h.app.answerAccepted = true;
+        let requests = 0;
+        h.context.axios.get = async () => {
+            requests++;
+            return { data: { data: { items: [{ word: 'due', attempt_id: 'due' }],
+                summary: { total: 2 }, server_time: new Date().toISOString() } } };
+        };
+        await h.app.nextWord();
+        assert.equal(requests, 1);
+        assert.equal(h.app.currentWord.word, 'due');
+    });
+}
+
+test('formal previews preload illustrations without appending speculative practice items', async () => {
+    const h = harness();
+    const images = [];
+    h.context.Image = class { set src(value) { images.push(value); } };
+    h.context.axios.get = async () => ({ data: { data: {
+        items: Array.from({ length: 3 }, (_, i) => ({ word: `word-${i}`, attempt_id: `item-${i}`, illustration_url: `/image-${i}?v=1` })),
+        summary: { total: 3 }, server_time: new Date().toISOString()
+    } } });
+    await h.app.fetchWords();
+    assert.equal(h.app.words.length, 1);
+    assert.equal(h.app.currentWord.word, 'word-0');
+    assert.deepEqual(images, ['/image-0?v=1', '/image-1?v=1', '/image-2?v=1']);
+    h.app.preloadIllustrations(h.app.words);
+    assert.equal(images.length, 3);
 });

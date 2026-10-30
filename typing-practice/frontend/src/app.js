@@ -2,6 +2,7 @@ const { createApp } = Vue;
 const DRAFT_PREFIX = 'typingPracticeDraftSession:fsrs:v1:';
 const OUTBOX_PREFIX = 'typingPracticePending:fsrs:v1:';
 const ACTIVE_KEY = 'typingPracticeActiveSession:fsrs:v1';
+const illustrationPreloads = new Map();
 
 const practiceApp = {
     data() {
@@ -17,6 +18,7 @@ const practiceApp = {
             answerAccepted: false, storageError: '', draftSaveTimer: null,
             clockStartedAt: null, elapsedMs: 0, firstInputMs: null,
             serverOffset: 0,
+            nextQueue: null, nextQueueReceivedAt: 0, feedbackStartedAt: null,
             stats: { correct: 0, incorrect: 0, errors: [], attempts: [] },
             syncModal: { visible: false, loading: false, syncing: false, error: '', status: null },
             apiBaseUrl: `${window.location.origin}/api`
@@ -38,9 +40,9 @@ const practiceApp = {
         mistakePracticeWords() {
             return [...new Map(this.stats.errors.map(error => [error.wordData.source_id || error.word, error.wordData])).values()];
         },
-        cardClass() { return this.isAdvancing ? 'is-success' : this.showAnswer ? 'is-correction' : ''; },
+        cardClass() { return this.isAdvancing || (this.pendingAttempt && this.isCorrect) ? 'is-success' : this.showAnswer ? 'is-correction' : ''; },
         inputClass() {
-            return [this.isAdvancing ? 'is-correct' : this.showAnswer ? 'is-invalid' : 'is-pending', this.shake ? 'practice-shake' : ''];
+            return [this.isAdvancing || (this.pendingAttempt && this.isCorrect) ? 'is-correct' : this.showAnswer ? 'is-invalid' : 'is-pending', this.shake ? 'practice-shake' : ''];
         },
         answerOkClass() { return 'answer-letter'; },
         answerMissClass() { return 'answer-letter is-missed'; },
@@ -77,6 +79,7 @@ const practiceApp = {
             this.sessionId = this.generateSessionId();
             this.practiceMode = mode;
             this.words = [];
+            this.nextQueue = null;
             this.summary = null;
             this.currentIndex = 0;
             this.isFinished = false;
@@ -90,17 +93,23 @@ const practiceApp = {
             this.isLoadingWords = true;
             this.wordsError = '';
             try {
-                const response = await axios.get(`${this.apiBaseUrl}/practice/queue`, {
-                    params: { session_id: this.sessionId, limit: this.isFormalPractice ? 1 : 20, mode: this.isFormalPractice ? 'scheduled' : 'free' }, timeout: 15000
-                });
-                const data = response.data.data;
-                this.serverOffset = Date.parse(data.server_time) - Date.now();
+                const buffered = this.nextQueue;
+                this.nextQueue = null;
+                const fresh = buffered && Date.now() - this.nextQueueReceivedAt < 5000
+                    && (!buffered.summary?.next_due || Date.parse(buffered.summary.next_due) > Date.now() + this.serverOffset);
+                const data = fresh ? buffered : (await axios.get(`${this.apiBaseUrl}/practice/queue`, {
+                    params: { session_id: this.sessionId, limit: this.isFormalPractice ? 3 : 20, mode: this.isFormalPractice ? 'scheduled' : 'free' }, timeout: 15000
+                })).data.data;
+                this.serverOffset = Date.parse(data.server_time) - (fresh ? this.nextQueueReceivedAt : Date.now());
                 this.summary = data.summary;
+                this.preloadIllustrations(data.items);
                 if (!data.items.length) {
                     if (this.attemptedTotal) this.finishPractice();
                     return;
                 }
-                this.words.push(...data.items);
+                // Remaining formal items only warm media; each committed answer
+                // asks the server to select the next real item again.
+                this.words.push(...(this.isFormalPractice ? data.items.slice(0, 1) : data.items));
                 this.resetInputState();
                 await this.$nextTick();
                 this.beginCurrentWord();
@@ -122,7 +131,22 @@ const practiceApp = {
             this.elapsedMs = 0;
             this.firstInputMs = null;
             this.clockStartedAt = null;
+            this.preloadIllustrations(this.words.slice(this.currentIndex, this.currentIndex + 3));
             this.resumeClock();
+        },
+        preloadIllustrations(words) {
+            if (typeof Image === 'undefined') return;
+            for (const word of words.slice(0, 3)) {
+                const url = word.illustration_url;
+                if (!url || illustrationPreloads.has(url)) continue;
+                const picture = new Image();
+                picture.decoding = 'async';
+                picture.onload = () => { picture.decode?.().catch(() => {}); };
+                picture.onerror = () => { illustrationPreloads.delete(url); };
+                illustrationPreloads.set(url, picture);
+                picture.src = url;
+                if (illustrationPreloads.size > 32) illustrationPreloads.delete(illustrationPreloads.keys().next().value);
+            }
         },
         resumeClock() {
             if (this.clockStartedAt === null && !document.hidden && !this.syncModal.visible && this.currentWord && !this.pendingAttempt && !this.answerAccepted && !this.showAnswer && !this.isFinished) this.clockStartedAt = performance.now();
@@ -137,7 +161,7 @@ const practiceApp = {
             return this.elapsedMs + (this.clockStartedAt === null ? 0 : Math.max(0, performance.now() - this.clockStartedAt));
         },
         handleBeforeInput(event) {
-            if (this.pendingAttempt || (this.answerAccepted && !this.showAnswer) || this.isAdvancing || (event.data && this.sanitizeInput(event.data) !== event.data)) event.preventDefault();
+            if ((this.pendingAttempt && !this.showAnswer) || (this.answerAccepted && !this.showAnswer) || this.isAdvancing || (event.data && this.sanitizeInput(event.data) !== event.data)) event.preventDefault();
         },
         handleInput() {
             this.userInput = this.sanitizeInput(this.userInput);
@@ -146,7 +170,7 @@ const practiceApp = {
         handleCompositionStart() { this.isComposing = true; },
         handleCompositionEnd() { this.isComposing = false; this.handleInput(); this.scheduleDraftSave(); },
         handleKeydown(event) {
-            if (this.isAdvancing || this.isChecking || this.pendingAttempt) { event.preventDefault(); return; }
+            if (this.isAdvancing || ((this.isChecking || this.pendingAttempt) && !this.showAnswer)) { event.preventDefault(); return; }
             if (event.key === 'Enter') this.handleEnter(event);
             if ((event.key === ' ' || event.code === 'Space') && !this.userInput.trim()) {
                 event.preventDefault();
@@ -155,7 +179,7 @@ const practiceApp = {
         },
         handleEnter(event) {
             event.preventDefault();
-            if (this.isComposing || this.isAdvancing || this.pendingAttempt || this.isChecking) return;
+            if (this.isComposing || this.isAdvancing || ((this.pendingAttempt || this.isChecking) && !this.showAnswer)) return;
             if (this.showAnswer) {
                 if (!this.userInput.trim() || this.isRetypeCorrect()) this.nextWord();
                 else this.triggerShake();
@@ -185,15 +209,20 @@ const practiceApp = {
         async retryPending() {
             if (!this.pendingAttempt || this.isChecking || this.submissionConflict) return;
             this.submitError = '';
+            this.previewPendingAnswer();
             if (!this.saveDraftSession()) return;
             this.isChecking = true;
             const payload = { ...this.pendingAttempt };
             try {
-                const response = await axios.post(`${this.apiBaseUrl}/practice/attempts`, payload, { timeout: 15000 });
+                const response = await axios.post(`${this.apiBaseUrl}/practice/attempts`, payload, {
+                    params: this.isFormalPractice ? { next_limit: 3 } : {}, timeout: 15000
+                });
                 this.pendingAttempt = null;
-                this.acceptAnswer(response.data.data, payload.user_input);
+                this.nextQueue = response.data.next_queue || null;
+                this.nextQueueReceivedAt = Date.now();
+                if (this.nextQueue) this.preloadIllustrations(this.nextQueue.items);
                 // Only remove the durable outbox after the acknowledged UI state was saved.
-                if (this.saveDraftSession()) this.removeConfirmedOutbox(payload.attempt_id);
+                if (this.acceptAnswer(response.data.data, payload.user_input)) this.removeConfirmedOutbox(payload.attempt_id);
             } catch (error) {
                 this.submitError = error.response?.data?.error || '答案尚未确认保存，请检查连接后重试。';
                 this.submissionConflict = [400, 409, 410].includes(error.response?.status);
@@ -203,8 +232,27 @@ const practiceApp = {
                 this.focusInput();
             }
         },
+        previewPendingAnswer() {
+            if (this.feedbackStartedAt !== null) return;
+            this.feedbackStartedAt = performance.now();
+            const input = this.pendingAttempt.user_input;
+            const correcting = this.showAnswer;
+            const correct = Boolean(this.normalizeAnswer(input)) && this.answerCandidates(this.currentWord.word).includes(this.normalizeAnswer(input));
+            this.updateAnswerFeedback(correct, input);
+            if (this.showAnswer && !correcting) this.userInput = '';
+            if (this.showAnswer) { this.triggerShake(); this.focusInput(); }
+        },
+        updateAnswerFeedback(correct, input) {
+            this.isCorrect = correct;
+            this.showAnswer = !correct;
+            this.lastWrongInput = correct ? '' : input;
+            this.feedbackMessage = correct ? '' : input ? '拼写错误，正确答案：' : '正确答案：';
+        },
         acceptAnswer(result, input) {
             const word = this.cloneWord(this.currentWord);
+            const previewed = this.feedbackStartedAt !== null;
+            const keepCorrection = previewed && this.showAnswer && !result.is_correct;
+            const remainingFeedback = previewed ? Math.max(0, 180 - (performance.now() - this.feedbackStartedAt)) : 180;
             const existing = result.attempt_id && this.stats.attempts.some(item => item.attempt_id === result.attempt_id);
             if (!existing) {
                 this.stats.attempts.push({ attempt_id: result.attempt_id });
@@ -215,14 +263,18 @@ const practiceApp = {
                 }
             }
             this.answerAccepted = true;
-            this.isCorrect = result.is_correct;
-            this.showAnswer = !result.is_correct;
-            this.lastWrongInput = result.is_correct ? '' : input;
-            this.feedbackMessage = result.is_correct ? '' : input ? '拼写错误，正确答案：' : '正确答案：';
-            this.userInput = '';
+            this.updateAnswerFeedback(result.is_correct, input);
+            if (!keepCorrection) this.userInput = '';
             const saved = this.saveDraftSession();
-            if (result.is_correct && saved) this.startCorrectAdvance();
-            else { this.triggerShake(); this.focusInput(); }
+            if (result.is_correct && saved) this.startCorrectAdvance(remainingFeedback);
+            else if (keepCorrection && saved && this.isRetypeCorrect()) {
+                if (this.advanceTimer === null) this.startCorrectAdvance(this.isAdvancing ? 0 : 180);
+            } else {
+                this.clearAdvanceTimer();
+                if (!previewed || !keepCorrection) this.triggerShake();
+                this.focusInput();
+            }
+            return saved;
         },
         removeConfirmedOutbox(attemptId) {
             try { localStorage.removeItem(OUTBOX_PREFIX + attemptId); }
@@ -233,13 +285,14 @@ const practiceApp = {
             if (this.answerAccepted) {
                 const id = this.stats.attempts.at(-1)?.attempt_id;
                 if (id) this.removeConfirmedOutbox(id);
-                if (this.isCorrect) this.startCorrectAdvance();
+                if (this.isCorrect || (this.showAnswer && this.isRetypeCorrect())) this.startCorrectAdvance();
             }
         },
         async continueAfterConflict() {
             if (!this.submissionConflict || this.isChecking) return;
             localStorage.removeItem(OUTBOX_PREFIX + this.pendingAttempt.attempt_id);
             this.pendingAttempt = null;
+            this.nextQueue = null;
             this.words.splice(this.currentIndex, 1);
             this.resetInputState();
             this.saveDraftSession();
@@ -259,12 +312,13 @@ const practiceApp = {
             this.feedbackMessage = '';
             this.submitError = '';
             this.submissionConflict = false;
+            this.feedbackStartedAt = null;
             this.shake = false;
         },
-        startCorrectAdvance() {
+        startCorrectAdvance(delay = 180) {
             this.clearAdvanceTimer();
             this.isAdvancing = true;
-            this.advanceTimer = window.setTimeout(() => { this.advanceTimer = null; this.nextWord(); }, 180);
+            this.advanceTimer = window.setTimeout(() => { this.advanceTimer = null; this.nextWord(); }, delay);
         },
         clearAdvanceTimer() {
             if (this.advanceTimer) window.clearTimeout(this.advanceTimer);
@@ -329,8 +383,9 @@ const practiceApp = {
                 pendingAttempt: this.pendingAttempt
             };
             try {
-                if (this.pendingAttempt) localStorage.setItem(OUTBOX_PREFIX + this.pendingAttempt.attempt_id, JSON.stringify(draft));
-                localStorage.setItem(DRAFT_PREFIX + this.sessionId, JSON.stringify(draft));
+                const serialized = JSON.stringify(draft);
+                if (this.pendingAttempt) localStorage.setItem(OUTBOX_PREFIX + this.pendingAttempt.attempt_id, serialized);
+                localStorage.setItem(DRAFT_PREFIX + this.sessionId, serialized);
                 sessionStorage.setItem(ACTIVE_KEY, this.sessionId);
                 this.storageError = '';
                 return true;
@@ -511,6 +566,7 @@ const practiceApp = {
             try {
                 const response = await axios.post(`${this.apiBaseUrl}/sync/now`);
                 this.syncModal.status = response.data.data || null;
+                this.nextQueue = null;
                 await this.refreshSummary();
             } catch (error) {
                 console.error('Error syncing Anki collection:', error);
