@@ -51,6 +51,18 @@ class ContentTests(unittest.TestCase):
         self.assertIn("测试用例", fields["Collocations"])
         self.assertIn("plain expression", fields["Collocations"])
 
+    def test_example_translations_use_native_collapsibles(self):
+        back = (atlas.TEMPLATES / "back.html").read_text(encoding="utf-8")
+        css = (atlas.TEMPLATES / "card.css").read_text(encoding="utf-8")
+        self.assertEqual(back.count('<details class="atlas-translation">'), 2)
+        self.assertIn('{{#ExampleZH}}<details class="atlas-translation">', back)
+        self.assertIn('{{#IELTSExampleZH}}<details class="atlas-translation">', back)
+        self.assertNotRegex(back, r'<details[^>]*\sopen(?:\s|>)')
+        self.assertNotIn("<script", back.lower())
+        self.assertIn(".atlas-translation[open]", css)
+        self.assertRegex(css, r"\.atlas-translation summary \{[^}]*color: var\(--atlas-secondary\)")
+        self.assertIn("prefers-reduced-motion: reduce", css)
+
     def test_selection_rejects_unknown_or_duplicate_ids(self):
         for ids in (["unknown"], ["test", "test"], []):
             with self.subTest(ids=ids), self.assertRaises(ValueError):

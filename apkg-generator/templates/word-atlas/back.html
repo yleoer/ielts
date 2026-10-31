@@ -16,8 +16,8 @@
   <div class="atlas-study-grid">
     <section class="atlas-examples">
       <h2 class="atlas-section-heading">在语境里记住</h2>
-      {{#ExampleEN}}<div class="atlas-example"><div class="atlas-example-label"><span>日常表达</span>{{AudioExample}}</div><p class="atlas-sentence" lang="en">{{ExampleEN}}</p><p class="atlas-translation">{{ExampleZH}}</p></div>{{/ExampleEN}}
-      {{#IELTSExampleEN}}<div class="atlas-example atlas-example-ielts"><div class="atlas-example-label"><span>雅思语境</span>{{AudioIELTS}}</div><p class="atlas-sentence" lang="en">{{IELTSExampleEN}}</p><p class="atlas-translation">{{IELTSExampleZH}}</p></div>{{/IELTSExampleEN}}
+      {{#ExampleEN}}<div class="atlas-example"><div class="atlas-example-label"><span>日常表达</span>{{AudioExample}}</div><p class="atlas-sentence" lang="en">{{ExampleEN}}</p>{{#ExampleZH}}<details class="atlas-translation"><summary><span class="atlas-translation-show">查看中文</span><span class="atlas-translation-hide">收起中文</span></summary><p>{{ExampleZH}}</p></details>{{/ExampleZH}}</div>{{/ExampleEN}}
+      {{#IELTSExampleEN}}<div class="atlas-example atlas-example-ielts"><div class="atlas-example-label"><span>雅思语境</span>{{AudioIELTS}}</div><p class="atlas-sentence" lang="en">{{IELTSExampleEN}}</p>{{#IELTSExampleZH}}<details class="atlas-translation"><summary><span class="atlas-translation-show">查看中文</span><span class="atlas-translation-hide">收起中文</span></summary><p>{{IELTSExampleZH}}</p></details>{{/IELTSExampleZH}}</div>{{/IELTSExampleEN}}
     </section>
     <aside class="atlas-usage">
       {{#Collocations}}<section><h2 class="atlas-section-heading">常用搭配</h2><ul class="atlas-collocations">{{Collocations}}</ul></section>{{/Collocations}}
