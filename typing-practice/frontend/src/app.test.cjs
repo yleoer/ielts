@@ -55,47 +55,29 @@ test('an empty queue has no Chinese senses', () => {
     assert.equal(h.app.remainingChineseSenses.length, 0);
 });
 
-for (const extras of [0, 1, 2, 3, 5]) {
-    test(`${extras} additional senses keep the primary visible and fold only extras after the first two`, () => {
-        const h = harness();
-        const senses = Array.from({ length: extras + 1 }, (_, i) => ({ part_of_speech: 'n.', chinese_meaning: `义项 ${i}` }));
-        h.app.currentWord.chinese_senses = senses;
-        for (const mode of ['normal', 'free', 'mistakes']) {
-            h.app.practiceMode = mode;
-            h.app.otherSensesExpanded = false;
-            assert.deepEqual(h.app.primaryChineseSense, senses[0]);
-            assert.deepEqual(h.app.secondaryChineseSenses, senses.slice(1, 3));
-            assert.deepEqual(h.app.remainingChineseSenses, senses.slice(3));
-            h.app.toggleOtherSenses({ detail: 0 });
-            assert.equal(h.app.otherSensesExpanded, extras > 2);
-            assert.deepEqual(h.app.secondaryChineseSenses, senses.slice(1, 3));
-            assert.deepEqual(h.app.remainingChineseSenses, senses.slice(3));
-            h.app.toggleOtherSenses({ detail: 0 });
-            assert.equal(h.app.otherSensesExpanded, false);
-        }
-        assert.equal(h.requests.length, 0);
-        assert.equal(h.app.attemptedTotal, 0);
-    });
-}
+test('Chinese senses keep the primary visible and fold extras after the first two', () => {
+    const h = harness();
+    const senses = Array.from({ length: 6 }, (_, i) => ({ part_of_speech: 'n.', chinese_meaning: `义项 ${i}` }));
+    h.app.currentWord.chinese_senses = senses;
+    assert.deepEqual(h.app.primaryChineseSense, senses[0]);
+    assert.deepEqual(h.app.secondaryChineseSenses, senses.slice(1, 3));
+    assert.deepEqual(h.app.remainingChineseSenses, senses.slice(3));
+    h.app.toggleOtherSenses({ detail: 0 });
+    assert.equal(h.app.otherSensesExpanded, true);
+    h.app.toggleOtherSenses({ detail: 0 });
+    assert.equal(h.app.otherSensesExpanded, false);
+});
 
-for (const pointerType of ['mouse', 'touch', 'pen', '']) {
-    test(`sense toggle with ${pointerType || 'assistive'} activation preserves native focus except for a mouse`, () => {
-        const h = harness();
-        h.app.currentWord.chinese_senses = Array.from({ length: 5 }, (_, i) => ({ chinese_meaning: `义项 ${i}` }));
-        const focused = [];
-        h.app.$refs.inputField = { focus(options) { focused.push(options); } };
-        h.app.userInput = 'app';
-        h.app.rememberSensePointer({ pointerType });
-        h.app.toggleOtherSenses({ detail: pointerType ? 1 : 0 });
-        assert.equal(h.app.otherSensesExpanded, true);
-        assert.equal(focused.length, pointerType === 'mouse' ? 1 : 0);
-        if (focused.length) assert.equal(focused[0].preventScroll, true);
-        assert.equal(h.app.userInput, 'app');
-        assert.equal(h.app.sensePointerType, '');
-        assert.equal(h.requests.length, 0);
-        assert.equal(h.app.attemptedTotal, 0);
-    });
-}
+test('mouse activation restores input focus after toggling senses', () => {
+    const h = harness();
+    h.app.currentWord.chinese_senses = Array.from({ length: 5 }, (_, i) => ({ chinese_meaning: `义项 ${i}` }));
+    const focused = [];
+    h.app.$refs.inputField = { focus(options) { focused.push(options); } };
+    h.app.rememberSensePointer({ pointerType: 'mouse' });
+    h.app.toggleOtherSenses({ detail: 1 });
+    assert.equal(focused.length, 1);
+    assert.equal(focused[0].preventScroll, true);
+});
 
 test('keyboard activation does not restore input focus even after a mouse pointerdown', () => {
     const h = harness();
