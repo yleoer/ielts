@@ -235,6 +235,37 @@ class MemoryTest(unittest.TestCase):
         self.assertEqual(self.memory.summary([])["total"], 0)
         self.assertEqual(self.memory.vocabulary_progress(self.pool)["overall"]["learning"], 1)
 
+    def test_changed_extra_chinese_senses_reject_stale_tickets_without_saving(self):
+        original = [{"part_of_speech": "n.", "chinese_meaning": "释义"},
+                    {"part_of_speech": "v.", "chinese_meaning": "附加义项"}]
+        self.pool[0]["chinese_senses"] = original
+        for senses in (original[:1], original + [{"part_of_speech": "adj.", "chinese_meaning": "新增"}],
+                       original[:1] + [{"part_of_speech": "v.", "chinese_meaning": "更改"}],
+                       original[:1] + [{"part_of_speech": "n.", "chinese_meaning": "附加义项"}],
+                       original[::-1], None):
+            with self.subTest(senses=senses):
+                question = self.question()
+                self.assertEqual(question["chinese_senses"], original)
+                changed = {**self.pool[0], "chinese_senses": senses}
+                with self.assertRaises(PracticeConflict):
+                    self.memory.submit(self.payload(question), [changed])
+                self.assertEqual(self.stats.db.execute("SELECT COUNT(*) FROM word_memory").fetchone()[0], 0)
+                self.assertEqual(self.stats.overview()["total_words_practiced"], 0)
+        self.assertTrue(self.memory.submit(self.payload(self.question()), self.pool)["is_correct"])
+
+    def test_legacy_ticket_without_chinese_senses_remains_submittable_after_upgrade(self):
+        question = self.question()
+        self.assertNotIn("chinese_senses", question)
+        self.pool[0]["chinese_senses"] = [
+            {"part_of_speech": "n.", "chinese_meaning": "释义"},
+            {"part_of_speech": "v.", "chinese_meaning": "附加义项"},
+        ]
+        payload = self.payload(question)
+        result = self.memory.submit(payload, self.pool)
+        self.assertTrue(result["is_correct"])
+        self.assertEqual(self.memory.submit(payload, self.pool), result)
+        self.assertEqual(self.stats.overview()["total_words_practiced"], 1)
+
     def test_daily_new_count_and_shanghai_midnight(self):
         self.pool += [word("book", 2)]
         self.now = datetime(2026, 10, 29, 15, 59, 40, tzinfo=timezone.utc)

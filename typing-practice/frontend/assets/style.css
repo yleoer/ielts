@@ -55,6 +55,7 @@ ul { margin: 0; padding: 0; list-style: none; }
     --error: #9a4c3b;
     --success: #386b50;
     --selection: #dbe4d1;
+    --part-of-speech: #a4442d;
     --memory-learning: #c29a58;
     --memory-mastered: #375d4c;
     --memory-new: #e6e9df;
@@ -93,8 +94,16 @@ ul { margin: 0; padding: 0; list-style: none; }
 .practice-sheet.is-success { border-color: var(--success); }
 .entry-content { text-align: center; }
 .practice-illustration { display: block; width: min(200px, 100%); height: auto; aspect-ratio: 1; object-fit: contain; border-radius: 12px; margin: 0 auto 22px; }
-.practice-meaning { display: flex; justify-content: center; align-items: baseline; flex-wrap: wrap; gap: 8px; color: var(--ink); font-size: 26px; font-weight: 500; line-height: 1.55; overflow-wrap: anywhere; }
-.practice-part-of-speech { color: var(--secondary); font-size: 14px; font-weight: 400; }
+.practice-meanings { display: grid; gap: 14px; }
+.practice-secondary-meanings { display: grid; gap: 8px; width: min(100%, 28rem); margin: 0 auto; }
+.practice-meaning { color: var(--ink); font-size: 26px; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
+.practice-meaning.is-secondary { font-size: 16px; font-weight: 400; line-height: 1.7; }
+.practice-meaning > span[lang] { white-space: pre-line; }
+.practice-part-of-speech + span { margin-left: 8px; }
+.practice-part-of-speech { color: var(--part-of-speech); font-size: 14px; font-weight: 400; }
+.practice-more-meanings, .practice-extra-meanings { margin-top: 8px; }
+.sense-toggle { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--secondary); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.sense-toggle:hover { color: var(--accent); background: var(--soft); }
 .answer-area { margin-top: 30px; text-align: left; }
 .field-label { display: block; margin-bottom: 8px; color: var(--secondary); font-size: 12px; font-weight: 500; }
 .answer-row { display: flex; align-items: stretch; gap: 10px; }

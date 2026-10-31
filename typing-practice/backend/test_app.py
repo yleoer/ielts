@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -307,6 +308,11 @@ class FlaskAppTest(unittest.TestCase):
         self.assertNotIn(b"<audio", client.get("/").data)
         self.assertNotIn(b"playPronunciation", client.get("/").data)
         self.assertIn(b"currentWord.illustration_url", client.get("/").data)
+        page = client.get("/").data
+        self.assertIn(b'aria-controls="practice-extra-meanings"', page)
+        self.assertIn(b':aria-expanded="otherSensesExpanded"', page)
+        self.assertLess(page.index(b'id="answer-input"'), page.index(b'class="practice-more-meanings"'))
+        self.assertLess(page.index(b'class="practice-more-meanings"'), page.index(b'id="practice-extra-meanings"'))
         self.assertNotIn("IELTS 打字练习".encode(), client.get("/").data)
         self.assertNotIn(b"English Vocabulary Practice", client.get("/").data)
         self.assertNotIn("IELTS 打字练习".encode(), client.get("/stats.html").data)
@@ -320,6 +326,45 @@ class FlaskAppTest(unittest.TestCase):
         self.assertEqual(source_response.status_code, 200)
         assets_response.close()
         source_response.close()
+
+    def test_practice_apis_return_all_chinese_senses_but_keep_the_primary_meaning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            collection = root / "collection.anki2"
+            make_anki_db(collection, word_count=2)
+            with closing(sqlite3.connect(collection)) as db, db:
+                for row in db.execute("SELECT id,flds FROM notes").fetchall():
+                    fields = row[1].split(FIELD_SEPARATOR)
+                    fields[WORD_ATLAS_FIELDS.index("MoreSenses")] = (
+                        '<div class="atlas-sense"><span class="atlas-pos">n.</span> 放纵；放任'
+                        '<p lang="en">A lack of restraint.</p></div>'
+                    )
+                    db.execute("UPDATE notes SET flds=? WHERE id=?", (FIELD_SEPARATOR.join(fields), row[0]))
+            app = create_app(make_config(root, str(collection)), start_background_tasks=False)
+            state = app.extensions["typing_practice_state"]
+            try:
+                client = app.test_client()
+                now = datetime(2026, 10, 31, 8, tzinfo=timezone.utc)
+                state.memory.now = lambda: now
+                expected = [{"part_of_speech": "v.", "chinese_meaning": "放弃"},
+                            {"part_of_speech": "n.", "chinese_meaning": "放纵；放任"}]
+                self.assertEqual(client.get("/api/words").json["data"][0]["chinese_senses"], expected)
+                for query in ("session_id=senses", "session_id=free&mode=free"):
+                    items = client.get(f"/api/practice/queue?{query}").json["data"]["items"]
+                    for item in items:
+                        self.assertEqual(item["chinese_senses"], expected)
+                        self.assertEqual(item["chinese_meaning"], "放弃")
+                        self.assertEqual(item["part_of_speech"], "v.")
+                question = client.get("/api/practice/queue?session_id=senses").json["data"]["items"][0]
+                now += timedelta(seconds=1)
+                response = client.post("/api/practice/attempts?next_limit=3", json={
+                    "attempt_id": question["attempt_id"], "session_id": "senses", "user_input": question["word"],
+                    "duration_ms": 1000, "reviewed_at": now.isoformat(),
+                })
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json["next_queue"]["items"][0]["chinese_senses"], expected)
+            finally:
+                state.close()
 
     def test_anki_words_and_stats_api(self):
         temporary = tempfile.TemporaryDirectory()
