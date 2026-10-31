@@ -42,8 +42,139 @@ function harness() {
     const app = mount();
     app.sessionId = 'session';
     app.words = [{ word: 'apple', source_id: 'apple', chinese_meaning: '苹果', attempt_id: 'attempt', issued_at: new Date().toISOString() }];
-    return { app, mount, context, timers, requests, localStorage, document, tick(ms) { now += ms; } };
+    return { app, mount, context, timers, requests, localStorage, document,
+        wordChanged() { options.watch.currentWord.call(app); }, tick(ms) { now += ms; } };
 }
+
+test('an empty queue has no Chinese senses', () => {
+    const h = harness();
+    h.app.words = [];
+    assert.equal(h.app.currentChineseSenses.length, 0);
+    assert.equal(h.app.primaryChineseSense, null);
+    assert.equal(h.app.secondaryChineseSenses.length, 0);
+    assert.equal(h.app.remainingChineseSenses.length, 0);
+});
+
+for (const extras of [0, 1, 2, 3, 5]) {
+    test(`${extras} additional senses keep the primary visible and fold only extras after the first two`, () => {
+        const h = harness();
+        const senses = Array.from({ length: extras + 1 }, (_, i) => ({ part_of_speech: 'n.', chinese_meaning: `义项 ${i}` }));
+        h.app.currentWord.chinese_senses = senses;
+        for (const mode of ['normal', 'free', 'mistakes']) {
+            h.app.practiceMode = mode;
+            h.app.otherSensesExpanded = false;
+            assert.deepEqual(h.app.primaryChineseSense, senses[0]);
+            assert.deepEqual(h.app.secondaryChineseSenses, senses.slice(1, 3));
+            assert.deepEqual(h.app.remainingChineseSenses, senses.slice(3));
+            h.app.toggleOtherSenses({ detail: 0 });
+            assert.equal(h.app.otherSensesExpanded, extras > 2);
+            assert.deepEqual(h.app.secondaryChineseSenses, senses.slice(1, 3));
+            assert.deepEqual(h.app.remainingChineseSenses, senses.slice(3));
+            h.app.toggleOtherSenses({ detail: 0 });
+            assert.equal(h.app.otherSensesExpanded, false);
+        }
+        assert.equal(h.requests.length, 0);
+        assert.equal(h.app.attemptedTotal, 0);
+    });
+}
+
+for (const pointerType of ['mouse', 'touch', 'pen', '']) {
+    test(`sense toggle with ${pointerType || 'assistive'} activation preserves native focus except for a mouse`, () => {
+        const h = harness();
+        h.app.currentWord.chinese_senses = Array.from({ length: 5 }, (_, i) => ({ chinese_meaning: `义项 ${i}` }));
+        const focused = [];
+        h.app.$refs.inputField = { focus(options) { focused.push(options); } };
+        h.app.userInput = 'app';
+        h.app.rememberSensePointer({ pointerType });
+        h.app.toggleOtherSenses({ detail: pointerType ? 1 : 0 });
+        assert.equal(h.app.otherSensesExpanded, true);
+        assert.equal(focused.length, pointerType === 'mouse' ? 1 : 0);
+        if (focused.length) assert.equal(focused[0].preventScroll, true);
+        assert.equal(h.app.userInput, 'app');
+        assert.equal(h.app.sensePointerType, '');
+        assert.equal(h.requests.length, 0);
+        assert.equal(h.app.attemptedTotal, 0);
+    });
+}
+
+test('keyboard activation does not restore input focus even after a mouse pointerdown', () => {
+    const h = harness();
+    h.app.currentWord.chinese_senses = Array.from({ length: 4 }, () => ({ chinese_meaning: '义项' }));
+    let focused = false;
+    h.app.$refs.inputField = { focus() { focused = true; } };
+    h.app.rememberSensePointer({ pointerType: 'mouse' });
+    h.app.toggleOtherSenses({ detail: 0 });
+    assert.equal(h.app.otherSensesExpanded, true);
+    assert.equal(focused, false);
+});
+
+test('switching words and resetting a round collapse extra senses without altering answers', () => {
+    const h = harness();
+    h.app.otherSensesExpanded = true;
+    h.app.userInput = 'app';
+    h.wordChanged();
+    assert.equal(h.app.otherSensesExpanded, false);
+    assert.equal(h.app.userInput, 'app');
+    h.app.otherSensesExpanded = true;
+    h.app.resetInputState();
+    assert.equal(h.app.otherSensesExpanded, false);
+});
+
+test('drafts retain every sense but restore the presentation in its default collapsed state', async () => {
+    const h = harness();
+    const senses = Array.from({ length: 5 }, (_, i) => ({ part_of_speech: '', chinese_meaning: `义项 ${i}` }));
+    h.app.currentWord.chinese_senses = senses;
+    h.app.otherSensesExpanded = true;
+    h.app.saveDraftSession();
+    const restored = h.mount();
+    await restored.restoreDraftSession();
+    assert.deepEqual(restored.currentChineseSenses, senses);
+    assert.deepEqual(restored.primaryChineseSense, senses[0]);
+    assert.deepEqual(restored.secondaryChineseSenses, senses.slice(1, 3));
+    assert.deepEqual(restored.remainingChineseSenses, senses.slice(3));
+    assert.equal(restored.otherSensesExpanded, false);
+});
+
+test('legacy drafts restore the primary meaning and remain submittable', async () => {
+    const h = harness();
+    h.app.currentWord.part_of_speech = 'n.';
+    h.app.saveDraftSession();
+    const restored = h.mount();
+    assert.equal(await restored.restoreDraftSession(), true);
+    assert.deepEqual(JSON.parse(JSON.stringify(restored.currentChineseSenses)), [
+        { part_of_speech: 'n.', chinese_meaning: '苹果' }
+    ]);
+    h.context.axios.post = async () => ({ data: { data: { attempt_id: 'attempt', is_correct: true } } });
+    await restored.submitInput('apple');
+    assert.equal(restored.stats.correct, 1);
+    restored.currentWord.chinese_senses = [];
+    restored.currentWord.part_of_speech = '';
+    assert.equal(restored.currentChineseSenses[0].part_of_speech, '');
+    assert.equal(restored.currentChineseSenses[0].chinese_meaning, '苹果');
+});
+
+test('all senses survive draft restoration and mistake practice without duplicate reviews', async () => {
+    const h = harness();
+    const senses = [{ part_of_speech: 'n.', chinese_meaning: '苹果' },
+        { part_of_speech: 'n.', chinese_meaning: '苹果树' }];
+    h.app.currentWord.chinese_senses = senses;
+    h.app.saveDraftSession();
+    const restored = h.mount();
+    await restored.restoreDraftSession();
+    assert.deepEqual(restored.currentChineseSenses, senses);
+    let submissions = 0;
+    h.context.axios.post = async () => {
+        submissions++;
+        return { data: { data: { attempt_id: 'attempt', is_correct: false } } };
+    };
+    await restored.submitInput('aple');
+    restored.startMistakePractice();
+    assert.deepEqual(restored.currentChineseSenses, senses);
+    assert.equal(restored.isMistakePractice, true);
+    await restored.submitInput('apple');
+    assert.equal(restored.stats.correct, 1);
+    assert.equal(submissions, 1);
+});
 
 test('effective time excludes hidden pages and survives draft restoration', async () => {
     const h = harness();
