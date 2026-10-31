@@ -1,4 +1,4 @@
-"""Build and verify the complete offline Word Atlas Anki deck."""
+"""Build the complete offline Word Atlas Anki deck."""
 from __future__ import annotations
 
 import argparse
@@ -211,95 +211,17 @@ def write_package(genanki, model, notes: list, media: list[Path], target: Path,
     AtlasPackage(deck, media_files=[str(path) for path in media]).write_to_file(str(target))
 
 
-def verify_package(package_path: Path, entry_ids: list[str], genanki,
-                   card_ordinals: tuple[int, ...] = (0,)) -> dict:
-    """Check the actual archive, every note/card, and every media reference."""
-    with zipfile.ZipFile(package_path) as package:
-        broken = package.testzip()
-        if broken:
-            raise ValueError(f"APKG ZIP 校验失败：{broken}")
-        media = json.loads(package.read("media"))
-        names = list(media.values())
-        if len(names) != len(set(name.casefold() for name in names)):
-            raise ValueError("APKG 媒体文件名重复。")
-        archive_members = set(package.namelist())
-        if any(key not in archive_members for key in media):
-            raise ValueError("APKG 媒体索引引用缺失文件。")
-        if any(package.getinfo(key).file_size == 0 for key in media):
-            raise ValueError("APKG 包含空媒体文件。")
-        known_names = set(names)
-        with tempfile.TemporaryDirectory(prefix="word-atlas-verify-") as temporary:
-            database = Path(temporary) / "collection.anki2"
-            database.write_bytes(package.read("collection.anki2"))
-            with closing(sqlite3.connect(database)) as connection:
-                if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise ValueError("Anki SQLite 完整性检查失败。")
-                rows = connection.execute("SELECT id, guid, flds FROM notes ORDER BY id").fetchall()
-                if len(rows) != len(entry_ids):
-                    raise ValueError("Anki 笔记数量不匹配。")
-                references = set()
-                for (_, guid, raw), entry_id in zip(rows, entry_ids):
-                    values = raw.split("\x1f")
-                    if len(values) != len(FIELDS):
-                        raise ValueError(f"{entry_id} 字段数量不匹配。")
-                    fields = dict(zip(FIELDS, values))
-                    if fields["SourceId"] != entry_id or guid != genanki.guid_for("word-atlas:v1", entry_id):
-                        raise ValueError(f"{entry_id} 源顺序或笔记 GUID 不匹配。")
-                    for match in re.finditer(r'src="([^"]+)"|\[sound:([^\]]+)\]', raw):
-                        filename = match.group(1) or match.group(2)
-                        if filename not in known_names:
-                            raise ValueError(f"{entry_id} 媒体引用缺失：{filename}")
-                        references.add(filename)
-                models = json.loads(connection.execute("SELECT models FROM col").fetchone()[0])
-                model = models[str(MODEL_ID)]
-                if tuple(template["ord"] for template in model["tmpls"]) != card_ordinals:
-                    raise ValueError("Anki 卡片模板方向不匹配。")
-                cards = connection.execute("SELECT nid, did, ord, due FROM cards").fetchall()
-                expected_cards = {(nid, DECK_ID, ordinal, position)
-                                  for position, (nid, _, _) in enumerate(rows, 1) for ordinal in card_ordinals}
-                if len(cards) != len(expected_cards) or set(cards) != expected_cards:
-                    raise ValueError("Anki 卡片方向、数量、所属牌组或新卡位置不匹配。")
-                decks = json.loads(connection.execute("SELECT decks FROM col").fetchone()[0])
-                name = decks[str(DECK_ID)]["name"]
-                configs = json.loads(connection.execute("SELECT dconf FROM col").fetchone()[0])
-                preset = configs[str(CONFIG_ID)]
-                if (decks[str(DECK_ID)]["desc"] != "" or preset["name"] != name
-                        or preset["new"]["delays"] != LEARNING_STEPS_MINUTES
-                        or preset.get("lapse", {}).get("delays") != RELEARNING_STEPS_MINUTES
-                        or preset.get("lapse", {}).get("leechFails") != LEECH_THRESHOLD
-                        or preset.get("lapse", {}).get("leechAction") != LEECH_ACTION
-                        or preset.get("newMix") != 1 or preset.get("newGatherPriority") != 1
-                        or preset.get("newSortOrder") != 1 or preset["new"]["perDay"] != 20
-                        or preset["rev"]["perDay"] != 9999):
-                    raise ValueError("牌组名称、描述或学习计划校验失败。")
-        return {"zip_crc": "ok", "sqlite_integrity": "ok", "deck_name": name,
-                "notes": len(rows), "cards": len(cards), "unique_media": len(names),
-                "referenced_media": len(references), "missing_media_references": 0,
-                "source_order_and_guids": "ok", "new_card_positions": "ok", "study_plan": "ok"}
-
-
-def update_package_study_plan(package_path: Path, genanki, deck_name: str = "Word Atlas") -> dict:
-    """Rewrite only collection metadata, then validate before replacing the APKG."""
+def update_package_study_plan(package_path: Path, deck_name: str = "Word Atlas") -> dict:
+    """Rewrite the collection metadata while copying other archive members unchanged."""
     package_path = package_path.resolve()
     with tempfile.TemporaryDirectory(prefix="word-atlas-plan-", dir=package_path.parent) as temporary:
         database = Path(temporary) / "collection.anki2"
         updated = Path(temporary) / "updated.apkg"
         with zipfile.ZipFile(package_path) as original:
-            original_members = {item.filename: (item.CRC, item.file_size) for item in original.infolist()
-                                if item.filename != "collection.anki2"}
             database.write_bytes(original.read("collection.anki2"))
             with closing(sqlite3.connect(database)) as connection:
-                before_notes = connection.execute("SELECT * FROM notes ORDER BY id").fetchall()
-                before_cards = connection.execute("SELECT * FROM cards ORDER BY id").fetchall()
-                models = json.loads(connection.execute("SELECT models FROM col").fetchone()[0])
-                # A metadata-only update also preserves cards in older bidirectional packages.
-                card_ordinals = tuple(template["ord"] for template in models[str(MODEL_ID)]["tmpls"])
-                entry_ids = [row[0].split("\x1f")[-1] for row in connection.execute("SELECT flds FROM notes ORDER BY id")]
                 plan = configure_study_plan(connection.cursor(), deck_name)
                 connection.commit()
-                if (before_notes != connection.execute("SELECT * FROM notes ORDER BY id").fetchall()
-                        or before_cards != connection.execute("SELECT * FROM cards ORDER BY id").fetchall()):
-                    raise ValueError("学习计划更新不应改变笔记或卡片数据。")
             with zipfile.ZipFile(updated, "w", allowZip64=True) as result:
                 for item in original.infolist():
                     if item.filename == "collection.anki2":
@@ -307,15 +229,8 @@ def update_package_study_plan(package_path: Path, genanki, deck_name: str = "Wor
                     else:
                         with original.open(item) as src, result.open(copy.copy(item), "w") as dst:
                             shutil.copyfileobj(src, dst, length=1024 * 1024)
-        verification = verify_package(updated, entry_ids, genanki, card_ordinals)
-        with zipfile.ZipFile(updated) as result:
-            updated_members = {item.filename: (item.CRC, item.file_size) for item in result.infolist()
-                               if item.filename != "collection.anki2"}
-        if updated_members != original_members:
-            raise ValueError("学习计划更新不应改变媒体或媒体索引。")
         updated.replace(package_path)
-    return {"study_plan": plan, "verification": verification,
-            "notes_cards_unchanged": True, "media_unchanged": True}
+    return {"study_plan": plan}
 
 
 def generate(source: Path, genanki_source: Path, output: Path, ids: list[str] | None = None,
@@ -362,8 +277,6 @@ def generate(source: Path, genanki_source: Path, output: Path, ids: list[str] | 
     package_name = "Word Atlas.apkg"
     print(f"打包 {len(notes):,} 条笔记、{len(package_media):,} 个媒体/授权文件……", flush=True)
     write_package(genanki, model, notes, package_media, output / package_name, deck_name)
-    print("校验 APKG、SQLite、全部卡片与媒体引用……", flush=True)
-    verification = verify_package(output / package_name, ids, genanki)
     shutil.copy2(TEMPLATES / "card.css", output / "card.css")
     (output / "entries.json").write_text(json.dumps(entries, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     report = {"source": source.as_posix(), "source_count": len(all_entries), "mode": "full" if len(entries) == len(all_entries) else "selection",
@@ -373,7 +286,7 @@ def generate(source: Path, genanki_source: Path, output: Path, ids: list[str] | 
               "media_count": len(package_media), "genanki_source": str(Path(genanki.__file__).parent),
               "package": str(output / package_name), "media": media_report,
               "media_counts_by_kind": dict(Counter(item["kind"] for row in media_report for item in row["media"] if item["available"])),
-              "package_bytes": (output / package_name).stat().st_size, "verification": verification,
+              "package_bytes": (output / package_name).stat().st_size,
               "content_changes": "Original text and media preserved; HTML formatting and exact-headword emphasis added."}
     report["study_plan"] = study_plan_summary(deck_name)
     (output / "build-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -392,8 +305,7 @@ def main() -> None:
     try:
         if args.update_study_plan:
             package_path = args.output / "Word Atlas.apkg"
-            genanki, _ = load_genanki(args.genanki_source)
-            result = update_package_study_plan(package_path, genanki, args.deck_name)
+            result = update_package_study_plan(package_path, args.deck_name)
             report_path = args.output / "build-report.json"
             report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
             report.update(result)
@@ -408,7 +320,7 @@ def main() -> None:
         report = generate(args.source, args.genanki_source, args.output, deck_name=args.deck_name)
     except (ValueError, OSError, KeyError) as error:
         parser.exit(1, f"生成失败：{error}\n")
-    print(json.dumps({key: report[key] for key in ("deck_name", "source_count", "notes", "cards", "media_count", "media_counts_by_kind", "package_bytes", "package", "verification")}, ensure_ascii=False, indent=2))
+    print(json.dumps({key: report[key] for key in ("deck_name", "source_count", "notes", "cards", "media_count", "media_counts_by_kind", "package_bytes", "package")}, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

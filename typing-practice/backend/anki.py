@@ -121,16 +121,7 @@ class AnkiReader:
 
     def close(self) -> None:
         with self._lock:
-            if self.db:
-                self.db.close()
-
-    def reopen(self) -> None:
-        with self._lock:
-            self.close()
-            self.db = self._open()
-            self.deck_ids = self._resolve_deck_ids()
-            if self.deck_ids:
-                self.deck_id = self.deck_ids[0]
+            self.db.close()
 
     def _resolve_deck_ids(self) -> list[int]:
         if self.deck_name:
@@ -185,21 +176,6 @@ class AnkiReader:
                 break
         return words
 
-    def get_learned_words(self, limit: int, category: str = "all") -> list[dict[str, Any]]:
-        category = category.strip() or "all"
-        query_limit = limit if category.lower() == "all" else min(max(limit * 20, 100), 1000)
-        query = f"""
-            SELECT n.id, n.flds
-            FROM notes n
-            WHERE n.id IN (
-                SELECT DISTINCT c.nid FROM cards c
-                WHERE c.did IN ({self._deck_placeholders()})
-                  AND (c.type >= 1 OR c.queue >= 2)
-            )
-            ORDER BY RANDOM() LIMIT ?
-        """
-        return self._read_words(query, self._learned_deck_ids() + [query_limit], category, limit)
-
     def get_learned_word_pool(self, category: str = "all") -> list[dict[str, Any]]:
         category = category.strip() or "all"
         query = f"""
@@ -237,16 +213,6 @@ class AnkiReader:
             ORDER BY n.id
         """
         return self._cached_pool("all", query)
-
-    def get_word_by_id(self, note_id: int) -> dict[str, Any]:
-        with self._lock:
-            row = self.db.execute("SELECT flds FROM notes WHERE id = ?", (note_id,)).fetchone()
-        if not row:
-            raise KeyError(f"note {note_id} not found")
-        word = parse_word(note_id, row["flds"])
-        if not word:
-            raise ValueError(f"note {note_id} does not contain the expected word fields")
-        return word
 
     def get_media_filename(self, note_id: int, kind: str) -> str:
         with self._lock:

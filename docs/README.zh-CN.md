@@ -2,6 +2,10 @@
 
 这是 `my-ielts` 的文档入口。
 
+## 工程约定
+
+- [防御性代码审计](DEFENSIVE-PROGRAMMING.md)
+
 ## APKG 生成器
 
 - [生成器概览](apkg-generator/README.zh-CN.md)
