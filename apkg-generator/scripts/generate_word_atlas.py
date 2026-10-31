@@ -36,13 +36,18 @@ FIELDS = (
 MODEL_ID = 1548670924
 DECK_ID = 1958430017
 CONFIG_ID = 1958430018
-LEARNING_STEPS_MINUTES = [1, 600, 360]
+LEARNING_STEPS_MINUTES = [10]
+RELEARNING_STEPS_MINUTES = [10]
+LEECH_THRESHOLD = 8
+LEECH_ACTION = 0  # Suspend the card after tagging it as a leech.
 STUDY_TIMES = {"morning": "07:00", "afternoon_commute": "17:00", "bedtime": "23:00"}
 
 
 def study_plan_summary(deck_name: str) -> dict:
     return {"preset_name": deck_name, "study_times": STUDY_TIMES.copy(),
-            "learning_steps": "1m 10h 6h", "learning_steps_minutes": LEARNING_STEPS_MINUTES.copy(),
+            "learning_steps": "10m", "learning_steps_minutes": LEARNING_STEPS_MINUTES.copy(),
+            "relearning_steps": "10m", "relearning_steps_minutes": RELEARNING_STEPS_MINUTES.copy(),
+            "leech_threshold": LEECH_THRESHOLD, "leech_action": "suspend",
             "reviews_before_new": True, "new_cards_per_day": 20, "review_limit": 9999,
             "description": "", "autoplay": False}
 
@@ -56,6 +61,9 @@ def configure_study_plan(cursor, deck_name: str = "Word Atlas") -> dict:
                    "mod": int(time.time())})
     preset["new"].update({"delays": LEARNING_STEPS_MINUTES.copy(), "perDay": 20,
                           "order": 1, "bury": True})
+    preset.setdefault("lapse", {}).update({"delays": RELEARNING_STEPS_MINUTES.copy(),
+                                            "leechFails": LEECH_THRESHOLD,
+                                            "leechAction": LEECH_ACTION})
     # This is a ceiling, not a daily target: do not hide due old cards before new cards.
     preset["rev"]["perDay"] = 9999
     configs[str(CONFIG_ID)] = preset
@@ -257,6 +265,9 @@ def verify_package(package_path: Path, entry_ids: list[str], genanki,
                 preset = configs[str(CONFIG_ID)]
                 if (decks[str(DECK_ID)]["desc"] != "" or preset["name"] != name
                         or preset["new"]["delays"] != LEARNING_STEPS_MINUTES
+                        or preset.get("lapse", {}).get("delays") != RELEARNING_STEPS_MINUTES
+                        or preset.get("lapse", {}).get("leechFails") != LEECH_THRESHOLD
+                        or preset.get("lapse", {}).get("leechAction") != LEECH_ACTION
                         or preset.get("newMix") != 1 or preset.get("newGatherPriority") != 1
                         or preset.get("newSortOrder") != 1 or preset["new"]["perDay"] != 20
                         or preset["rev"]["perDay"] != 9999):
