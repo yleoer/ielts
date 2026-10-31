@@ -59,7 +59,15 @@
 .atlas-example-label { display: flex; align-items: center; gap: 8px; min-height: 28px; margin-bottom: 6px; color: var(--atlas-accent); font-size: 11px; font-weight: 600; }
 .atlas-sentence { font-family: Georgia, "Microsoft YaHei", serif; font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; }
 .atlas-sentence mark { background: none; color: var(--atlas-ink); font-weight: 700; text-decoration: underline; text-decoration-color: #b7c4a3; text-decoration-thickness: 2px; text-underline-offset: 4px; }
-.atlas-translation { margin-top: 7px !important; color: var(--atlas-secondary); font-size: 12px; line-height: 1.8; }
+.atlas-translation { margin-top: 7px; color: var(--atlas-secondary); font-size: 12px; line-height: 1.8; }
+.atlas-translation summary { display: inline-flex; min-height: 28px; align-items: center; gap: 8px; color: var(--atlas-secondary); font-size: 11px; font-weight: 400; cursor: pointer; list-style: none; user-select: none; }
+.atlas-translation summary::-webkit-details-marker { display: none; }
+.atlas-translation summary::before { width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; content: ""; transform: rotate(-45deg); transform-origin: center; transition: transform 160ms ease-out; }
+.atlas-translation[open] summary::before { transform: rotate(45deg) translate(-1px, -1px); }
+.atlas-translation-hide { display: none; }
+.atlas-translation[open] .atlas-translation-show { display: none; }
+.atlas-translation[open] .atlas-translation-hide { display: inline; }
+.atlas-translation p { margin-top: 2px !important; color: var(--atlas-secondary); }
 .atlas-collocations { list-style: none; padding: 0; margin: 0; }
 .atlas-collocations li + li { margin-top: 10px; }
 .atlas-collocations span { display: block; font-size: 13px; font-weight: 600; }
@@ -96,6 +104,7 @@
   .atlas-meaning h2 { font-size: 18px; }
   .atlas-english-definition { font-size: 12px; }
   .atlas-study-grid { grid-template-columns: 1fr; gap: 25px; }
+  .atlas-translation summary { min-height: 36px; }
   .atlas-usage { padding-top: 23px; border-top: 1px solid var(--atlas-rule); }
   .atlas-collocations { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .atlas-collocations li + li { margin-top: 0; }
@@ -103,6 +112,9 @@
   .atlas-recall .atlas-pronunciations { flex-direction: column; }
   .atlas-recall-illustration { width: min(180px, 65%); }
   .atlas-card .soundLink, .atlas-card .replay-button { width: 32px; height: 32px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atlas-translation summary::before { transition: none; }
 }
 @media (max-width: 390px) {
   .atlas-definition-grid { grid-template-columns: 1fr; }
