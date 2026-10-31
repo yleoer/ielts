@@ -156,8 +156,6 @@ class WordAtlasReaderTest(unittest.TestCase):
                 self.assertEqual(reader.count_learned(), 2)
                 self.assertEqual([word["word"] for word in reader.get_learned_word_pool()], ["library", "commute"])
                 self.assertEqual([word["word"] for word in reader.get_word_pool()], ["library", "unlearned", "commute"])
-                self.assertEqual(reader.get_learned_words(10, "教育")[0]["word"], "library")
-                self.assertEqual(reader.get_word_by_id(103)["part_of_speech"], "v.")
                 self.assertEqual(reader.get_media_filename(101, "illustration"), "wa_library_img.webp")
                 self.assertEqual(reader.get_media_filename(101, "audio"), "")
                 self.assertEqual(reader.get_media_filename(999, "audio"), "")

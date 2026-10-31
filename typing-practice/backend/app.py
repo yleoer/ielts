@@ -89,10 +89,7 @@ class AppState:
             available = self.reader is not None
             if self.reader:
                 deck_id = self.reader.deck_id
-                try:
-                    total = self.reader.count_learned()
-                except Exception:
-                    pass
+                total = self.reader.count_learned()
             return {
                 "success": True,
                 "anki_available": available,
@@ -117,10 +114,7 @@ class AppState:
             status["sync_configured"] = sync_configured()
             status["target_path"] = sync_target_path(self.config.anki.db_path)
             if self.reader and not status["after_words"]:
-                try:
-                    status["after_words"] = self.reader.count_learned()
-                except Exception:
-                    pass
+                status["after_words"] = self.reader.count_learned()
         status["history"] = self.stats.list_sync_history(50)
         return status
 
@@ -185,14 +179,6 @@ def _state() -> AppState:
     return current_app.extensions["typing_practice_state"]
 
 
-def _stats_response(callback):
-    try:
-        return jsonify(success=True, data=callback())
-    except Exception as exc:
-        LOG.exception("stats query failed")
-        return jsonify(success=False, error=str(exc)), 500
-
-
 def create_app(config: Config | None = None, *, start_background_tasks: bool = True) -> Flask:
     cfg = config or load_config()
     root = Path(__file__).resolve().parent.parent
@@ -240,13 +226,8 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
     def words():
         limit = _int_query("limit", cfg.practice.default_limit)
         limit = min(limit, cfg.practice.max_limit)
-        try:
-            data = state.get_words(limit, request.args.get("category", "all"))
-            return jsonify(success=True, data=data, total=len(data))
-        except RuntimeError as exc:
-            return jsonify(success=False, error=str(exc)), 503
-        except Exception as exc:
-            return jsonify(success=False, error=str(exc)), 500
+        data = state.get_words(limit, request.args.get("category", "all"))
+        return jsonify(success=True, data=data, total=len(data))
 
     @app.route("/api/config")
     def config_endpoint():
@@ -413,7 +394,7 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
 
     @app.route("/api/stats/overview")
     def overview():
-        return _stats_response(lambda: state.stats.overview(state.memory.now().astimezone(SHANGHAI).date()))
+        return jsonify(success=True, data=state.stats.overview(state.memory.now().astimezone(SHANGHAI).date()))
 
     @app.errorhandler(PracticeConflict)
     def practice_conflict(error):

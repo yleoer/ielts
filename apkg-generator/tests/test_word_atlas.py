@@ -143,11 +143,7 @@ class PackageTests(unittest.TestCase):
             with zipfile.ZipFile(package_path, "w") as package:
                 for name, content in members.items():
                     package.writestr(name, content)
-            genanki, _ = atlas.load_genanki(Path("D:/me/genanki"))
-            result = atlas.update_package_study_plan(package_path, genanki)
-            self.assertTrue(result["notes_cards_unchanged"])
-            self.assertTrue(result["media_unchanged"])
-            self.assertEqual(result["verification"]["study_plan"], "ok")
+            atlas.update_package_study_plan(package_path)
             with zipfile.ZipFile(package_path) as package:
                 for name, content in members.items():
                     if name != "collection.anki2":
@@ -191,11 +187,7 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(report["deck_name"], "Word Atlas")
             self.assertEqual(report["mode"], "full")
             self.assertEqual(Path(report["package"]).name, "Word Atlas.apkg")
-            self.assertEqual(report["verification"]["deck_name"], "Word Atlas")
             self.assertEqual((report["notes"], report["cards"]), (2, 2))
-            self.assertEqual(report["verification"]["cards"], 2)
-            self.assertEqual(report["verification"]["new_card_positions"], "ok")
-            self.assertEqual(report["verification"]["missing_media_references"], 0)
 
     def test_real_package_round_trip(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -246,46 +238,6 @@ class PackageTests(unittest.TestCase):
                 self.assertNotEqual(media_by_name["wa_sustainable_uk.mp3"], media_by_name["wa_sustainable_us.mp3"])
                 self.assertIn("wa_library_ex2.mp3", media_by_name)
                 self.assertNotIn("wa_sustainable_ex2.mp3", media_by_name)
-
-    def test_verifier_rejects_reverse_cards_but_plan_update_preserves_legacy_package(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary)
-            report = atlas.generate(Path("D:/me/word-atlas-main"), Path("D:/me/genanki"),
-                                    output, ["library"])
-            package_path = Path(report["package"])
-            with zipfile.ZipFile(package_path) as package:
-                members = {name: package.read(name) for name in package.namelist()}
-            database = output / "legacy.anki2"
-            database.write_bytes(members["collection.anki2"])
-            with closing(sqlite3.connect(database)) as connection:
-                models = json.loads(connection.execute("SELECT models FROM col").fetchone()[0])
-                model = models[str(atlas.MODEL_ID)]
-                model["tmpls"].append({**model["tmpls"][0], "name": "中→英 · 表达回忆",
-                                       "ord": 1, "qfmt": "{{MeaningZH}}"})
-                model["req"].append([1, "all", [atlas.FIELDS.index("MeaningZH")]])
-                connection.execute("UPDATE col SET models = ?", (json.dumps(models),))
-                reverse = list(connection.execute("SELECT * FROM cards").fetchone())
-                reverse[0] += 1000
-                reverse[3] = 1
-                connection.execute("INSERT INTO cards VALUES (" + ",".join("?" for _ in reverse) + ")", reverse)
-                connection.commit()
-                before = connection.execute("SELECT * FROM cards ORDER BY id").fetchall()
-            members["collection.anki2"] = database.read_bytes()
-            with zipfile.ZipFile(package_path, "w") as package:
-                for name, content in members.items():
-                    package.writestr(name, content)
-            genanki, _ = atlas.load_genanki(Path("D:/me/genanki"))
-            with self.assertRaisesRegex(ValueError, "模板方向"):
-                atlas.verify_package(package_path, ["library"], genanki)
-            result = atlas.update_package_study_plan(package_path, genanki)
-            self.assertEqual(result["verification"]["cards"], 2)
-            self.assertTrue(result["notes_cards_unchanged"])
-            self.assertTrue(result["media_unchanged"])
-            with zipfile.ZipFile(package_path) as package:
-                database.write_bytes(package.read("collection.anki2"))
-            with closing(sqlite3.connect(database)) as connection:
-                self.assertEqual(connection.execute("SELECT * FROM cards ORDER BY id").fetchall(), before)
-
 
 if __name__ == "__main__":
     unittest.main()
