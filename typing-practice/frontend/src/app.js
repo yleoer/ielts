@@ -12,7 +12,7 @@ const practiceApp = {
             isPracticeAbandoned: false, isComposing: false, isLoadingWords: false,
             isAdvancing: false, isRestoringDraft: false, advanceTimer: null,
             lastWrongInput: '', shake: false, shakeTimer: null, wordsError: '',
-            illustrationFailed: false, sessionId: '',
+            illustrationFailed: false, otherSensesExpanded: false, sensePointerType: '', sessionId: '',
             practiceMode: 'normal', summary: null,
             pendingAttempt: null, submitError: '', submissionConflict: false,
             answerAccepted: false, storageError: '', draftSaveTimer: null,
@@ -26,6 +26,14 @@ const practiceApp = {
     },
     computed: {
         currentWord() { return this.words[this.currentIndex] || null; },
+        currentChineseSenses() {
+            if (!this.currentWord) return [];
+            if (this.currentWord.chinese_senses?.length) return this.currentWord.chinese_senses;
+            return [{ part_of_speech: this.currentWord.part_of_speech || '', chinese_meaning: this.currentWord.chinese_meaning || '' }];
+        },
+        primaryChineseSense() { return this.currentChineseSenses[0] || null; },
+        secondaryChineseSenses() { return this.currentChineseSenses.slice(1, 3); },
+        remainingChineseSenses() { return this.currentChineseSenses.slice(3); },
         isMistakePractice() { return this.practiceMode === 'mistakes'; },
         isFormalPractice() { return this.practiceMode === 'normal'; },
         progressTotal() {
@@ -56,7 +64,7 @@ const practiceApp = {
         }
     },
     watch: {
-        currentWord() { this.illustrationFailed = false; },
+        currentWord() { this.illustrationFailed = false; this.otherSensesExpanded = false; },
         userInput() {
             if (this.isRestoringDraft) return;
             if (this.showAnswer && !this.isAdvancing && !this.isComposing && this.isRetypeCorrect()) {
@@ -68,6 +76,15 @@ const practiceApp = {
     },
     methods: {
         t(zh) { return zh; },
+        rememberSensePointer(event) { this.sensePointerType = event.pointerType || ''; },
+        toggleOtherSenses(event) {
+            if (!this.remainingChineseSenses.length) return;
+            this.otherSensesExpanded = !this.otherSensesExpanded;
+            const returnToInput = event.detail > 0 && (event.pointerType || this.sensePointerType) === 'mouse';
+            this.sensePointerType = '';
+            // Mouse users can resume typing; keyboard and touch retain native focus.
+            if (returnToInput) this.$nextTick(() => this.$refs.inputField?.focus({ preventScroll: true }));
+        },
         generateSessionId() { return crypto.randomUUID ? crypto.randomUUID() : 's-' + Date.now() + '-' + Math.random().toString(36).slice(2); },
         cloneWord(word) { return JSON.parse(JSON.stringify(word)); },
         isRetypeCorrect() { return Boolean(this.userInput.trim()) && this.answerCandidates(this.currentWord?.word).includes(this.normalizeAnswer(this.userInput)); },
@@ -304,6 +321,7 @@ const practiceApp = {
         resetInputState() {
             this.clearAdvanceTimer();
             this.pauseClock();
+            this.otherSensesExpanded = false;
             this.userInput = '';
             this.showAnswer = false;
             this.answerAccepted = false;

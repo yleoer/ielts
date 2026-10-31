@@ -6,6 +6,10 @@
 
 只支持 Word Atlas 的固定 22 字段结构。Word、UK/US、PartOfSpeech、MeaningZH、ExampleEN/ExampleZH、CEFR、Topic、Illustration、SourceId 分别提供词面、音标、词性、释义、例句、等级、分类、插图和稳定身份。文本先去除 HTML 标签再解码实体；媒体接口只提供插图，不返回音频。
 
+词条新增 `chinese_senses` 列表，每项为 `{part_of_speech, chinese_meaning}`：先取 PartOfSpeech / MeaningZH 首义项，再按原顺序读取 MoreSenses 的 `atlas-sense` 块。其他义项仅提取词性与中文文本，排除 `lang="en"`（含 en-*）解释、脚本与样式，解码实体并保留换行；空中文义项略过，不将原始 HTML 交给页面渲染。旧 `part_of_speech` / `chinese_meaning` 仍表示首义项，统计与同步历史展示不变。列表随只读词库、正式/自由练习队列及保存后的 `next_queue` 返回。
+
+练习提示默认显示首义项及前两条其他义项，剩余在输入框下方展开，全部居中；具体排版与交互见 [前端说明](FRONTEND.md)。折叠仅影响展示，接口、草稿与题目快照始终保留完整列表。提交时检测完整中文义项（含词性与顺序）变化，发生变化返回 409，要求重新取题；升级前没有列表的题目继续按原首义项字段校验。无需迁移数据库或重置 FSRS 状态。Anki 词池返回独立的义项列表及条目，调用方修改不会污染缓存。
+
 页面沿用纸色与墨绿、系统字体、本地 CSS/SVG；Vue、Axios、ECharts 通过既有 CDN 加载。页面、静态资源和 API 由同一 Flask 进程提供。
 
 ## 练习流程

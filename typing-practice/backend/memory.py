@@ -276,7 +276,10 @@ class MemoryStore:
             words = pool_by_key(pool)
             word = words.get(item["word_key"])
             snapshot = json.loads(item["word_json"])
-            if not word or any(word[field] != snapshot[field] for field in ("word", "chinese_meaning", "part_of_speech")):
+            # Pre-upgrade tickets only contain the primary sense.
+            if (not word
+                    or any(word[field] != snapshot[field] for field in ("word", "chinese_meaning", "part_of_speech"))
+                    or ("chinese_senses" in snapshot and word.get("chinese_senses") != snapshot["chinese_senses"])):
                 raise PracticeConflict("词条已更新或移出练习池，请重新获取")
             row = self.db.execute("SELECT * FROM word_memory WHERE word_key=?", (item["word_key"],)).fetchone()
             if (row["version"] if row else 0) != item["card_version"]:
