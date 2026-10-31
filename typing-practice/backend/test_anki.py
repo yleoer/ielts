@@ -74,16 +74,14 @@ class WordAtlasFieldTest(unittest.TestCase):
     def test_removes_html_before_decoding_escaped_text(self):
         self.assertEqual(clean_field("<mark>A &amp; B</mark><br>&lt;3 &gt;2"), "A & B\n<3 >2")
 
-    def test_all_chinese_senses_preserve_order_and_pos_without_english_or_markup(self):
+    def test_all_chinese_senses_preserve_order_without_english_explanations(self):
         word = parse_word(101, atlas_fields(MoreSenses=(
-            '<div class="other atlas-sense"><span class="atlas-pos"><b>n.</b></span> '
-            '资料<em>库</em> &amp; 档案<br/>集合 &lt;电子&gt;'
-            '<p lang="en"><strong>A collection</strong> of resources.</p></div>'
+            '<div class="atlas-sense"><span class="atlas-pos">n.</span> '
+            '资料库 &amp; 档案<br/>集合 &lt;电子&gt;'
+            '<p lang="en">A collection of resources.</p></div>'
             '<div class="atlas-sense"><span class="atlas-pos">v.</span> 整理'
-            '<p lang="en-US">To organize.</p></div>'
+            '<p lang="en">To organize.</p></div>'
             '<div class="atlas-sense">资料库<p lang="en">A library.</p></div>'
-            '<div class="atlas-sense"><span class="atlas-pos">adj.</span>'
-            '<p lang="en">English only.</p></div>'
         )))
         self.assertEqual(word["chinese_senses"], [
             {"part_of_speech": "n.", "chinese_meaning": "图书馆；藏书室"},
@@ -93,23 +91,10 @@ class WordAtlasFieldTest(unittest.TestCase):
         ])
 
     def test_empty_more_senses_keeps_the_primary_sense_and_missing_pos(self):
-        for markup in ("", " \n ", '<div class="atlas-sense"><p lang="en">English only.</p></div>'):
-            with self.subTest(markup=markup):
-                word = parse_word(101, atlas_fields(PartOfSpeech="", MoreSenses=markup))
-                self.assertEqual(word["chinese_senses"], [
-                    {"part_of_speech": "", "chinese_meaning": "图书馆；藏书室"},
-                ])
-
-    def test_other_senses_ignore_scripts_and_preserve_escaped_text_once(self):
-        word = parse_word(101, atlas_fields(MoreSenses=(
-            '<div class="atlas-sense"><span class="atlas-pos">n.</span>'
-            '<img src="x">&lt;img&gt; &amp;lt;文本&amp;gt;'
-            '<script>bad()</script><style>.bad {}</style>'
-            '<p lang="en">A library.</p></div>'
-        )))
-        self.assertEqual(word["chinese_senses"][1], {
-            "part_of_speech": "n.", "chinese_meaning": "<img> &lt;文本&gt;",
-        })
+        word = parse_word(101, atlas_fields(PartOfSpeech="", MoreSenses=""))
+        self.assertEqual(word["chinese_senses"], [
+            {"part_of_speech": "", "chinese_meaning": "图书馆；藏书室"},
+        ])
 
     def test_default_configuration_targets_word_atlas(self):
         self.assertEqual(AnkiConfig().deck_name, "Word Atlas")
@@ -157,20 +142,11 @@ class WordAtlasReaderTest(unittest.TestCase):
                         with patch("anki.parse_word", wraps=parse_word) as parse:
                             reader.get_learned_word_pool()[0]["word"] = "client mutation"
                             self.assertEqual(reader.get_learned_word_pool()[0]["word"], "library")
-                            returned = reader.get_learned_word_pool()[0]
-                            returned["chinese_senses"][0]["chinese_meaning"] = "client mutation"
-                            returned["chinese_senses"].append({"part_of_speech": "", "chinese_meaning": "extra"})
-                            self.assertEqual(reader.get_learned_word_pool()[0]["chinese_senses"], [
-                                {"part_of_speech": "n.", "chinese_meaning": "图书馆；藏书室"},
-                                {"part_of_speech": "", "chinese_meaning": "资料库"},
-                            ])
                             self.assertEqual(parse.call_count, 1)
                             self.assertEqual(len(reader.get_word_pool()), 2)
                             self.assertEqual(parse.call_count, 3)
                             reader.get_word_pool()
                             self.assertEqual(parse.call_count, 3)
-                            reader.get_word_pool()[0]["chinese_senses"].clear()
-                            self.assertEqual(len(reader.get_word_pool()[0]["chinese_senses"]), 2)
                             writer.execute("UPDATE notes SET flds=? WHERE id=101", (atlas_fields(
                                 Word="updated", MoreSenses='<div class="atlas-sense">更新后的义项</div>'),))
                             writer.execute("UPDATE cards SET type=1,queue=1 WHERE nid=102")

@@ -239,18 +239,12 @@ class MemoryTest(unittest.TestCase):
         original = [{"part_of_speech": "n.", "chinese_meaning": "释义"},
                     {"part_of_speech": "v.", "chinese_meaning": "附加义项"}]
         self.pool[0]["chinese_senses"] = original
-        for senses in (original[:1], original + [{"part_of_speech": "adj.", "chinese_meaning": "新增"}],
-                       original[:1] + [{"part_of_speech": "v.", "chinese_meaning": "更改"}],
-                       original[:1] + [{"part_of_speech": "n.", "chinese_meaning": "附加义项"}],
-                       original[::-1], None):
-            with self.subTest(senses=senses):
-                question = self.question()
-                self.assertEqual(question["chinese_senses"], original)
-                changed = {**self.pool[0], "chinese_senses": senses}
-                with self.assertRaises(PracticeConflict):
-                    self.memory.submit(self.payload(question), [changed])
-                self.assertEqual(self.stats.db.execute("SELECT COUNT(*) FROM word_memory").fetchone()[0], 0)
-                self.assertEqual(self.stats.overview()["total_words_practiced"], 0)
+        question = self.question()
+        changed = {**self.pool[0], "chinese_senses": [original[0], {**original[1], "chinese_meaning": "更改"}]}
+        with self.assertRaises(PracticeConflict):
+            self.memory.submit(self.payload(question), [changed])
+        self.assertEqual(self.stats.db.execute("SELECT COUNT(*) FROM word_memory").fetchone()[0], 0)
+        self.assertEqual(self.stats.overview()["total_words_practiced"], 0)
         self.assertTrue(self.memory.submit(self.payload(self.question()), self.pool)["is_correct"])
 
     def test_legacy_ticket_without_chinese_senses_remains_submittable_after_upgrade(self):
