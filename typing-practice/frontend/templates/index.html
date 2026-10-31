@@ -7,7 +7,7 @@
     {% include '_appearance.html' %}
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
-    <script src="/src/app.js?v=20261030-practice-latency" defer></script>
+    <script src="/src/app.js?v=20261031-stable-senses" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -35,14 +35,31 @@
                 <section class="practice-sheet" :class="cardClass" :aria-label="t('当前词条', 'Current entry')">
                     <div v-if="currentWord" class="entry-content">
                         <img v-if="currentWord.illustration_url && !illustrationFailed" :key="currentWord.id" :src="currentWord.illustration_url" :alt="t('词义插图', 'Meaning illustration')" @error="illustrationFailed = true" width="200" height="200" class="practice-illustration">
-                        <p class="practice-meaning">
-                            <span v-if="currentWord.part_of_speech" class="practice-part-of-speech">{{ currentWord.part_of_speech }}</span>
-                            <span lang="zh-CN">{{ currentWord.chinese_meaning }}</span>
-                        </p>
+                        <div id="practice-meanings" class="practice-meanings">
+                            <p v-if="primaryChineseSense" class="practice-meaning">
+                                <span v-if="primaryChineseSense.part_of_speech" class="practice-part-of-speech">{{ primaryChineseSense.part_of_speech }}</span>
+                                <span lang="zh-CN">{{ primaryChineseSense.chinese_meaning }}</span>
+                            </p>
+                            <ul v-if="secondaryChineseSenses.length" class="practice-secondary-meanings" aria-label="其他中文释义">
+                                <li v-for="(sense, index) in secondaryChineseSenses" :key="index" class="practice-meaning is-secondary">
+                                    <span v-if="sense.part_of_speech" class="practice-part-of-speech">{{ sense.part_of_speech }}</span>
+                                    <span lang="zh-CN">{{ sense.chinese_meaning }}</span>
+                                </li>
+                            </ul>
+                        </div>
                         <div class="answer-area">
                             <div class="answer-row">
-                                <input id="answer-input" ref="inputField" v-model="userInput" @beforeinput="handleBeforeInput" @input="handleInput" @keydown="handleKeydown" @compositionstart="handleCompositionStart" @compositionend="handleCompositionEnd" @keyup.esc="quitPractice" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" :aria-label="showAnswer ? '订正拼写' : '英文拼写'" class="answer-input" :class="inputClass" :readonly="isAdvancing || Boolean(pendingAttempt && !showAnswer)" :aria-busy="isChecking">
+                                <input id="answer-input" ref="inputField" v-model="userInput" @beforeinput="handleBeforeInput" @input="handleInput" @keydown="handleKeydown" @compositionstart="handleCompositionStart" @compositionend="handleCompositionEnd" @keyup.esc="quitPractice" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" :aria-label="showAnswer ? '订正拼写' : '英文拼写'" :aria-describedby="otherSensesExpanded ? 'practice-meanings practice-extra-meanings' : 'practice-meanings'" class="answer-input" :class="inputClass" :readonly="isAdvancing || Boolean(pendingAttempt && !showAnswer)" :aria-busy="isChecking">
                             </div>
+                        </div>
+                        <div v-if="remainingChineseSenses.length" class="practice-more-meanings">
+                            <button type="button" class="sense-toggle" :aria-expanded="otherSensesExpanded" aria-controls="practice-extra-meanings" @pointerdown="rememberSensePointer" @click="toggleOtherSenses">{{ otherSensesExpanded ? '收起其他含义' : `展开其余 ${remainingChineseSenses.length} 条含义` }}</button>
+                            <ul v-show="otherSensesExpanded" id="practice-extra-meanings" class="practice-secondary-meanings practice-extra-meanings" aria-label="补充中文释义">
+                                <li v-for="(sense, index) in remainingChineseSenses" :key="index" class="practice-meaning is-secondary">
+                                    <span v-if="sense.part_of_speech" class="practice-part-of-speech">{{ sense.part_of_speech }}</span>
+                                    <span lang="zh-CN">{{ sense.chinese_meaning }}</span>
+                                </li>
+                            </ul>
                         </div>
                         <p class="sr-only" aria-live="polite">{{ feedbackMessage }}</p>
                         <div v-if="pendingAttempt" class="submission-status" aria-live="polite">

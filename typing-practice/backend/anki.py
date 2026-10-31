@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 FIELD_SEPARATOR = "\x1f"
 HTML_TAG_PATTERN = re.compile(r"<[^>]*>")
+HTML_VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
 WORD_ATLAS_FIELDS = (
     "Word", "UK", "US", "PartOfSpeech", "MeaningZH", "MeaningEN", "MoreSenses",
     "ExampleEN", "ExampleZH", "IELTSExampleEN", "IELTSExampleZH", "Collocations",
@@ -32,6 +33,59 @@ class _IllustrationParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag.lower() == "img" and not self.filename:
             self.filename = dict(attrs).get("src", "") or ""
+
+
+class _ChineseSensesParser(HTMLParser):
+    """Read Word Atlas sense blocks without their English explanations."""
+
+    def __init__(self, markup: str):
+        super().__init__(convert_charrefs=True)
+        self.senses = []
+        self._stack = []
+        self._sense = None
+        self._sense_depth = 0
+        self.feed(markup or "")
+        self.close()
+        self._finish_sense()
+
+    def _finish_sense(self):
+        if self._sense is not None:
+            sense = {key: "".join(parts).strip() for key, parts in self._sense.items()}
+            if sense["chinese_meaning"]:
+                self.senses.append(sense)
+            self._sense = None
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        classes = (attributes.get("class") or "").split()
+        if tag == "div" and "atlas-sense" in classes:
+            self._finish_sense()
+            self._sense = {"part_of_speech": [], "chinese_meaning": []}
+            self._sense_depth = len(self._stack)
+        if tag == "br":
+            self.handle_data("\n")
+        if tag in HTML_VOID_TAGS:
+            return
+        role = self._stack[-1][1] if self._stack else "chinese_meaning"
+        if tag in {"script", "style"} or (attributes.get("lang") or "").lower().split("-")[0] == "en":
+            role = "skip"
+        elif "atlas-pos" in classes and role != "skip":
+            role = "part_of_speech"
+        self._stack.append((tag, role))
+
+    def handle_endtag(self, tag):
+        for index in range(len(self._stack) - 1, -1, -1):
+            if self._stack[index][0] == tag:
+                del self._stack[index:]
+                if self._sense is not None and index <= self._sense_depth:
+                    self._finish_sense()
+                break
+
+    def handle_data(self, data):
+        if self._sense is not None and self._stack:
+            role = self._stack[-1][1]
+            if role != "skip":
+                self._sense[role].append(data)
 
 
 def media_filename(values: dict[str, str], kind: str) -> str:
@@ -72,6 +126,10 @@ def parse_word(note_id: int, raw_fields: str) -> dict[str, Any] | None:
     }
     if not word["word"] or not word["chinese_meaning"]:
         return None
+    word["chinese_senses"] = [
+        {"part_of_speech": word["part_of_speech"], "chinese_meaning": word["chinese_meaning"]},
+        *_ChineseSensesParser(values["MoreSenses"]).senses,
+    ]
     return word
 
 
@@ -225,7 +283,8 @@ class AnkiReader:
             if name not in self._pool_cache:
                 self._pool_cache[name] = self._read_words(query, self._learned_deck_ids(), "all")
             # API consumers must not mutate the shared parsed vocabulary.
-            return [dict(word) for word in self._pool_cache[name]]
+            return [{**word, "chinese_senses": [dict(sense) for sense in word["chinese_senses"]]}
+                    for word in self._pool_cache[name]]
 
     def get_word_pool(self) -> list[dict[str, Any]]:
         """All vocabulary in the configured deck tree, regardless of learning state."""
