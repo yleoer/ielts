@@ -34,6 +34,31 @@ def entry():
 
 
 class ContentTests(unittest.TestCase):
+    def test_study_plan_uses_fsrs_friendly_steps_and_suspends_leeches(self):
+        default = {
+            "1": {
+                "id": 1, "name": "Default", "autoplay": True,
+                "new": {"delays": [1, 10], "perDay": 20, "order": 1, "bury": False},
+                "rev": {"perDay": 200},
+                "lapse": {"delays": [10], "leechFails": 8, "leechAction": 1},
+            }
+        }
+        decks = {str(atlas.DECK_ID): {"name": "Old", "conf": 1, "desc": "Old", "mod": 0}}
+        with closing(sqlite3.connect(":memory:")) as connection:
+            connection.execute("CREATE TABLE col(dconf TEXT, decks TEXT, conf TEXT)")
+            connection.execute("INSERT INTO col VALUES(?,?,?)",
+                               (json.dumps(default), json.dumps(decks), json.dumps({})))
+            summary = atlas.configure_study_plan(connection.cursor())
+            configs, updated_decks = connection.execute("SELECT dconf,decks FROM col").fetchone()
+        preset = json.loads(configs)[str(atlas.CONFIG_ID)]
+        self.assertEqual(preset["new"]["delays"], [10])
+        self.assertEqual(preset["lapse"]["delays"], [10])
+        self.assertEqual(preset["lapse"]["leechFails"], 8)
+        self.assertEqual(preset["lapse"]["leechAction"], 0)
+        self.assertEqual(json.loads(configs)["1"], default["1"])
+        self.assertEqual(json.loads(updated_decks)[str(atlas.DECK_ID)]["conf"], atlas.CONFIG_ID)
+        self.assertEqual(summary["leech_action"], "suspend")
+
     def test_source_html_is_escaped_before_emphasis(self):
         result = atlas.highlighted('<script>test & tests</script>', "test")
         self.assertEqual(result, '&lt;script&gt;<mark>test</mark> &amp; tests&lt;/script&gt;')
@@ -135,7 +160,10 @@ class PackageTests(unittest.TestCase):
                 preset = json.loads(configs)[str(atlas.CONFIG_ID)]
                 self.assertEqual(json.loads(decks)[str(atlas.DECK_ID)]["desc"], "")
                 self.assertEqual(preset["name"], "Word Atlas")
-                self.assertEqual(preset["new"]["delays"], [1, 600, 360])
+                self.assertEqual(preset["new"]["delays"], [10])
+                self.assertEqual(preset["lapse"]["delays"], [10])
+                self.assertEqual(preset["lapse"]["leechFails"], 8)
+                self.assertEqual(preset["lapse"]["leechAction"], 0)
                 self.assertEqual(preset["newMix"], 1)
                 self.assertEqual(preset["newGatherPriority"], 1)
                 self.assertEqual(preset["newSortOrder"], 1)
@@ -209,7 +237,10 @@ class PackageTests(unittest.TestCase):
                     self.assertEqual(json.loads(decks)[str(atlas.DECK_ID)]["conf"], atlas.CONFIG_ID)
                     self.assertFalse(json.loads(configs)[str(atlas.CONFIG_ID)]["autoplay"])
                     self.assertEqual(json.loads(configs)[str(atlas.CONFIG_ID)]["name"], "Word Atlas")
-                    self.assertEqual(json.loads(configs)[str(atlas.CONFIG_ID)]["new"]["delays"], [1, 600, 360])
+                    self.assertEqual(json.loads(configs)[str(atlas.CONFIG_ID)]["new"]["delays"], [10])
+                    self.assertEqual(json.loads(configs)[str(atlas.CONFIG_ID)]["lapse"]["delays"], [10])
+                    self.assertEqual(json.loads(configs)[str(atlas.CONFIG_ID)]["lapse"]["leechFails"], 8)
+                    self.assertEqual(json.loads(configs)[str(atlas.CONFIG_ID)]["lapse"]["leechAction"], 0)
                     self.assertEqual(json.loads(decks)[str(atlas.DECK_ID)]["desc"], "")
                     self.assertTrue(json.loads(configs)["1"]["autoplay"])
                 self.assertNotEqual(media_by_name["wa_sustainable_uk.mp3"], media_by_name["wa_sustainable_us.mp3"])
