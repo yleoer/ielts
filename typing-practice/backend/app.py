@@ -359,9 +359,9 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
     def calendar_words():
         return jsonify(success=True, data=state.memory.calendar_words(state.current_pool(), request.args.get("date", "")))
 
-    @app.route("/api/stats/monthly-activity")
-    def monthly_activity():
-        return jsonify(success=True, data=state.stats.monthly_activity(state.memory.now().astimezone(SHANGHAI).date()))
+    @app.route("/api/stats/recent-activity")
+    def recent_activity():
+        return jsonify(success=True, data=state.stats.recent_activity(state.memory.now().astimezone(SHANGHAI).date()))
 
     @app.route("/api/stats/vocabulary-progress")
     def vocabulary_progress():

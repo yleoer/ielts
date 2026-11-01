@@ -3,13 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function harness(get) {
+function harness(get, globals = {}) {
     let options;
     vm.runInNewContext(fs.readFileSync(__dirname + '/stats.js', 'utf8'), {
         Vue: { createApp(value) { options = value; return { mount() {} }; } },
         window: { location: { origin: 'http://test' } },
         axios: { get },
-        console: { error() {} }
+        console: { error() {} },
+        ...globals
     });
     const app = options.data();
     for (const [name, fn] of Object.entries(options.methods)) app[name] = fn.bind(app);
@@ -103,21 +104,49 @@ test('top metrics count unique learned and mastered words and avoid false zeroes
     assert.equal(app.overviewCards[1].value, '—');
 });
 
-test('calendar and natural-month activity load independently and use separate color scales', async () => {
-    const app = harness(async (url) => ({ data: { data: url.endsWith('/calendar')
+test('calendar and recent activity load independently and use separate color scales', async () => {
+    const calls = [];
+    const days = Array.from({ length: 30 }, (_, i) => ({
+        date: new Date(Date.UTC(2026, 0, 12 + i)).toISOString().slice(0, 10), words: 0, accuracy: null
+    }));
+    const app = harness(async (url) => {
+        calls.push(url);
+        return { data: { data: url.endsWith('/calendar')
         ? { today: '2026-02-10', start_date: '2025-08-01', end_date: '2026-07-31', days: [
             { date: '2026-02-10', practiced: 4, due_count: 2 }, { date: '2026-02-11', practiced: 0, due_count: 4 }] }
-        : { month: '2026-02', days: Array.from({ length: 28 }, (_, i) => ({ date: `2026-02-${String(i+1).padStart(2,'0')}`, words: 0, accuracy: null })) }
-    } }));
+        : { start_date: '2026-01-12', end_date: '2026-02-10', days }
+        } };
+    });
+    assert.equal(app.trendRangeLabel, '最近 30 天');
     app.renderTrend = () => {};
     await app.loadCalendar();
     await app.loadTrend();
     assert.equal(app.calendarDayClass(app.calendar.days[0])[0], 'calendar-history-4');
     assert.equal(app.calendarDayClass(app.calendar.days[1])[0], 'calendar-due-4');
-    assert.equal(app.trendData.length, 28);
+    assert.equal(calls.join(','), 'http://test/api/stats/calendar,http://test/api/stats/recent-activity');
+    assert.equal(app.trendData.length, 30);
+    assert.equal(app.trendRangeLabel, '最近 30 天 · 2026.01.12 — 2026.02.10');
     assert.equal(app.monthLabel, '2026 年 2 月');
     assert.equal(app.calendarError, false);
     assert.equal(app.trendError, false);
+});
+
+test('recent activity chart distinguishes months on the axis and keeps zero days without accuracy', () => {
+    let option;
+    const app = harness(async () => {}, {
+        document: { getElementById() { return {}; } }, echarts: {}
+    });
+    app.trendChart = { isDisposed() { return false; }, setOption(value) { option = value; } };
+    app.trendData = [
+        { date: '2025-12-31', words: 2, accuracy: 50 },
+        { date: '2026-01-01', words: 0, accuracy: null }
+    ];
+    app.renderTrend();
+    assert.equal(option.xAxis.data.join(','), '12/31,1/1');
+    assert.equal(option.series[0].data.join(','), '2,0');
+    assert.equal(option.series[1].data[1], null);
+    assert.match(option.tooltip.formatter([{ dataIndex: 0 }]), /2025-12-31.*正确率: 50.0%/);
+    assert.match(option.tooltip.formatter([{ dataIndex: 1 }]), /2026-01-01.*未练习/);
 });
 
 test('optimization history loads pages without replacing newer records', async () => {

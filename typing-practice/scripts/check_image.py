@@ -52,7 +52,7 @@ for path, content_type in (
 for path in (
     "/api/config",
     "/api/stats/overview",
-    "/api/stats/monthly-activity",
+    "/api/stats/recent-activity",
     "/api/memory/optimization",
 ):
     with urlopen(base + path, timeout=5) as response:

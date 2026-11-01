@@ -27,15 +27,15 @@ GET /api/stats/overview 仅返回累计作答次数、当前连续学习天数�
 
 旧 POST /api/stats/sessions 返回 410，不允许旧客户端重新污染统计。无 daily-duration、speed-trend、streak 或 milestones 独立路由。
 
-## 学习日历与本月学习
+## 学习日历与学习近况
 
 `GET /api/stats/calendar` 返回 `{start_date,end_date,today,days}`，日期边界统一由服务端北京时间确定。范围是前六个月、当月和后五个月，共 12 个完整自然月；days 包含范围内的所有日期，缺少记录补零。每项为 `{date,practiced,attempts,accuracy,due_count}`：practiced 为当日作答去重词数，attempts 为作答次数，accuracy 为当日正确率（无作答时 null）；due_count 为当前练习池已有 FSRS 卡片的到期词数，逾期归今天，过去日期的 due_count 为 0。学习记录包含当前已移出词池的历史，待复习不包含移出词和未开始词，不预测重复复习。
 
 `GET /api/stats/calendar-words?date=YYYY-MM-DD` 返回 `{practiced:[...],due:[...]}`，两个数组均不截断。practiced 每个稳定词条取当天最新快照，当前词条可用时使用当前信息，否则回退日志中的拼写和释义；due 只按当前计划、当前练习池计算。两组均提供 correct_attempts/total_attempts、当前 FSRS 字段（如有）。没有数据的日期返回两个空数组；非法或超出当前 12 个月范围的日期返回 400。接口只读，日历格子与明细共用范围、去重和到期分桶规则。
 
-`GET /api/stats/monthly-activity` 返回 `{month,days}`，month 为服务端北京时间 YYYY-MM，days 固定覆盖当月每一天（28–31 天），每项为 `{date,words,accuracy}`。words 是网站正式/自由练习有效作答次数，accuracy 是正确率，缺记录时分别为 0/null；不再使用滚动 30 天范围。
+`GET /api/stats/recent-activity` 返回 `{start_date,end_date,days}`，end_date 为服务端北京时间今天，start_date 为今天减去 29 天；days 按日期升序固定覆盖这 30 个自然日，不包含未来日期，每项为 `{date,words,accuracy}`。words 是网站正式/自由练习有效作答次数，accuracy 是正确率，缺记录时分别为 0/null。旧自然月接口 `/api/stats/monthly-activity` 已移除。
 
-顶部“已学习”和“已掌握”复用完整词库进度接口的 overall.learned / overall.mastered，按词计数而非作答次数。日历与月度接口不改变队列、复习时间或任何历史。已移除无调用的旧日历、滚动 30 天和七天预报接口；日历与本月学习共用逐日汇总查询，连续学习与日历使用同一个服务端北京时间日期。
+顶部“已学习”和“已掌握”复用完整词库进度接口的 overall.learned / overall.mastered，按词计数而非作答次数。日历与近期记录接口不改变队列、复习时间或任何历史。已移除无调用的旧日历、旧趋势和七天预报接口；日历与学习近况共用逐日汇总查询，连续学习与日历使用同一个服务端北京时间日期。
 
 ## 完整词库进度接口
 

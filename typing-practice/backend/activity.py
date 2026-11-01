@@ -27,7 +27,7 @@ def calendar_day(value: str, today: date) -> date:
 
 
 def daily_activity(db: Connection, start: date, end: date) -> list[dict]:
-    """The shared read-only daily totals for the calendar and monthly chart."""
+    """The shared read-only daily totals for the calendar and recent activity chart."""
     return [dict(row) for row in db.execute("""SELECT date(reviewed_at,'+8 hours') date,
         COUNT(DISTINCT word_key) practiced,COUNT(*) attempts,AVG(is_correct)*100 accuracy
         FROM word_reviews WHERE date(reviewed_at,'+8 hours') BETWEEN ? AND ?

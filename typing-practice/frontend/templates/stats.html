@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
-    <script src="/src/stats.js?v=20261030-calendar-empty-days" defer></script>
+    <script src="/src/stats.js?v=20261101-recent-activity" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -41,12 +41,12 @@
                         <div class="calendar-legend"><div><span>已学习</span><span v-for="level in [1,2,3,4]" :key="level" class="calendar-swatch" :class="`calendar-history-${level}`" aria-hidden="true"></span><span class="legend-scale-note">少 → 多</span></div><div><span>待复习</span><span v-for="level in [1,2,3,4]" :key="level" class="calendar-swatch" :class="`calendar-due-${level}`" aria-hidden="true"></span><span class="legend-scale-note">少 → 多</span></div><div><span class="calendar-swatch calendar-today" aria-hidden="true"></span><span>今天</span></div></div>
                     </template>
                 </section>
-                <section class="report-section" aria-labelledby="month-title">
-                    <div class="section-heading"><h2 id="month-title">本月学习</h2><p>{{ monthLabel }} · 柱：作答次数 · 线：正确率</p></div>
-                    <p v-if="trendLoading" class="chart-empty" role="status">正在加载本月学习…</p>
-                    <div v-else-if="trendError" class="calendar-placeholder" role="alert"><p class="error-message">无法加载本月学习，请检查连接后重试。</p><button type="button" class="button button-secondary" @click="loadTrend">重试加载</button></div>
-                    <div v-else-if="trendEmpty" class="chart-empty">本月暂无练习记录</div>
-                    <div v-show="!trendLoading && !trendError && !trendEmpty" id="trend-chart" class="trend-chart" role="img" aria-label="本月每日作答次数和正确率"></div>
+                <section class="report-section" aria-labelledby="trend-title">
+                    <div class="section-heading"><h2 id="trend-title">学习近况</h2><p>{{ trendRangeLabel }} · 柱：作答次数 · 线：正确率</p></div>
+                    <p v-if="trendLoading" class="chart-empty" role="status">正在加载学习近况…</p>
+                    <div v-else-if="trendError" class="calendar-placeholder" role="alert"><p class="error-message">无法加载学习近况，请检查连接后重试。</p><button type="button" class="button button-secondary" @click="loadTrend">重试加载</button></div>
+                    <div v-else-if="trendEmpty" class="chart-empty">最近 30 天暂无练习记录</div>
+                    <div v-show="!trendLoading && !trendError && !trendEmpty" id="trend-chart" class="trend-chart" role="img" aria-label="最近 30 天每日作答次数和正确率"></div>
                 </section>
                 <section class="report-section vocabulary-section" aria-labelledby="route-title">
                     <div class="section-heading route-heading">
