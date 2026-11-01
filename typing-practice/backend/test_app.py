@@ -199,8 +199,8 @@ class FlaskAppTest(unittest.TestCase):
         self.assertEqual(client.post("/api/practice/attempts", json=payload).json, response.json)
         overview = client.get("/api/stats/overview").json["data"]
         self.assertEqual(overview["total_words_practiced"], 21)
-        month = client.get("/api/stats/monthly-activity").json["data"]
-        self.assertEqual(next(day for day in month["days"] if day["date"] == "2026-10-29")["words"], 21)
+        recent = client.get("/api/stats/recent-activity").json["data"]
+        self.assertEqual(next(day for day in recent["days"] if day["date"] == "2026-10-29")["words"], 21)
 
     def test_optimization_history_api_and_invalid_cursors(self):
         from test_optimizer_service import seed_history, candidate
@@ -414,7 +414,7 @@ class FlaskAppTest(unittest.TestCase):
         for endpoint in (
             "/api/stats/calendar",
             "/api/stats/calendar-words?date=2026-10-27",
-            "/api/stats/monthly-activity",
+            "/api/stats/recent-activity",
             "/api/stats/vocabulary-progress",
             "/api/stats/vocabulary-words?dimension=cefr&value=B2",
             "/api/stats/word-errors?source_id=abandon",

@@ -34,7 +34,7 @@
 | GET /api/sync/status、POST /api/sync/now | 同步状态和执行同步 |
 | GET /api/stats/overview | 累计作答、连续天数和有效时长汇总 |
 | GET /api/stats/calendar、calendar-words | 以当月居中的一年学习记录、待复习安排与日期单词列表 |
-| GET /api/stats/monthly-activity | 北京时间自然月逐日作答量与正确率 |
+| GET /api/stats/recent-activity | 最近 30 个北京时间自然日（含今天）的逐日作答量与正确率 |
 | GET /api/stats/word-errors | 按 SourceId 分页查询每次答错记录与答对/总次数 |
 | GET /api/stats/vocabulary-progress、vocabulary-words | 完整词库 CEFR / 话题进度与状态筛选分页明细 |
 | GET /api/memory/optimization、optimization/runs、optimization/runs/<id> | 自动参数优化进度、历史分页与完整评估记录 |

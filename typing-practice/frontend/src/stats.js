@@ -19,7 +19,6 @@ createApp({
                 { value: 'learning', label: '学习中' }, { value: 'mastered', label: '已掌握' }
             ],
             today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
-            trendMonth: '',
             trendLoading: false,
             trendError: false,
             trendData: [],
@@ -82,8 +81,14 @@ createApp({
             return this.calendar ? `${this.calendar.start_date.slice(0, 7).replace('-', '.')} — ${this.calendar.end_date.slice(0, 7).replace('-', '.')}` : '';
         },
         monthLabel() {
-            const [year, month] = (this.trendMonth || this.today.slice(0, 7)).split('-');
+            const [year, month] = this.today.split('-');
             return `${year} 年 ${Number(month)} 月`;
+        },
+        trendRangeLabel() {
+            if (!this.trendData.length) return '最近 30 天';
+            const start = this.trendData[0].date.replaceAll('-', '.');
+            const end = this.trendData[this.trendData.length - 1].date.replaceAll('-', '.');
+            return `最近 30 天 · ${start} — ${end}`;
         },
         trendEmpty() {
             return !this.trendData.some(item => item.words > 0);
@@ -159,8 +164,7 @@ createApp({
             this.trendLoading = true;
             this.trendError = false;
             try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/monthly-activity`);
-                this.trendMonth = response.data.data.month;
+                const response = await axios.get(`${this.apiBaseUrl}/stats/recent-activity`);
                 this.trendData = response.data.data.days;
             } catch (error) {
                 this.trendError = true;
@@ -350,7 +354,7 @@ createApp({
 
             const barColor = '#c8d5cc';
             const lineColor = '#375d4c';
-            const dates = this.trendData.map(item => String(Number(item.date.slice(8))));
+            const dates = this.trendData.map(item => `${Number(item.date.slice(5, 7))}/${Number(item.date.slice(8))}`);
 
             this.trendChart.setOption({
                 animation: false,

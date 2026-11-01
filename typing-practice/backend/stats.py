@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from srs import SHANGHAI
-from activity import daily_activity, month_start
+from activity import daily_activity
 
 
 SCHEMA = """
@@ -79,8 +79,8 @@ class StatsStore:
         with self.lock:
             self.db.close()
 
-    def monthly_activity(self, today: date) -> dict[str, Any]:
-        start, end = month_start(today), month_start(today, 1) - timedelta(days=1)
+    def recent_activity(self, today: date) -> dict[str, Any]:
+        start, end = today - timedelta(days=29), today
         with self.lock:
             by_date = {row["date"]: row for row in daily_activity(self.db, start, end)}
         days = []
@@ -89,7 +89,7 @@ class StatsStore:
             row = by_date.get(day)
             days.append({"date": day, "words": row["attempts"] if row else 0,
                          "accuracy": row["accuracy"] if row else None})
-        return {"month": start.strftime("%Y-%m"), "days": days}
+        return {"start_date": start.isoformat(), "end_date": end.isoformat(), "days": days}
 
     def _current_streak(self, today: date) -> int:
         with self.lock:

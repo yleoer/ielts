@@ -94,7 +94,7 @@
                     <div v-else class="empty-state">
                         <svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#document"/></svg>
                         <h2>{{ summary && summary.total ? '当前复习已完成' : '暂无可练习单词' }}</h2>
-                        <p v-if="nextDueText">下次复习：{{ nextDueText }}（北京时间）</p>
+                        <p v-if="nextDueText">下次复习：{{ nextDueText }}</p>
                         <p v-else-if="summary && summary.total">当前没有待复习或未开始的单词。</p>
                         <p v-else>先在 Anki 学习单词，再同步词库。</p>
                         <div class="button-row"><button v-if="summary && summary.total" type="button" class="button button-secondary" @click="startFreePractice">自由练习</button><button v-else type="button" class="button button-primary" @click="openSyncModal">同步 Anki</button><button type="button" class="button button-secondary" @click="fetchWords">检查待复习</button></div>

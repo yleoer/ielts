@@ -132,19 +132,35 @@ class ActivityTest(unittest.TestCase):
         self.assertEqual(data["practiced"][0]["total_attempts"], 3)
         self.assertEqual(data["due"], [])
 
-    def test_monthly_activity_uses_natural_month_and_includes_zero_days(self):
-        self.now = datetime(2026, 9, 30, 15, 59, 58, tzinfo=timezone.utc)
+    def test_recent_activity_includes_today_and_29_previous_beijing_days_without_writes(self):
+        self.now = datetime(2026, 10, 2, 15, 59, 58, tzinfo=timezone.utc)
         self.review()
         self.review()
-        data = self.get("/api/stats/monthly-activity")
-        self.assertEqual(data["month"], "2026-10")
-        self.assertEqual(len(data["days"]), 31)
-        self.assertEqual(data["days"][0]["words"], 1)
-        self.assertEqual(sum(day["words"] for day in data["days"]), 1)
-        self.now = datetime(2024, 2, 15, 8, tzinfo=timezone.utc)
-        leap = self.get("/api/stats/monthly-activity")
-        self.assertEqual(len(leap["days"]), 29)
-        self.assertTrue(all(day["accuracy"] is None for day in leap["days"]))
+        self.review("wrong")
+        self.now = datetime(2026, 10, 31, 16, tzinfo=timezone.utc)
+        self.review()
+        self.now = datetime(2026, 11, 1, 16, tzinfo=timezone.utc)
+        self.review()
+        self.now = datetime(2026, 10, 31, 16, tzinfo=timezone.utc)
+        changes = self.state.stats.db.total_changes
+        data = self.get("/api/stats/recent-activity")
+        self.assertEqual((data["start_date"], data["end_date"]), ("2026-10-03", "2026-11-01"))
+        self.assertEqual(len(data["days"]), 30)
+        self.assertEqual(data["days"][0], {"date": "2026-10-03", "words": 2, "accuracy": 50})
+        self.assertEqual(data["days"][-1], {"date": "2026-11-01", "words": 1, "accuracy": 100})
+        self.assertEqual(sum(day["words"] for day in data["days"]), 3)
+        self.assertTrue(all(day["words"] == 0 and day["accuracy"] is None for day in data["days"][1:-1]))
+        self.assertEqual(self.state.stats.db.total_changes, changes)
+
+    def test_recent_activity_keeps_30_days_across_leap_february_and_new_year(self):
+        for today, start in ((date(2024, 3, 1), "2024-02-01"), (date(2026, 1, 1), "2025-12-03")):
+            with self.subTest(today=today):
+                self.now = datetime(today.year, today.month, today.day, 8, tzinfo=timezone.utc)
+                data = self.get("/api/stats/recent-activity")
+                self.assertEqual((data["start_date"], data["end_date"]), (start, today.isoformat()))
+                self.assertEqual([day["date"] for day in data["days"]], [
+                    (today - timedelta(days=offset)).isoformat() for offset in range(29, -1, -1)])
+                self.assertTrue(all(day["words"] == 0 and day["accuracy"] is None for day in data["days"]))
 
     def test_streak_uses_the_same_beijing_day_as_the_calendar(self):
         self.now = datetime(2026, 10, 28, 15, 59, 58, tzinfo=timezone.utc)
