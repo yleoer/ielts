@@ -22,6 +22,10 @@
 - [自动部署](typing-practice/AUTO-DEPLOY.md)
 - [本地构建说明](typing-practice/LOCAL-BUILD.md)
 
+## 桌面端（开发中）
+
+- [Tauri 2 桌面端设计](typing-desktop/DESIGN.md)
+
 ## 学习统计
 
 - [统计功能总结](typing-practice/statistics/SUMMARY.md)
