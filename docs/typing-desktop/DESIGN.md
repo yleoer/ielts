@@ -13,11 +13,13 @@
 
 ## 桌面端
 
-- **前端**：沿用 `app.js` / `stats.js` / `style.css`。Jinja 模板改为静态 HTML；Vue、ECharts 改为本地文件；axios 调用改为 `invoke` 同名命令，命令返回结构与现有 `/api/*` JSON 保持一致，以便复用前端和 Node 测试。
+- **前端**：与网页版共用 `typing-practice/frontend`，JS 不改。`scripts/build_frontend.py` 用相同 Jinja 模板渲染到 `dist/`，CDN 脚本替换为 `vendor/` 中的固定版本，编译时内嵌。
+- **接口**：Tauri 注册 `cijian://` 自定义协议（Windows 上为 `http://cijian.localhost/`）。页面按 `location.origin + "/api"` 发出的请求由 `core/src/api.rs` 处理，路径、状态码与 JSON 与 Flask 一致（409 `practice_conflict`、400、503），不使用 `invoke`。
 - **FSRS**：`typing-desktop/core`（`cijian-core`）逐行移植 py-fsrs 6.3.2 `Scheduler`，与 `srs.py` 行为一致，包括学习步骤 1/10 分钟、重学 10 分钟、保持率 0.9、6/20 秒评分阈值；Card JSON 与 py-fsrs `to_dict()` 兼容，可直接读取现有 `card_json`。参数优化使用 fsrs-rs 的 `compute_parameters`，在本地后台线程运行，验收规则沿用现有优化服务（时间留出验证、误差改善才启用）。
 - **对照基准**：`typing-desktop/scripts/gen_fsrs_fixtures.py` 用 py-fsrs 生成 `typing-desktop/fixtures/fsrs-golden.json`（关闭 fuzz，300 条随机复习序列共 2258 次复习、评分边界、答案归一化）。`core/tests/golden.rs` 逐条比对 state、step、due、last_review，以及 stability、difficulty、回忆概率（相对误差 ≤ 1e-9），当前全部通过。修改 `srs.py` 评分或调度规则后需重新生成。
 - **fuzz**：取 SHA-256(`attempt_id`) 前 53 位作为 `[0, 1)` 随机数，重放同一日志得到相同计划；fuzz 区间算法与 py-fsrs 相同，不在基准中比对。
-- **存储**：本地 SQLite 沿用 `word_memory`、`word_reviews` 结构，另存词库缓存和同步游标。`practice_items` 只在本地使用，不同步。
+- **存储**：`core/src/store.rs` 移植 `memory.py` 的出题、提交与汇总，本地 SQLite 沿用 `srs_configs`、`word_memory`、`practice_items`、`word_reviews` 结构，另有 `vocabulary`（词库快照）与 `sync_history`。`practice_items` 只在本地使用，不同步。
+- **词库（离线阶段）**：`scripts/export_vocab.py` 复用 `anki.py` 从 Anki 数据库导出 JSON 快照（全部词条 + `learned` + 插图文件名）；页面“同步”按钮重新导入快照并记录新增词。后续 `/api/vocab` 返回同一格式。
 - **媒体**：插图与音频随安装包放入 Tauri 资源目录，按 `SourceId` 建 manifest（文件名 + 哈希），由 `apkg-generator` 生成；通过自定义协议读取，不经过服务端。
 
 ## 同步
@@ -33,7 +35,7 @@
 
 1. FSRS 对照基准（已完成）。
 2. Rust 实现判题与 FSRS 并通过基准测试（已完成，`cijian-core`）；搭建 Tauri 2 工程。
-3. 前端迁入，实现练习相关命令，先做纯离线版本（词库从本地 Anki 数据库导入）。
+3. 前端迁入，实现练习相关接口，先做纯离线版本（已完成：练习页在真实窗口中验证出题、判题、FSRS 写库与插图）。
 4. 迁移统计查询，接入本地参数优化。
 5. 精简服务端，增加 `/api/vocab`、`/api/sync`，把现有 `stats.db` 作答导入服务端作为初始日志。
 6. 媒体打包与 manifest；安装包构建与发布流程。
