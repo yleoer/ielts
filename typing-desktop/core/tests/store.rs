@@ -281,7 +281,7 @@ fn router_serves_practice_api_with_flask_shapes() {
     let f = Fixture::new();
     let dist = tempfile::tempdir().unwrap();
     std::fs::write(dist.path().join("index.html"), "<html>词间</html>").unwrap();
-    let app = App { store: f.store, config: AppConfig { dist_dir: dist.path().into(), media_dir: None, vocab_path: None } };
+    let app = App { store: f.store, config: AppConfig { dist_dir: dist.path().into(), media_dir: None, vocab_path: None }, optimization: Default::default() };
     let get = |uri: &str| app.handle(&Request::new("GET", uri, vec![]));
     let body = |r: &cijian_core::api::Response| serde_json::from_slice::<Value>(&r.body).unwrap();
 

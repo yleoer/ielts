@@ -8,6 +8,7 @@ use std::path::{Component, Path, PathBuf};
 use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
+use crate::optimize::OptimizationConfig;
 use crate::store::{Store, FREE_PRACTICE_LIMIT};
 use crate::vocab::{parse_snapshot, safe_media_name};
 
@@ -30,6 +31,15 @@ impl Request {
             (percent_decode(k), percent_decode(v))
         }).collect();
         Request { method: method.to_ascii_uppercase(), path: percent_decode(path), query, body }
+    }
+
+    fn get(&self, name: &str) -> &str {
+        self.query.get(name).map_or("", String::as_str)
+    }
+
+    /// Strict integer parameter: absent → default, malformed → `error`.
+    fn strict(&self, name: &str, default: i64, error: &str) -> ApiResult<i64> {
+        self.query.get(name).map_or(Ok(default), |v| v.trim().parse().map_err(|_| ApiError::bad(error)))
     }
 
     fn int(&self, name: &str, default: usize) -> usize {
@@ -86,6 +96,7 @@ pub struct AppConfig {
 pub struct App {
     pub store: Store,
     pub config: AppConfig,
+    pub optimization: OptimizationConfig,
 }
 
 fn content_type(path: &Path) -> &'static str {
@@ -141,6 +152,13 @@ impl App {
         if let Some(rest) = path.strip_prefix("/api/media/") {
             return self.media(rest);
         }
+        if let Some(id) = path.strip_prefix("/api/memory/optimization/runs/").filter(|_| request.method == "GET") {
+            return match id.parse::<i64>().ok().map(|id| self.store.optimization_run(id)) {
+                Some(Ok(Some(record))) => Response::json(200, json!({"success": true, "data": record})),
+                Some(Err(error)) => Response::error(error),
+                _ => Response::error(ApiError::NotFound),
+            };
+        }
         match self.api(request) {
             Ok(value) => Response::json(200, value),
             Err(error) => Response::error(error),
@@ -160,6 +178,7 @@ impl App {
 
     fn api(&self, request: &Request) -> ApiResult<Value> {
         let s = &self.store;
+        let config = s.memory_config();
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/api/health") => Ok(json!({"success": true, "status": "ok"})),
             ("GET", "/api/config") => Ok(json!({
@@ -167,7 +186,7 @@ impl App {
                 "anki_path": self.config.vocab_path.as_ref().map(|p| p.display().to_string()),
                 "deck_name": "Word Atlas", "total_learned": s.learned_count(),
                 "default_limit": FREE_PRACTICE_LIMIT, "max_limit": MAX_LIMIT,
-                "easy_seconds": s.srs.config.easy_seconds, "hard_seconds": s.srs.config.hard_seconds,
+                "easy_seconds": config.easy_seconds, "hard_seconds": config.hard_seconds,
             })),
             ("GET", "/api/memory/summary") => Ok(json!({"success": true, "data": s.summary()?})),
             ("GET", "/api/practice/queue") => {
@@ -195,6 +214,37 @@ impl App {
                     }
                 }
                 Ok(response)
+            }
+            ("GET", "/api/memory/optimization") => Ok(json!({"success": true, "data": s.optimization_status(&self.optimization)?})),
+            ("GET", "/api/memory/optimization/runs") => {
+                let before_id = request.strict("before_id", 0, "无效的记录游标")?;
+                if before_id < 0 {
+                    return Err(ApiError::bad("无效的记录游标"));
+                }
+                Ok(json!({"success": true, "data": s.optimization_history(before_id, request.int("limit", 20))?}))
+            }
+            ("GET", "/api/stats/overview") => Ok(json!({"success": true, "data": s.overview()?})),
+            ("GET", "/api/stats/calendar") => Ok(json!({"success": true, "data": s.activity_calendar()?})),
+            ("GET", "/api/stats/calendar-words") => Ok(json!({"success": true, "data": s.calendar_words(request.get("date"))?})),
+            ("GET", "/api/stats/recent-activity") => Ok(json!({"success": true, "data": s.recent_activity()?})),
+            ("GET", "/api/stats/vocabulary-progress") => Ok(json!({"success": true, "data": s.vocabulary_progress()?})),
+            ("GET", "/api/stats/vocabulary-words") => {
+                let offset = request.strict("offset", 0, "无效的分页参数")?;
+                let limit = request.strict("limit", 100, "无效的分页参数")?;
+                if offset < 0 || !(1..=200).contains(&limit) {
+                    return Err(ApiError::bad("无效的分页参数"));
+                }
+                let status = request.query.get("status").map_or("all", String::as_str);
+                let data = s.vocabulary_words(request.get("dimension"), request.get("value"), status, offset as usize, limit as usize)?;
+                Ok(json!({"success": true, "data": data}))
+            }
+            ("GET", "/api/stats/word-errors") => {
+                let before_id = request.strict("before_id", 0, "无效的分页参数")?;
+                let limit = request.strict("limit", 50, "无效的分页参数")?;
+                if before_id < 0 || !(1..=200).contains(&limit) {
+                    return Err(ApiError::bad("无效的分页参数"));
+                }
+                Ok(json!({"success": true, "data": s.word_errors(request.get("source_id"), before_id, limit as usize)?}))
             }
             ("GET", "/api/sync/status") => Ok(json!({"success": true, "data": self.sync_status(None)?})),
             ("POST", "/api/sync/now") => self.sync_now(),
