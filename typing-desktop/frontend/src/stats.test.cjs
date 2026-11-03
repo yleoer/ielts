@@ -12,6 +12,7 @@ function harness(get, globals = {}) {
         console: { error() {} },
         ...globals
     });
+    vm.runInContext(fs.readFileSync(__dirname + '/workspace.js', 'utf8'), context);
     vm.runInContext(fs.readFileSync(__dirname + '/pronunciation.js', 'utf8'), context);
     vm.runInContext(fs.readFileSync(__dirname + '/stats.js', 'utf8'), context);
     const app = options.data();
@@ -21,6 +22,52 @@ function harness(get, globals = {}) {
     for (const [name, fn] of Object.entries(options.computed)) Object.defineProperty(app, name, { get: fn.bind(app) });
     return app;
 }
+
+test('statistics opens server and resource settings and restores the header button focus', async () => {
+    let focused = false;
+    const opener = { focus() { focused = true; } };
+    const app = harness(async url => ({ data: { data: url.endsWith('/settings/server')
+        ? { configured: true, url: 'https://sync.example', has_token: true, editable: true }
+        : { installed: false, phase: 'idle', busy: false } } }), { document: { activeElement: opener } });
+    await app.openServerSetup();
+    assert.equal(app.setup.visible, true);
+    assert.equal(app.setup.url, 'https://sync.example');
+    assert.equal(app.resources.status.installed, false);
+    app.closeServerSetup();
+    assert.equal(app.setup.visible, false);
+    assert.equal(focused, true);
+});
+
+test('statistics sync refreshes statistics in place after successful synchronization', async () => {
+    const requests = [];
+    const app = harness(async () => ({ data: { data: { history: [] } } }), {
+        axios: {
+            get: async () => ({ data: { data: { history: [] } } }),
+            post: async url => { requests.push(url); return { data: { data: { success: true, message: '同步完成' } } }; }
+        }
+    });
+    let refreshed = 0;
+    app.loadAllData = async () => { refreshed++; };
+    await app.openSyncModal();
+    await app.syncNow();
+    assert.equal(app.syncModal.visible, true);
+    assert.equal(app.syncModal.status.message, '同步完成');
+    assert.equal(app.syncModal.syncing, false);
+    assert.equal(refreshed, 1);
+    assert.deepEqual(requests, ['http://test/api/sync/now']);
+});
+
+test('sync refresh keeps existing statistics and chart containers visible while reloading', async () => {
+    let finishOverview;
+    const app = harness(() => new Promise(resolve => { finishOverview = resolve; }));
+    app.loading = false;
+    app.loadCalendar = app.loadTrend = app.loadVocabulary = async () => {};
+    const refresh = app.afterSync();
+    assert.equal(app.loading, false, 'refresh must keep the existing chart container mounted');
+    finishOverview({ data: { data: { total_attempts: 7 } } });
+    await refresh;
+    assert.equal(app.overview.total_attempts, 7);
+});
 
 test('calendar date detail shows every scheduled word and switches history without another request', async () => {
     const words = Array.from({ length: 501 }, (_, id) => ({ word: `word-${id}`, due: '2026-10-30T00:00:00Z' }));

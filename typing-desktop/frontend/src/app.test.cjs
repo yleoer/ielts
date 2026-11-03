@@ -31,6 +31,7 @@ function harness() {
         axios: { post: async (url, payload) => { requests.push(JSON.parse(JSON.stringify(payload))); throw new Error('offline'); } }
     };
     vm.createContext(context);
+    vm.runInContext(fs.readFileSync(__dirname + '/workspace.js', 'utf8'), context);
     vm.runInContext(fs.readFileSync(__dirname + '/pronunciation.js', 'utf8'), context);
     vm.runInContext(fs.readFileSync(__dirname + '/app.js', 'utf8'), context);
     function mount() {

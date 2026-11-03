@@ -3,6 +3,7 @@ const { createApp } = Vue;
 createApp({
     data() {
         return {
+            ...workspaceControls.data(),
             loading: true,
             audioError: '',
             loadError: false,
@@ -39,6 +40,8 @@ createApp({
         };
     },
     computed: {
+        ...workspaceControls.computed,
+        workspaceModalOpen() { return this.setup.visible || this.syncModal.visible || this.detailModal.visible; },
         overviewCards() {
             const o = this.overview || {};
             const minutes = Number(o.total_time_minutes || 0);
@@ -108,6 +111,8 @@ createApp({
             // 热力图是纯 CSS 网格，自适应无需重绘。
         });
         window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && this.setup.visible) { this.closeServerSetup(); return; }
+            if (event.key === 'Escape' && this.syncModal.visible) { this.closeSyncModal(); return; }
             if (event.key === 'Escape' && this.detailModal.visible) {
                 this.closeDetailModal();
             }
@@ -123,14 +128,16 @@ createApp({
         });
     },
     methods: {
+        ...workspaceControls.methods,
+        async afterSync() { await this.loadAllData({ refresh: true }); },
         ...wordAudio,
         updatePageAppearance() {
             document.title = '词间 · 统计';
             document.documentElement.lang = 'zh-CN';
         },
 
-        async loadAllData() {
-            this.loading = true;
+        async loadAllData({ refresh = false } = {}) {
+            if (!refresh) this.loading = true;
             this.loadError = false;
             try {
                 const response = await axios.get(`${this.apiBaseUrl}/stats/overview`);
