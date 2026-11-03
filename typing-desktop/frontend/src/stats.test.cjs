@@ -5,13 +5,15 @@ const vm = require('node:vm');
 
 function harness(get, globals = {}) {
     let options;
-    vm.runInNewContext(fs.readFileSync(__dirname + '/stats.js', 'utf8'), {
+    const context = vm.createContext({
         Vue: { createApp(value) { options = value; return { mount() {} }; } },
-        window: { location: { origin: 'http://test' } },
+        window: { location: { origin: 'http://test' }, clearTimeout() {} },
         axios: { get },
         console: { error() {} },
         ...globals
     });
+    vm.runInContext(fs.readFileSync(__dirname + '/pronunciation.js', 'utf8'), context);
+    vm.runInContext(fs.readFileSync(__dirname + '/stats.js', 'utf8'), context);
     const app = options.data();
     for (const [name, fn] of Object.entries(options.methods)) app[name] = fn.bind(app);
     app.$refs = {};

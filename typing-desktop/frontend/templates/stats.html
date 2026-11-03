@@ -8,7 +8,8 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
-    <script src="/src/stats.js?v=20261101-recent-activity" defer></script>
+    <script src="/src/pronunciation.js?v=20261103-plain-audio" defer></script>
+    <script src="/src/stats.js?v=20261103-plain-audio" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -132,13 +133,14 @@
                 </div>
                 <div v-if="detailModal.type === 'calendar' && !detailModal.loading && !detailModal.error && (detailModal.calendarGroups.practiced.length || detailModal.calendarGroups.due.length)" class="vocabulary-filters" role="group" aria-label="按日期记录类型筛选"><button type="button" :aria-pressed="detailModal.calendarMode === 'practiced'" :disabled="!detailModal.calendarGroups.practiced.length" @click="selectCalendarMode('practiced')">已学习 {{ detailModal.calendarGroups.practiced.length }}</button><button type="button" :aria-pressed="detailModal.calendarMode === 'due'" :disabled="!detailModal.calendarGroups.due.length" @click="selectCalendarMode('due')">待复习 {{ detailModal.calendarGroups.due.length }}</button></div>
                 <div class="dialog-body" tabindex="0" aria-label="单词明细">
+                    <p v-if="audioError" class="audio-error error-message" role="alert">{{ audioError }}</p>
                     <p v-if="detailModal.loading && !detailModal.items.length" class="chart-empty" role="status">加载中…</p>
                     <div v-if="detailModal.error" role="alert"><p class="error-message">{{ detailModal.error }}</p><button v-if="detailModal.type === 'vocabulary'" type="button" class="button button-secondary" :disabled="detailModal.loading" @click="loadVocabularyWords(detailModal.retryAppend)">重试加载</button><button v-else-if="detailModal.type === 'calendar'" type="button" class="button button-secondary" :disabled="detailModal.loading" @click="loadCalendarWords">重试加载</button></div>
                     <p v-if="!detailModal.loading && !detailModal.error && !detailModal.items.length" class="chart-empty">{{ detailModal.type === 'calendar' ? '这一天暂无单词' : '当前筛选下没有单词' }}</p>
                     <ul v-if="detailModal.items.length" class="entry-list">
                         <li v-for="item in detailModal.items" :key="item.source_id || item.id" :class="{ 'calendar-entry': detailModal.type === 'calendar', 'vocabulary-entry': detailModal.type === 'vocabulary' }">
                             <div class="word-detail-row">
-                                <div><strong class="mono">{{ item.word }}</strong><p class="muted">{{ item.chinese_meaning }}</p><p class="entry-metadata">{{ item.cefr || '未分级' }} · {{ item.category || '未分类' }}</p></div>
+                                <div><strong class="mono"><button type="button" class="word-audio" :disabled="!hasWordAudio(item)" @click="playWord(item)">{{ item.word }}</button></strong><p class="muted">{{ item.chinese_meaning }}</p><p class="entry-metadata">{{ item.cefr || '未分级' }} · {{ item.category || '未分类' }}</p></div>
                                 <div class="detail-values">
                                     <span v-if="!item.total_attempts" class="word-attempts-empty">0/0</span>
                                     <button v-else type="button" class="word-attempts" :aria-expanded="!!item.errorHistory?.expanded" :aria-controls="`word-errors-${item.id}`" :aria-label="`${item.word}：答对 ${item.correct_attempts || 0} / ${item.total_attempts} 次，查看答错记录`" @click="toggleWordErrors(item)">答对 {{ item.correct_attempts || 0 }} / {{ item.total_attempts }}</button>

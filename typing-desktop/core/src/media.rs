@@ -10,12 +10,10 @@ use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 
-const KINDS: [(&str, &str); 5] = [
+const KINDS: [(&str, &str); 3] = [
     ("illustration", "illustration"),
     ("audio_uk", "audio/uk"),
     ("audio_us", "audio/us"),
-    ("audio_example", "audio/example"),
-    ("audio_ielts", "audio/ielts"),
 ];
 
 #[derive(Deserialize)]
@@ -40,9 +38,12 @@ impl Media {
     pub fn load_package(path: &Path) -> ApiResult<Self> {
         let load = || -> Result<Self, Box<dyn std::error::Error>> {
             let mut archive = zip::ZipArchive::new(File::open(path)?)?;
-            let manifest: Manifest = serde_json::from_reader(archive.by_name("manifest.json")?)?;
+            let mut manifest: Manifest = serde_json::from_reader(archive.by_name("manifest.json")?)?;
             if manifest.format != 1 {
                 return Err("不支持的资源包版本".into());
+            }
+            for assets in manifest.words.values_mut() {
+                assets.retain(|kind, _| KINDS.iter().any(|(known, _)| kind == known));
             }
             Ok(Self {
                 words: manifest.words,
@@ -112,14 +113,14 @@ impl Media {
             Value::Array(items) => items.iter_mut().for_each(|v| self.decorate(v)),
             Value::Object(object) => {
                 object.values_mut().for_each(|v| self.decorate(v));
-                if let (Some(source), Some(id)) = (
+                if let (Some(source), Some(_)) = (
                     object.get("source_id").and_then(Value::as_str),
-                    object.get("id").and_then(Value::as_i64),
+                    object.get("id"),
                 ) {
                     let assets = self.words.get(source);
                     let url = |kind: &str, route: &str| -> String {
                         assets.and_then(|a| a.get(kind)).map_or(String::new(), |_| {
-                            format!("/api/media/{id}/{route}?v={}", self.version)
+                            format!("/api/media/source/{source}/{route}?v={}", self.version)
                         })
                     };
                     let illustration = url("illustration", "illustration");

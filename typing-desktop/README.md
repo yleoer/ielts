@@ -34,6 +34,10 @@ cargo run -p cijian
 
 在 `typing-desktop` 目录运行 `npm run tauri -- dev` 或 `npm run tauri -- build` 时，Tauri 钩子只准备前端；`build` 生成约 4 MiB 的 Windows NSIS 安装包，位于 `target/release/bundle/nsis/`。媒体独立导出和安装，构建不需要 Word Atlas 源仓库。直接 `cargo run` / `cargo build` 不执行钩子，需要先完成第 1 步。详见 [独立媒体资源包](../docs/typing-desktop/MEDIA.md)。
 
+Windows 安装器与卸载器固定使用简体中文（NSIS `SimpChinese`），图标均复用程序的 `app/icons/icon.ico`。语言和图标由 `app/tauri.conf.json` 的 `bundle.windows.nsis` 配置，重新构建安装包后生效。
+
+覆盖同名安装包后，文件列表可能沿用旧图标缓存；刷新目录或将安装包换一个文件名，可重新读取图标。本次另提供内容相同的 `词间_0.1.0_x64-中文安装.exe` 便于确认。
+
 环境变量（均可选）：
 
 | 变量 | 默认 |
@@ -80,12 +84,12 @@ cargo test
 前端脚本测试在仓库根目录运行：
 
 ```powershell
-node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs
+node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs
 ```
 
 - `core/tests/golden.rs`：逐条比对 Rust 调度、评分与答案归一化结果。
 - `core/tests/store.rs`：移植 `test_memory.py` / `test_app.py` 的练习用例（学习/重学/掌握、重试幂等、多标签冲突、自由练习、队列顺序、北京时间新词计数、过期与非法时间、参数变更重放、路由路径与 JSON）。
-- `core/tests/media.rs`：按 SourceId 获取本地插图与四类音频、Anki note id 变化、缺失媒体、无哈希清单与资源包 URL 版本。
+- `core/tests/media.rs`：按 SourceId 获取本地插图与英美单词读音（练习和统计明细可点击播放）、Anki note id 变化、缺失媒体、无哈希清单与资源包 URL 版本。
 - `core/tests/stats.rs`：移植 `test_activity.py` / `test_vocabulary.py`（日历窗口与北京时间边界、到期分布、移出词库后的历史、近 30 天、连续天数、词库进度与平滑错误率排序、分页与参数校验、错误记录），并确认统计查询不写库。
 - `core/tests/sync.rs`：两台设备经内存服务器同步（交错作答收敛为同一重放结果、重复同步不重传、小分页、离线失败不改数据后补传、服务器词库替换本地、合并使未提交题目失效、以及首次设置（地址与令牌校验、错误令牌不保存、保存后同步、只改地址保留令牌、环境变量配置不可修改、损坏的 `server.json`）。
 - `frontend/src/app.test.cjs`：另含首次设置弹窗（未配置时不可关闭、已配置跳过、错误令牌保留弹窗、保存后先同步再加载练习）。

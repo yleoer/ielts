@@ -39,7 +39,7 @@ python -m unittest discover -s typing-practice/backend -p 'test_*.py'
 ## typing-desktop 测试规则
 
 - 桌面端 Rust 测试在 `typing-desktop` 目录运行 `cargo test`；只改某个模块时可用 `cargo test -p cijian-core --test <文件名>` 定向执行。
-- 只改前端逻辑时运行 `node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs`；改模板或静态资源时重新执行 `typing-desktop/scripts/build_frontend.py` 并在真实窗口中检查页面。
+- 只改前端逻辑时运行 `node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs`；改模板或静态资源时重新执行 `typing-desktop/scripts/build_frontend.py` 并在真实窗口中检查页面。
 - 修改同步协议（`typing-practice/backend/ledger.py` 或 `typing-desktop/core/src/sync.rs`、`remote.rs`）时，两端测试都要运行。
 
 ## typing-practice 验证范围

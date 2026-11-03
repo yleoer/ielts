@@ -12,7 +12,7 @@ const practiceApp = {
             isPracticeAbandoned: false, isComposing: false, isLoadingWords: false,
             isAdvancing: false, isRestoringDraft: false, advanceTimer: null,
             lastWrongInput: '', shake: false, shakeTimer: null, wordsError: '',
-            illustrationFailed: false, otherSensesExpanded: false, sensePointerType: '', sessionId: '',
+            illustrationFailed: false, audioError: '', otherSensesExpanded: false, sensePointerType: '', sessionId: '',
             practiceMode: 'normal', summary: null,
             pendingAttempt: null, submitError: '', submissionConflict: false,
             answerAccepted: false, storageError: '', draftSaveTimer: null,
@@ -79,7 +79,7 @@ const practiceApp = {
         }
     },
     watch: {
-        currentWord() { this.illustrationFailed = false; this.otherSensesExpanded = false; },
+        currentWord() { this.stopWordAudio(); this.audioError = ''; this.illustrationFailed = false; this.otherSensesExpanded = false; },
         userInput() {
             if (this.isRestoringDraft) return;
             if (this.showAnswer && !this.isAdvancing && !this.isComposing && this.isRetypeCorrect()) {
@@ -90,6 +90,11 @@ const practiceApp = {
         }
     },
     methods: {
+        ...wordAudio,
+        playPracticeWord(word, event) {
+            this.playWord(word);
+            if (event.detail > 0) this.focusInput();
+        },
         t(zh) { return zh; },
         rememberSensePointer(event) { this.sensePointerType = event.pointerType || ''; },
         toggleOtherSenses(event) {
@@ -774,10 +779,11 @@ const practiceApp = {
         const needsSetup = await this.checkServerSetup();
         if (!needsSetup && !await this.restoreDraftSession()) await this.fetchWords();
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) { this.pauseClock(); this.saveDraftSession(); }
+            if (document.hidden) { this.stopWordAudio(); this.pauseClock(); this.saveDraftSession(); }
             else this.resumeClock();
         });
         window.addEventListener('online', () => this.retryPending());
+        window.addEventListener('pagehide', this.stopWordAudio);
         window.addEventListener('beforeunload', event => {
             this.pauseClock(); this.saveDraftSession();
             if (this.pendingAttempt) { event.preventDefault(); event.returnValue = ''; }

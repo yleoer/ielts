@@ -2,7 +2,7 @@
 
 这是个人自用项目。插图和音频单独分发为 `cijian-media.zip`，不随桌面安装包。首次启动的“首次设置”中，填写同步服务器地址、访问令牌，并可选导入本地 ZIP；之后从练习页“设置”或同步窗口的“设置”更换资源包。没有资源包也能先练习文字，不提供网络下载功能。
 
-同步服务器只提供词库和作答日志。资源按 Word Atlas 的稳定 `SourceId` 定位，导入不会修改学习记录。练习页仍只显示插图，不增加音频按钮、不自动请求音频。
+同步服务器只提供词库和作答日志。资源按 Word Atlas 的稳定 `SourceId` 定位，导入不会修改学习记录。练习的中文释义、显示后的英文答案与错题回顾，以及统计词库/日历明细中的单词可点击播放读音：先英音，结束后间隔 500 毫秒再播美音。可播放文字不显示下划线或悬停读音提示。只在点击时读取音频，再次点击重新播放；缺少一种口音时只播已有口音，无读音时不提供播放。切题、关闭统计明细、隐藏或离开页面时停止。
 
 ## 生成
 
@@ -12,9 +12,9 @@
 .\.venv\Scripts\python.exe -X utf8 apkg-generator/scripts/export_desktop_media.py --source D:/me/word-atlas-main
 ```
 
-默认只生成 `typing-desktop/media/cijian-media.zip`，可用 `--output` 指定目录。源项目需要 `data/word-atlas.json`、`dist/atlas/index.json`、`dist/atlas/img/`、`dist/atlas/audio/{uk,us,ex,ex2}/` 和 `CONTENT_LICENSE.md`。导出复用 Anki 生成器的选择与命名规则，不需要 genanki 或生成 APKG。
+默认只生成 `typing-desktop/media/cijian-media.zip`，可用 `--output` 指定目录。源项目需要 `data/word-atlas.json`、`dist/atlas/index.json`、`dist/atlas/img/`、`dist/atlas/audio/{uk,us}/` 和 `CONTENT_LICENSE.md`。导出复用 Anki 生成器的选择与命名规则，不需要 genanki 或生成 APKG。
 
-完整数据包含 7,298 个 SourceId、30,203 个媒体：插图、英音、美音、日常例句各 7,298 个，雅思例句 1,011 个。缺少某类媒体时省略该项。ZIP 使用固定时间戳与排序，临时文件组装完成后替换成品；再次导出直接重建，不做哈希缓存，不生成 `.sha256` 文件。
+完整数据包含 7,298 个 SourceId、21,894 个媒体：插图、英音、美音各 7,298 个。不打包日常或雅思例句朗读；Anki APKG 保留原有全部音频。缺少某类媒体时省略该项。ZIP 使用固定时间戳与排序，临时文件组装完成后替换成品；再次导出直接重建，不做哈希缓存，不生成 `.sha256` 文件。
 
 ## 清单与授权
 
@@ -32,7 +32,7 @@ ZIP 包含 `manifest.json`、媒体和 `CONTENT_LICENSE.md`、`ATTRIBUTION.txt`�
 }
 ```
 
-支持 `illustration`、`audio_uk`、`audio_us`、`audio_example`、`audio_ielts`。资源署名为 **Word Atlas contributors — CC BY 4.0**；内容不改写，只改文件名。
+仅使用 `illustration`、`audio_uk`、`audio_us`；导入旧包时忽略额外的例句音频，不生成对应 URL，也不计入安装数量。资源署名为 **Word Atlas contributors — CC BY 4.0**；内容不改写，只改文件名。
 
 ## 导入与读取
 
@@ -56,9 +56,9 @@ ZIP 包含 `manifest.json`、媒体和 `CONTENT_LICENSE.md`、`ATTRIBUTION.txt`�
 | `POST /api/resources/finish?id=…` | 完成复制并启用资源 |
 | `POST /api/resources/cancel?id=…` | 取消未完成的上传 |
 | `POST /api/resources/urls` | `{ids}` 刷新当前词条媒体 URL，不重新出题 |
-| `GET /api/media/<note_id>/illustration?v=<版本>` | 本地插图；词条的 `illustration_url` 指向它 |
-| `GET /api/media/<note_id>/audio/<类型>?v=<版本>` | `uk/us/example/ielts`，只为存在的类型生成 URL |
-| `GET /api/media/<note_id>/audio` | 默认发音，优先英音，否则美音 |
+| `GET /api/media/source/<SourceId>/illustration?v=<版本>` | 本地插图；词条的 `illustration_url` 指向它 |
+| `GET /api/media/source/<SourceId>/audio/<类型>?v=<版本>` | `uk/us`，只为存在的类型生成 URL；当前词库外的历史单词也按 SourceId 读取 |
+| `GET /api/media/source/<SourceId>/audio` | 默认发音，优先英音，否则美音；原有 note id 媒体路径仍可读取 |
 
 ## 界面约定与验证
 
@@ -67,10 +67,10 @@ ZIP 包含 `manifest.json`、媒体和 `CONTENT_LICENSE.md`、`ATTRIBUTION.txt`�
 ```powershell
 # 仓库根目录
 .\.venv\Scripts\python.exe -X utf8 -m unittest discover -s apkg-generator/tests -p test_desktop_media.py -v
-node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs
+node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs
 cd typing-desktop
 cargo test
 npm run tauri -- build
 ```
 
-测试关注资源变体、SourceId 映射、无哈希清单、安装与重启读取、失败保留旧包、当前题目可继续提交，以及首次设置与分块导入。构建只需要前端，不需要 Word Atlas 源仓库；Windows 安装包在 `target/release/bundle/nsis/`。模板改动后在真实窗口检查首次设置、导入和窄窗口布局。
+测试关注英美顺序、500 毫秒间隔、重复点击与停止、媒体缺失与重试、SourceId 映射、无哈希清单、安装与重启读取、失败保留旧包、当前题目可继续提交，以及首次设置与分块导入。构建只需要前端，不需要 Word Atlas 源仓库；Windows 安装包在 `target/release/bundle/nsis/`。模板改动后在真实窗口检查首次设置、导入和窄窗口布局。

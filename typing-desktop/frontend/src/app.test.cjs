@@ -30,7 +30,9 @@ function harness() {
         console, Date, Map, JSON, Math,
         axios: { post: async (url, payload) => { requests.push(JSON.parse(JSON.stringify(payload))); throw new Error('offline'); } }
     };
-    vm.runInNewContext(fs.readFileSync(__dirname + '/app.js', 'utf8'), context);
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(__dirname + '/pronunciation.js', 'utf8'), context);
+    vm.runInContext(fs.readFileSync(__dirname + '/app.js', 'utf8'), context);
     function mount() {
         const app = options.data();
         app.$nextTick = fn => { if (fn) fn(); return Promise.resolve(); };
@@ -129,6 +131,24 @@ test('an empty queue has no Chinese senses', () => {
     assert.equal(h.app.primaryChineseSense, null);
     assert.equal(h.app.secondaryChineseSenses.length, 0);
     assert.equal(h.app.remainingChineseSenses.length, 0);
+});
+
+test('clicking a practice meaning plays its pronunciation and mouse users can keep typing', () => {
+    const h = harness();
+    let played, focused = 0, stopped = 0;
+    h.app.playWord = word => { played = word; };
+    h.app.stopWordAudio = () => { stopped++; };
+    h.app.$refs.inputField = { focus() { focused++; } };
+    const word = h.app.currentWord;
+    h.app.playPracticeWord(word, { detail: 1 });
+    assert.equal(played, word);
+    assert.equal(h.app.currentWord.attempt_id, 'attempt');
+    assert.equal(h.app.userInput, '');
+    assert.equal(focused, 1);
+    h.app.playPracticeWord(word, { detail: 0 });
+    assert.equal(focused, 1, 'keyboard activation keeps focus on the button');
+    h.wordChanged();
+    assert.equal(stopped, 1);
 });
 
 test('Chinese senses keep the primary visible and fold extras after the first two', () => {

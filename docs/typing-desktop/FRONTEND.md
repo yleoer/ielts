@@ -12,17 +12,17 @@
 
 正式、自由和错词重练共用此展示；完整义项随词条保存至草稿及错词数据，旧草稿缺少列表或列表为空时回退首义项，无需更改草稿版本。结果页错题摘要、统计页及同步历史继续使用 `chinese_meaning` 首义项。
 
-提交后立即显示本地拼写反馈；错误或空输入 Space 看答案后可以在保存期间开始订正。统计计数和切题仍等待 core 确认，订正不重复提交。正确反馈的 180 毫秒与保存等待重叠。core 复核结果为准；失败或冲突保留待提交记录并提供恢复入口。支持 Enter、Esc、英文词组、连字符、撇号和 / 分隔答案变体。
+提交后立即显示本地拼写反馈；错误或空输入 Space 看答案后可以在保存期间开始订正。统计计数和切题仍等待 core 确认，订正不重复提交。正确反馈的 180 毫秒与保存等待重叠。答案在后台保存，保存及重试期间不显示状态文字、不插入占位块，避免卡片高度跳动；仅在保存失败或冲突后显示错误与重试／获取下一题入口。core 复核结果为准；失败或冲突保留待提交记录。支持 Enter、Esc、英文词组、连字符、撇号和 / 分隔答案变体。
 
 返回的下一题仅在内存中最多复用 5 秒；停留过久、出现新到期词或手动同步后重新请求队列。刷新恢复草稿时重新取题，不持久化短期候选。预览不构成固定练习批次，不跳过新到期的学习／重学词。
 
-不增加四档评分按钮、提交按钮、看答案按钮或输入占位提示。输入框通过 aria-label 保持可访问名称，插图替代文字不泄露词面；不加载音频。
+不增加四档评分按钮、提交按钮、看答案按钮或输入占位提示。输入框通过 aria-label 保持可访问名称，插图替代文字不泄露词面；不预加载音频，仅点击时读取。
 
 ## 插图预加载
 
 提前请求当前及后续两道题的插图，并尝试异步解码。每个页面最多保留 32 个预加载引用；自由练习和错词重练按当前位置滚动预加载。缺图或解码失败不阻塞答题。
 
-插图 URL 为 `/api/media/<note_id>/illustration?v=<版本>`。core 用 note id 找到词条的稳定 `SourceId`，再按用户导入的资源 ZIP 内的 `manifest.json` 读取文件，不依赖快照中的 `illustration_file`。音频同时提供 `audio_url`（优先英音，否则美音）及 `audio_urls`（存在时含 `uk/us/example/ielts`），对应 `/api/media/<note_id>/audio/<类型>?v=<版本>`。缺失插图返回空 URL，缺失音频不进入 `audio_urls`；缺失文件返回 404，ZIP 读取失败返回 503。所有媒体经过桌面自定义协议，读取无需访问凭证；当前练习页只预加载插图，音频接口供按需读取。详见 [独立媒体资源包](MEDIA.md)。
+插图 URL 为 `/api/media/source/<SourceId>/illustration?v=<版本>`。core 使用词条的稳定 `SourceId`，再按用户导入的资源 ZIP 内的 `manifest.json` 读取文件，不依赖快照中的 `illustration_file`。音频同时提供 `audio_url`（优先英音，否则美音）及 `audio_urls`（存在时含 `uk/us`），对应 `/api/media/source/<SourceId>/audio/<类型>?v=<版本>`。缺失插图返回空 URL，缺失音频不进入 `audio_urls`；缺失文件返回 404，ZIP 读取失败返回 503。所有媒体经过桌面自定义协议，读取无需访问凭证；只预加载插图，音频仅点击时读取。练习中文释义、显示后的英文答案/错题回顾及统计单词明细可点击播放；`src/pronunciation.js` 供两页共用，按英音、结束后间隔 500 毫秒、美音的顺序播放，重复点击重新开始，切题/关闭明细/隐藏页面时停止。详见 [独立媒体资源包](MEDIA.md)。
 
 ## 时间与草稿
 
@@ -56,7 +56,7 @@
 前端行为测试（仓库根目录）：
 
 ```powershell
-node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs
+node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs
 ```
 
 修改模板或静态资源后重新执行 `build_frontend.py` 并在真实窗口中检查输入、提交、订正、恢复、错误与窄屏布局；core 用 `cargo test` 验证。视觉约束见根目录 PRODUCT.md / DESIGN.md。
