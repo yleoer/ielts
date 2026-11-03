@@ -1,14 +1,18 @@
-// Settings, media import and sync are shared by both workspace pages.
+// Settings, media import, sync and software updates are shared by both pages.
 const workspaceControls = {
     data() {
         return {
             syncModal: { visible: false, loading: false, syncing: false, error: '', status: null },
             resources: { loading: false, transferring: false, status: null, error: '', appliedId: '' },
+            updates: { current: '', available: null, phase: 'idle', downloaded: 0, total: 0, error: '' },
             // Sync server settings; `required` blocks the page until a first server is saved.
             setup: { visible: false, required: false, url: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
         };
     },
     computed: {
+        updateBusy() { return ['checking', 'downloading', 'installing'].includes(this.updates.phase); },
+        updateInstalling() { return ['downloading', 'installing'].includes(this.updates.phase); },
+        updateProgress() { return this.updates.total ? Math.floor(this.updates.downloaded * 100 / this.updates.total) : null; },
         workspaceModalOpen() { return this.setup.visible || this.syncModal.visible; },
         resourceBusy() { return this.resources.transferring || Boolean(this.resources.status?.busy); },
         resourceProgress() {
@@ -24,6 +28,49 @@ const workspaceControls = {
         },
     },
     methods: {
+        async initUpdates() {
+            if (!window.__TAURI__) return;
+            this.updates.current = await window.__TAURI__.app.getVersion();
+            await this.checkForUpdates(true);
+        },
+        async checkForUpdates(silent = false) {
+            if (this.updateBusy) return;
+            this.updates.phase = 'checking';
+            this.updates.error = '';
+            try {
+                await this.updates.available?.close();
+                this.updates.available = null;
+                const update = await window.__TAURI__.updater.check({ timeout: 15000 });
+                // Tauri resources contain private fields, so keep Vue from proxying them.
+                this.updates.available = update ? Vue.markRaw(update) : null;
+                this.updates.phase = update ? 'available' : 'current';
+            } catch (error) {
+                this.updates.phase = 'idle';
+                if (!silent) this.updates.error = '检查更新失败，请检查网络后重试。';
+            }
+        },
+        async installUpdate() {
+            if (this.updateBusy || this.resourceBusy) return;
+            this.updates.error = '';
+            if (this.pendingAttempt) {
+                this.updates.error = '还有答案未保存，请保存成功后再更新。';
+                return;
+            }
+            Object.assign(this.updates, { phase: 'downloading', downloaded: 0, total: 0 });
+            try {
+                await this.updates.available.download(event => {
+                    if (event.event === 'Started') this.updates.total = event.data.contentLength || 0;
+                    if (event.event === 'Progress') this.updates.downloaded += event.data.chunkLength;
+                });
+                this.saveDraftSession?.();
+                this.updates.phase = 'installing';
+                // On Windows the updater exits this process and the installer restarts it.
+                await this.updates.available.install();
+            } catch (error) {
+                this.updates.phase = 'available';
+                this.updates.error = '更新失败，请稍后重试。';
+            }
+        },
         t(zh) { return zh; },
         setupKeydown(event) {
             if (event.key === 'Escape') { this.closeServerSetup(); event.preventDefault(); return; }
@@ -52,7 +99,7 @@ const workspaceControls = {
         async importResources(event) {
             const file = event.target.files?.[0];
             event.target.value = '';
-            if (!file || this.resourceBusy) return;
+            if (!file || this.resourceBusy || this.updateInstalling) return;
             this.resources.error = '';
             if (!/\.zip$/i.test(file.name) || !file.size) {
                 this.resources.error = '请选择非空 ZIP 资源包。'; return;
@@ -111,14 +158,14 @@ const workspaceControls = {
         },
 
         closeServerSetup() {
-            if (this.setup.required || this.setup.saving || this.resources.transferring) return;
+            if (this.setup.required || this.setup.saving || this.resources.transferring || this.updateInstalling) return;
             this.setup.visible = false;
             this.resumeClock?.();
             this.$nextTick(() => this.setupOpener?.focus());
         },
 
         async saveServerSetup() {
-            if (this.setup.saving || this.resourceBusy) return;
+            if (this.setup.saving || this.resourceBusy || this.updateInstalling) return;
             if (!this.setup.editable) { this.closeServerSetup(); return; }
             this.setup.saving = true;
             this.setup.error = '';

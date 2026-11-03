@@ -102,6 +102,7 @@ fn start_sync(app: Arc<App>) {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .register_uri_scheme_protocol(SCHEME, |ctx, request| {
             let handle = ctx.app_handle();
             let uri = request.uri().to_string();
