@@ -545,3 +545,69 @@ test('formal previews preload illustrations without appending speculative practi
     h.app.preloadIllustrations(h.app.words);
     assert.equal(images.length, 3);
 });
+
+function serverStub(h, { configured, saveError } = {}) {
+    const calls = [];
+    h.context.axios = {
+        get: async url => {
+            calls.push(['get', url]);
+            if (url.endsWith('/settings/server')) return { data: { data: configured
+                ? { configured: true, url: 'https://sync.example.com', has_token: true, editable: true, source: 'file' }
+                : { configured: false, url: null, has_token: false, editable: true, source: null } } };
+            return { data: { data: { history: [] } } };
+        },
+        post: async (url, body) => {
+            calls.push(['post', url, body]);
+            if (url.endsWith('/settings/server') && saveError) throw { response: { data: { error: saveError } } };
+            return { data: { data: { success: true, message: 'ok' } } };
+        }
+    };
+    h.app.fetchWords = async () => { calls.push(['fetchWords']); };
+    h.app.refreshSummary = async () => {};
+    return calls;
+}
+
+test('first launch requires server settings before practice', async () => {
+    const h = harness();
+    serverStub(h);
+    assert.equal(await h.app.checkServerSetup(), true);
+    assert.equal(h.app.setup.visible, true);
+    assert.equal(h.app.setup.required, true);
+    h.app.closeServerSetup();
+    assert.equal(h.app.setup.visible, true, 'the first-run dialog cannot be dismissed');
+});
+
+test('a configured server skips the setup dialog', async () => {
+    const h = harness();
+    serverStub(h, { configured: true });
+    assert.equal(await h.app.checkServerSetup(), false);
+    assert.equal(h.app.setup.visible, false);
+    assert.equal(h.app.setup.url, 'https://sync.example.com');
+    assert.equal(h.app.setup.hasToken, true);
+});
+
+test('a rejected token keeps the dialog open with the server message', async () => {
+    const h = harness();
+    const calls = serverStub(h, { saveError: '访问令牌无效，请检查同步设置' });
+    await h.app.checkServerSetup();
+    Object.assign(h.app.setup, { url: 'https://sync.example.com', token: 'wrong' });
+    await h.app.saveServerSetup();
+    assert.equal(h.app.setup.visible, true);
+    assert.equal(h.app.setup.saving, false);
+    assert.equal(h.app.setup.error, '访问令牌无效，请检查同步设置');
+    assert.equal(calls.some(call => call[1]?.endsWith('/sync/now')), false);
+});
+
+test('saving the first server syncs and then loads practice', async () => {
+    const h = harness();
+    const calls = serverStub(h);
+    await h.app.checkServerSetup();
+    Object.assign(h.app.setup, { url: 'https://sync.example.com', token: 'secret' });
+    await h.app.saveServerSetup();
+    const saved = calls.find(call => call[1]?.endsWith('/settings/server') && call[0] === 'post')[2];
+    assert.equal(JSON.stringify(saved), JSON.stringify({ url: 'https://sync.example.com', token: 'secret' }));
+    assert.equal(h.app.setup.visible, false);
+    assert.equal(h.app.setup.token, '', 'the token is not kept in page state');
+    const order = calls.map(call => call[0] === 'fetchWords' ? 'fetchWords' : call[1]?.replace('http://test/api', ''));
+    assert.ok(order.indexOf('/sync/now') < order.indexOf('fetchWords'), order.join(','));
+});

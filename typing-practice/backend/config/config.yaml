@@ -6,24 +6,7 @@ anki:
   db_path: ""
   deck_name: "Word Atlas"
   deck_id: 1958430017
-  media_dir: ""
-
-practice:
-  default_limit: 20
-  max_limit: 100
 
 stats:
+  # 作答日志；沿用旧路径，首次启动时导入网页版的 word_reviews
   db_path: "data/stats.db"
-
-memory:
-  desired_retention: 0.9
-  easy_seconds: 6
-  hard_seconds: 20
-  parameters_path: ""
-  enable_fuzzing: true
-
-optimization:
-  enabled: true
-  check_interval_seconds: 86400
-  min_new_reviews: 100
-  timeout_seconds: 3600

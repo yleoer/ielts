@@ -1,4 +1,11 @@
-"""Single-process Flask application for Word Atlas typing practice."""
+"""Minimal sync server for the 词间 desktop app.
+
+Only three jobs remain on the server:
+- read the Anki collection and serve the vocabulary snapshot (`GET /api/vocab`);
+- keep the append-only answer log that clients merge (`POST /api/sync`);
+- copy the collection from anki-sync-server on a schedule.
+Scheduling, statistics, pages and media all live in the desktop client.
+"""
 
 from __future__ import annotations
 
@@ -8,26 +15,18 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-from flask import Flask, abort, current_app, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, request
 
 from anki import AnkiReader
-from auth import install_access_gate
+from auth import install_token_gate
 from config import Config, load_config
-from memory import FREE_PRACTICE_LIMIT, MemoryStore, PracticeConflict
-from optimizer_service import OptimizationService
-from stats import StatsStore
-from srs import SHANGHAI
+from ledger import Ledger, time_text
 from sync import copy_collection_group, latest_collection, sync_configured, sync_target_path
 
-
 LOG = logging.getLogger(__name__)
-
-
-def _now_text() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+VOCABULARY_FORMAT = 1
 
 
 def _env_seconds(name: str, default: float, minimum: float = 0) -> float:
@@ -43,362 +42,73 @@ class AppState:
         self.config = config
         self.lock = threading.RLock()
         self.reader: AnkiReader | None = None
-        self.sync: dict[str, Any] = {}
-        self.stats = StatsStore(config.stats.db_path)
-        self.memory = MemoryStore(self.stats, config.memory)
-        self.optimizer = OptimizationService(self.stats, self.memory, config.optimization)
+        self.ledger = Ledger(config.db_path)
         self.closed = False
+        self.open_reader()
+
+    def open_reader(self) -> None:
         try:
-            if config.anki.db_path:
-                self.reader = AnkiReader(config.anki.db_path, config.anki.deck_name, config.anki.deck_id)
-                LOG.info("Using Anki database: %s (deck=%s, id=%s)", config.anki.db_path, config.anki.deck_name, config.anki.deck_id)
+            if self.config.anki.db_path:
+                self.reader = AnkiReader(self.config.anki.db_path, self.config.anki.deck_name, self.config.anki.deck_id)
+                LOG.info("Using Anki database: %s (deck=%s)", self.config.anki.db_path, self.config.anki.deck_name)
         except Exception as exc:
+            self.reader = None
             LOG.warning("Anki reader disabled: %s", exc)
 
     def close(self) -> None:
-        if self.closed:
-            return
-        self.optimizer.stop()
+        with self.lock:
+            if self.closed:
+                return
+            if self.reader:
+                self.reader.close()
+                self.reader = None
+            self.ledger.close()
+            self.closed = True
+
+    def vocabulary(self) -> dict[str, Any]:
+        with self.lock:
+            if not self.reader:
+                raise RuntimeError("Anki 数据库不可用")
+            words = self.reader.snapshot()
+        return {"format": VOCABULARY_FORMAT, "generated_at": time_text(datetime.now(timezone.utc)),
+                "deck_name": self.config.anki.deck_name, "words": words}
+
+    def refresh_collection(self) -> int:
+        """Copies the newest collection from anki-sync-server and reopens the reader."""
+        source = latest_collection(os.environ.get("ANKI_SYNC_SOURCE_DIR", ""))
         with self.lock:
             if self.reader:
                 self.reader.close()
                 self.reader = None
-            self.stats.close()
-            self.closed = True
-
-    def get_words(self, limit: int, category: str) -> list[dict[str, Any]]:
-        # Read-only vocabulary endpoint for integrations.
-        return [word for word in self.current_pool() if category == "all" or word["category"] == category][:limit]
-
-    def current_pool(self) -> list[dict[str, Any]]:
-        with self.lock:
-            if not self.reader:
-                raise RuntimeError("Anki database is not available")
-            return self.reader.get_learned_word_pool("all")
-
-    def vocabulary_pool(self) -> list[dict[str, Any]]:
-        with self.lock:
-            if not self.reader:
-                raise RuntimeError("Anki database is not available")
-            return self.reader.get_word_pool()
-
-    def config_payload(self) -> dict[str, Any]:
-        with self.lock:
-            total = 0
-            deck_id = self.config.anki.deck_id
-            available = self.reader is not None
-            if self.reader:
-                deck_id = self.reader.deck_id
-                total = self.reader.count_learned()
-            return {
-                "success": True,
-                "anki_available": available,
-                "anki_path": self.config.anki.db_path,
-                "deck_name": self.config.anki.deck_name,
-                "deck_id": deck_id,
-                "total_learned": total,
-                "default_limit": self.config.practice.default_limit,
-                "max_limit": self.config.practice.max_limit,
-                "easy_seconds": self.config.memory.easy_seconds,
-                "hard_seconds": self.config.memory.hard_seconds,
-            }
-
-    def sync_status(self) -> dict[str, Any]:
-        with self.lock:
-            status = dict(self.sync)
-            status.setdefault("before_words", 0)
-            status.setdefault("after_words", 0)
-            status.setdefault("added_words", 0)
-            status.setdefault("added_word_list", [])
-            status.setdefault("success", False)
-            status["sync_configured"] = sync_configured()
-            status["target_path"] = sync_target_path(self.config.anki.db_path)
-            if self.reader and not status["after_words"]:
-                status["after_words"] = self.reader.count_learned()
-        status["history"] = self.stats.list_sync_history(50)
-        return status
-
-    def sync_now(self) -> tuple[dict[str, Any], str | None]:
-        with self.lock:
-            status: dict[str, Any] = {
-                "last_sync_at": _now_text(),
-                "target_path": sync_target_path(self.config.anki.db_path),
-                "sync_configured": sync_configured(),
-                "before_words": 0,
-                "after_words": 0,
-                "added_words": 0,
-                "added_word_list": [],
-                "success": False,
-                "history": [],
-            }
-            if not status["sync_configured"]:
-                status["message"] = "Anki sync source is not configured"
-                self.sync = status
-                return status, status["message"]
             try:
-                source = latest_collection(os.environ.get("ANKI_SYNC_SOURCE_DIR", ""))
-                status["source_path"] = source
-                before = self.reader.get_learned_word_pool("all") if self.reader else []
-                status["before_words"] = len(before)
-                if self.reader:
-                    self.reader.close()
-                    self.reader = None
-                status["copied_files"] = copy_collection_group(
-                    source,
-                    status["target_path"],
-                    _env_seconds("ANKI_SYNC_STABLE_SECONDS", 2, 0),
-                )
-                self.reader = AnkiReader(self.config.anki.db_path, self.config.anki.deck_name, self.config.anki.deck_id)
-                after = self.reader.get_learned_word_pool("all")
-                status["after_words"] = len(after)
-                known = {word["id"] for word in before}
-                status["added_word_list"] = [word for word in after if word["id"] not in known]
-                status["added_words"] = len(status["added_word_list"])
-                status["success"] = True
-                status["message"] = "Anki collection synced"
-                self.stats.save_sync_history(status)
-                self.sync = status
-                LOG.info("Anki sync completed: added_words=%s source=%s", status["added_words"], source)
-                status["history"] = self.stats.list_sync_history(50)
-                return status, None
-            except Exception as exc:
-                status["message"] = str(exc)
-                self.sync = status
-                return status, str(exc)
-
-
-def _int_query(name: str, default: int) -> int:
-    try:
-        value = int(request.args.get(name, default))
-        return value if value > 0 else default
-    except (TypeError, ValueError):
-        return default
-
-
-def _state() -> AppState:
-    return current_app.extensions["typing_practice_state"]
+                copy_collection_group(source, sync_target_path(self.config.anki.db_path),
+                                      _env_seconds("ANKI_SYNC_STABLE_SECONDS", 2, 0))
+            finally:
+                self.open_reader()
+            if not self.reader:
+                raise RuntimeError("复制后的 Anki 数据库无法读取")
+            return self.reader.count_learned()
 
 
 def create_app(config: Config | None = None, *, start_background_tasks: bool = True) -> Flask:
     cfg = config or load_config()
-    root = Path(__file__).resolve().parent.parent
-    app = Flask(__name__, template_folder=str(root / "frontend" / "templates"), static_folder=None)
-    # Vue uses {{ }} bindings. Jinja still renders the pages, but uses a
-    # separate delimiter so those client-side bindings remain untouched.
-    app.jinja_env.variable_start_string = "[["
-    app.jinja_env.variable_end_string = "]]"
+    app = Flask(__name__, static_folder=None)
+    app.json.ensure_ascii = False
     state = AppState(cfg)
-    app.extensions["typing_practice_state"] = state
-    install_access_gate(app, cfg.access_password, cfg.stats.db_path)
-
-    @app.after_request
-    def _cors(response):
-        origin = request.headers.get("Origin", "")
-        if origin in {"", "null", "http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080", "http://127.0.0.1:8080"}:
-            response.headers["Access-Control-Allow-Origin"] = origin or "null"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Headers"] = "Origin, Content-Type, Accept"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        return response
-
-    @app.route("/")
-    @app.route("/index.html")
-    def index():
-        return render_template("index.html", page_title="词间 · 练习")
-
-    @app.route("/stats.html")
-    def stats_page():
-        return render_template("stats.html", page_title="词间 · 统计")
-
-    @app.route("/assets/<path:filename>")
-    def assets(filename: str):
-        return send_from_directory(root / "frontend" / "assets", filename)
-
-    @app.route("/src/<path:filename>")
-    def source_files(filename: str):
-        return send_from_directory(root / "frontend" / "src", filename)
+    app.extensions["cijian_state"] = state
+    install_token_gate(app, cfg.access_token)
 
     @app.route("/api/health")
     def health():
         return jsonify(success=True, status="ok")
 
-    @app.route("/api/words")
-    def words():
-        limit = _int_query("limit", cfg.practice.default_limit)
-        limit = min(limit, cfg.practice.max_limit)
-        data = state.get_words(limit, request.args.get("category", "all"))
-        return jsonify(success=True, data=data, total=len(data))
+    @app.route("/api/vocab")
+    def vocabulary():
+        return jsonify(success=True, data=state.vocabulary())
 
-    @app.route("/api/config")
-    def config_endpoint():
-        return jsonify(state.config_payload())
-
-    def illustration_path(note_id: int) -> Path | None:
-        with state.lock:
-            filename = state.reader.get_media_filename(note_id, "illustration") if state.reader else ""
-        if not filename:
-            return None
-        media_dir = Path(cfg.anki.media_dir or Path(cfg.anki.db_path).parent / "collection.media").expanduser().resolve()
-        media_path = (media_dir / filename).resolve()
-        if media_path.parent != media_dir or not media_path.is_file():
-            return None
-        return media_path
-
-    def illustration_version(path: Path) -> str:
-        info = path.stat()
-        return f"{info.st_mtime_ns:x}-{info.st_size:x}-{path.name.encode('utf-8').hex()}"
-
-    def prepare_queue(data: dict) -> dict:
-        for word in data["items"]:
-            if word.get("illustration_url"):
-                path = illustration_path(word["id"])
-                try:
-                    if path:
-                        word["illustration_url"] += f"?v={illustration_version(path)}"
-                except OSError:
-                    pass  # An illustration disappearing must not block practice.
-        return data
-
-    @app.route("/api/media/<int:note_id>/<kind>")
-    def word_media(note_id: int, kind: str):
-        path = illustration_path(note_id) if kind == "illustration" else None
-        if not path:
-            abort(404)
-        try:
-            versioned = request.args.get("v") == illustration_version(path)
-        except OSError:
-            abort(404)
-        response = send_from_directory(path.parent, path.name, conditional=True,
-                                       max_age=31536000 if versioned else None)
-        if versioned:
-            response.cache_control.public = False
-            response.cache_control.private = True
-        return response
-
-    @app.route("/api/sync/status")
-    def sync_status_endpoint():
-        return jsonify(success=True, data=state.sync_status())
-
-    @app.route("/api/sync/now", methods=["POST"])
-    def sync_now_endpoint():
-        status, error = state.sync_now()
-        status["history"] = state.stats.list_sync_history(50)
-        return (jsonify(success=False, error=error, data=status), 400) if error else jsonify(success=True, data=status)
-
-    @app.route("/api/practice/queue")
-    def practice_queue():
-        mode = request.args.get("mode", "scheduled")
-        limit = min(_int_query("limit", FREE_PRACTICE_LIMIT if mode == "free" else 1), cfg.practice.max_limit)
-        data = state.memory.queue(
-            state.current_pool(), request.args.get("session_id", ""),
-            limit, mode,
-        )
-        return jsonify(success=True, data=prepare_queue(data))
-
-    @app.route("/api/practice/attempts", methods=["POST"])
-    def practice_attempt():
-        payload = request.get_json(silent=True)
-        try:
-            next_limit = int(request.args.get("next_limit", "0"))
-        except (TypeError, ValueError):
-            raise ValueError("next_limit 必须在 0–3 之间") from None
-        if not 0 <= next_limit <= 3:
-            raise ValueError("next_limit 必须在 0–3 之间")
-        # A committed retry can be acknowledged even if Anki is temporarily unavailable.
-        try:
-            pool = state.current_pool()
-        except RuntimeError:
-            pool = None
-        result = state.memory.submit(payload, pool)
-        response = {"success": True, "data": result}
-        if next_limit and pool is not None:
-            try:
-                response["next_queue"] = prepare_queue(state.memory.queue(
-                    pool, payload["session_id"], min(next_limit, cfg.practice.max_limit), "scheduled",
-                ))
-            except Exception:
-                # Saving the answer has already committed. A follow-up selection
-                # failure falls back to GET /queue without hiding that success.
-                LOG.exception("Could not select the next practice item after saving")
-        return jsonify(response)
-
-    @app.route("/api/memory/summary")
-    def memory_summary():
-        return jsonify(success=True, data=state.memory.summary(state.current_pool()))
-
-    @app.route("/api/memory/optimization")
-    def optimization_status():
-        return jsonify(success=True, data=state.optimizer.status())
-
-    @app.route("/api/memory/optimization/runs")
-    def optimization_history():
-        try:
-            before_id = int(request.args.get("before_id", "0"))
-        except ValueError as exc:
-            raise ValueError("无效的记录游标") from exc
-        if before_id < 0:
-            raise ValueError("无效的记录游标")
-        return jsonify(success=True, data=state.optimizer.history(before_id, _int_query("limit", 20)))
-
-    @app.route("/api/memory/optimization/runs/<int:run_id>")
-    def optimization_record(run_id):
-        record = state.optimizer.run_record(run_id)
-        if record is None:
-            abort(404)
-        return jsonify(success=True, data=record)
-
-    @app.route("/api/stats/sessions", methods=["POST"])
-    def legacy_sessions():
-        return jsonify(success=False, error="练习已升级，请刷新页面后使用逐题保存", code="client_upgrade_required"), 410
-
-    @app.route("/api/stats/calendar")
-    def activity_calendar():
-        return jsonify(success=True, data=state.memory.activity_calendar(state.current_pool()))
-
-    @app.route("/api/stats/calendar-words")
-    def calendar_words():
-        return jsonify(success=True, data=state.memory.calendar_words(state.current_pool(), request.args.get("date", "")))
-
-    @app.route("/api/stats/recent-activity")
-    def recent_activity():
-        return jsonify(success=True, data=state.stats.recent_activity(state.memory.now().astimezone(SHANGHAI).date()))
-
-    @app.route("/api/stats/vocabulary-progress")
-    def vocabulary_progress():
-        return jsonify(success=True, data=state.memory.vocabulary_progress(state.vocabulary_pool()))
-
-    @app.route("/api/stats/vocabulary-words")
-    def vocabulary_words():
-        try:
-            offset = int(request.args.get("offset", "0"))
-            limit = int(request.args.get("limit", "100"))
-        except ValueError:
-            raise ValueError("无效的分页参数") from None
-        if offset < 0 or not 1 <= limit <= 200:
-            raise ValueError("无效的分页参数")
-        return jsonify(success=True, data=state.memory.vocabulary_words(
-            state.vocabulary_pool(), request.args.get("dimension", ""), request.args.get("value", ""),
-            request.args.get("status", "all"), offset, limit,
-        ))
-
-    @app.route("/api/stats/word-errors")
-    def word_errors():
-        try:
-            before_id = int(request.args.get("before_id", "0"))
-            limit = int(request.args.get("limit", "50"))
-        except ValueError:
-            raise ValueError("无效的分页参数") from None
-        if before_id < 0 or not 1 <= limit <= 200:
-            raise ValueError("无效的分页参数")
-        return jsonify(success=True, data=state.stats.word_errors(request.args.get("source_id", ""), before_id, limit))
-
-    @app.route("/api/stats/overview")
-    def overview():
-        return jsonify(success=True, data=state.stats.overview(state.memory.now().astimezone(SHANGHAI).date()))
-
-    @app.errorhandler(PracticeConflict)
-    def practice_conflict(error):
-        return jsonify(success=False, error=str(error), code="practice_conflict"), 409
+    @app.route("/api/sync", methods=["POST"])
+    def sync():
+        return jsonify(success=True, data=state.ledger.sync(request.get_json(silent=True)))
 
     @app.errorhandler(ValueError)
     def invalid_request(error):
@@ -407,8 +117,8 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
     @app.errorhandler(sqlite3.Error)
     @app.errorhandler(OSError)
     def storage_unavailable(error):
-        LOG.exception("Practice storage unavailable")
-        return jsonify(success=False, error="练习数据暂不可用，请稍后重试"), 503
+        LOG.exception("Storage unavailable")
+        return jsonify(success=False, error="同步数据暂不可用，请稍后重试"), 503
 
     @app.errorhandler(RuntimeError)
     def unavailable(error):
@@ -416,41 +126,37 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
 
     @app.errorhandler(404)
     def not_found(_error):
-        if request.method == "GET" and not request.path.startswith("/api/"):
-            return render_template("index.html", page_title="打字练习")
         return jsonify(success=False, error="not found"), 404
 
-    if start_background_tasks and not app.testing:
-        state.optimizer.start()
-        if sync_configured():
-            start_sync_scheduler(app)
+    @app.errorhandler(405)
+    def method_not_allowed(_error):
+        return jsonify(success=False, error="method not allowed"), 405
+
+    if start_background_tasks and not app.testing and sync_configured():
+        start_collection_refresh(state)
     return app
 
 
-def start_sync_scheduler(app: Flask) -> None:
+def start_collection_refresh(state: AppState) -> None:
     def run() -> None:
-        initial_wait = _env_seconds("ANKI_SYNC_INITIAL_WAIT_SECONDS", 60, 0)
-        if initial_wait:
-            time.sleep(initial_wait)
-        state = app.extensions["typing_practice_state"]
+        time.sleep(_env_seconds("ANKI_SYNC_INITIAL_WAIT_SECONDS", 60, 0))
         while True:
-            with app.app_context():
-                status, error = state.sync_now()
-                if error:
-                    LOG.warning("Scheduled Anki sync skipped: %s", error)
-                elif status.get("added_words", 0) == 0:
-                    LOG.info("Scheduled Anki sync completed with no new words")
+            try:
+                LOG.info("Anki collection refreshed: %s learned words", state.refresh_collection())
+            except Exception as exc:
+                LOG.warning("Scheduled Anki refresh skipped: %s", exc)
             time.sleep(_env_seconds("ANKI_SYNC_INTERVAL_SECONDS", 300, 1))
 
-    threading.Thread(target=run, name="anki-sync", daemon=True).start()
+    threading.Thread(target=run, name="anki-refresh", daemon=True).start()
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     application = create_app()
-    cfg = application.extensions["typing_practice_state"].config
+    state = application.extensions["cijian_state"]
+    if not state.config.access_token:
+        LOG.warning("ACCESS_TOKEN is empty: the sync API accepts any request")
     try:
-        application.run(host=cfg.server.host, port=cfg.server.port)
+        application.run(host=state.config.server.host, port=state.config.server.port, threaded=True)
     finally:
-        application.extensions["typing_practice_state"].close()
-
+        state.close()

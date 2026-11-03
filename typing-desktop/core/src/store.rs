@@ -138,6 +138,8 @@ pub(crate) struct Inner {
 pub struct Store {
     inner: Mutex<Inner>,
     now: Clock,
+    /// Held for the whole of a server sync (see `remote::sync_all`).
+    pub(crate) sync_running: Mutex<()>,
 }
 
 pub(crate) struct MemoryRow {
@@ -180,6 +182,7 @@ impl Store {
         db.busy_timeout(std::time::Duration::from_secs(5))?;
         db.execute_batch(SCHEMA)?;
         db.execute_batch(crate::optimize::SCHEMA)?;
+        db.execute_batch(crate::sync::SCHEMA)?;
         db.execute("INSERT OR IGNORE INTO schema_migrations VALUES('desktop-v1',?)", params![time_text(now())])?;
         // Parameters accepted by an earlier optimization run replace the configured defaults.
         let active = match crate::optimize::accepted_parameters(&db)? {
@@ -189,7 +192,7 @@ impl Store {
         active.save(&db)?;
         crate::optimize::recover_interrupted(&db, now())?;
         let vocabulary = Self::load_vocabulary(&db)?;
-        Ok(Store { inner: Mutex::new(Inner { db, vocabulary, active }), now })
+        Ok(Store { inner: Mutex::new(Inner { db, vocabulary, active }), now, sync_running: Mutex::new(()) })
     }
 
     /// Scheduling rules currently in force (thresholds and FSRS parameters).

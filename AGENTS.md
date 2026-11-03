@@ -20,11 +20,11 @@
 ## typing-practice 测试规则
 
 - `typing-practice/` 的代码、脚本和配置改动按影响范围验证，不再每次默认运行全量测试；纯文档改动只核对内容、链接和命令。
-- 局部改动执行相关模块测试及直接调用它的接口测试。只改前端逻辑时运行对应 Node 单元测试；只改模板或静态资源时运行页面渲染测试，无需运行全部 Python 用例。
-- 修改 `app.py`、`config.py`、`srs.py`、`memory.py`、`stats.py` 等共享核心、数据库结构/迁移、应用依赖或启动配置，跨多个业务模块或无法确定影响范围时，运行全量 Python 测试。发布前也运行全量；普通提交本身不要求全量。
+- 局部改动执行相关模块测试及直接调用它的接口测试。
+- 修改 `app.py`、`config.py`、`ledger.py` 等共享核心、数据库结构/迁移、应用依赖或启动配置，跨多个业务模块或无法确定影响范围时，运行全量 Python 测试。发布前也运行全量；普通提交本身不要求全量。
 - 修改单个测试文件时运行该文件；修改共用测试夹具时覆盖其调用方。同一轮改动完成后验证一次；只有新增相关改动、测试失败或存在未解决问题时才重复执行。
 - 具体选取方法与耗时分析见 `docs/typing-practice/TESTING.md`。
-- `typing-practice` 当前是 Python Flask + SQLite 应用，运行依赖见 `typing-practice/backend/requirements.txt`。
+- `typing-practice` 当前是供桌面端使用的最小同步服务（Python Flask + SQLite：词库快照、作答日志、访问令牌），运行依赖见 `typing-practice/backend/requirements.txt`。
 - 在仓库根目录运行，测试目录是 `typing-practice/backend`。以下是全量命令；定向执行可替换 `-p` 文件名或使用 `-k` 选择测试：
 
 ```powershell
@@ -33,6 +33,12 @@ python -m unittest discover -s typing-practice/backend -p 'test_*.py'
 
 - Windows 下也可直接使用 `.\.venv\Scripts\python.exe` 替代命令中的 `python`，无需激活虚拟环境。
 - 如果测试因环境缺失失败，需要说明缺失项、已尝试的命令和本机安装或配置步骤；不要只写“未测试”。
+
+## typing-desktop 测试规则
+
+- 桌面端 Rust 测试在 `typing-desktop` 目录运行 `cargo test`；只改某个模块时可用 `cargo test -p cijian-core --test <文件名>` 定向执行。
+- 只改前端逻辑时运行 `node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs`；改模板或静态资源时重新执行 `typing-desktop/scripts/build_frontend.py` 并在真实窗口中检查页面。
+- 修改同步协议（`typing-practice/backend/ledger.py` 或 `typing-desktop/core/src/sync.rs`、`remote.rs`）时，两端测试都要运行。
 
 ## typing-practice 验证范围
 

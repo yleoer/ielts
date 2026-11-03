@@ -1,8 +1,7 @@
-"""Render the shared typing-practice frontend into typing-desktop/dist.
+"""Render typing-desktop/frontend into typing-desktop/dist.
 
-Templates stay the single source for web and desktop. CDN scripts are
-replaced with the pinned copies in typing-desktop/vendor so the app works
-offline. Run from the repository root:
+CDN scripts in the templates are replaced with the pinned copies in
+typing-desktop/vendor so the app works offline. Run from the repository root:
 
     .venv/Scripts/python.exe typing-desktop/scripts/build_frontend.py
 """
@@ -16,15 +15,15 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 ROOT = Path(__file__).resolve().parents[2]
-FRONTEND = ROOT / "typing-practice" / "frontend"
 DESKTOP = ROOT / "typing-desktop"
+FRONTEND = DESKTOP / "frontend"
 DIST = DESKTOP / "dist"
 PAGES = {"index.html": "词间 · 练习", "stats.html": "词间 · 统计"}
 CDN = re.compile(r"https://cdn\.jsdelivr\.net/npm/[^/\"]+/dist/([^\"]+)")
 
 
 def render() -> dict[str, str]:
-    # Same delimiters as the Flask app: Vue keeps {{ }}.
+    # Jinja uses [[ ]] so Vue keeps {{ }}.
     env = Environment(loader=FileSystemLoader(FRONTEND / "templates"),
                       variable_start_string="[[", variable_end_string="]]", autoescape=True)
     pages = {}

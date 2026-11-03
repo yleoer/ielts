@@ -21,6 +21,8 @@ const practiceApp = {
             nextQueue: null, nextQueueReceivedAt: 0, feedbackStartedAt: null,
             stats: { correct: 0, incorrect: 0, errors: [], attempts: [] },
             syncModal: { visible: false, loading: false, syncing: false, error: '', status: null },
+            // Sync server settings; `required` blocks the page until a first server is saved.
+            setup: { visible: false, required: false, url: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
             apiBaseUrl: `${window.location.origin}/api`
         };
     },
@@ -166,7 +168,7 @@ const practiceApp = {
             }
         },
         resumeClock() {
-            if (this.clockStartedAt === null && !document.hidden && !this.syncModal.visible && this.currentWord && !this.pendingAttempt && !this.answerAccepted && !this.showAnswer && !this.isFinished) this.clockStartedAt = performance.now();
+            if (this.clockStartedAt === null && !document.hidden && !this.syncModal.visible && !this.setup.visible && this.currentWord && !this.pendingAttempt && !this.answerAccepted && !this.showAnswer && !this.isFinished) this.clockStartedAt = performance.now();
         },
         pauseClock() {
             if (this.clockStartedAt !== null) {
@@ -553,6 +555,63 @@ const practiceApp = {
             return previous[right.length];
         },
 
+        async loadServerSettings() {
+            const settings = (await axios.get(`${this.apiBaseUrl}/settings/server`)).data.data;
+            Object.assign(this.setup, { url: settings.url || '', token: '', hasToken: settings.has_token, editable: settings.editable, error: '' });
+            return settings;
+        },
+
+        // First launch: ask for the server before loading practice. Returns true when setup is needed.
+        async checkServerSetup() {
+            try {
+                const settings = await this.loadServerSettings();
+                if (settings.configured) return false;
+                Object.assign(this.setup, { visible: true, required: true });
+                this.pauseClock();
+                return true;
+            } catch (error) {
+                console.error('Error loading server settings:', error);
+                return false;
+            }
+        },
+
+        async openServerSetup() {
+            this.syncModal.visible = false;
+            this.pauseClock();
+            Object.assign(this.setup, { visible: true, required: false, error: '' });
+            try {
+                await this.loadServerSettings();
+            } catch (error) {
+                this.setup.error = '无法加载服务器设置';
+            }
+        },
+
+        closeServerSetup() {
+            if (this.setup.required || this.setup.saving) return;
+            this.setup.visible = false;
+            this.resumeClock();
+        },
+
+        async saveServerSetup() {
+            if (this.setup.saving || !this.setup.editable) return;
+            this.setup.saving = true;
+            this.setup.error = '';
+            try {
+                await axios.post(`${this.apiBaseUrl}/settings/server`, { url: this.setup.url, token: this.setup.token });
+            } catch (error) {
+                this.setup.error = error.response?.data?.error || '无法连接同步服务器';
+                return;
+            } finally {
+                this.setup.saving = false;
+            }
+            const firstRun = this.setup.required;
+            Object.assign(this.setup, { visible: false, required: false, token: '' });
+            // Bring in the vocabulary and other devices' answers right away.
+            await this.openSyncModal();
+            await this.syncNow();
+            if (firstRun) await this.fetchWords();
+        },
+
         async openSyncModal() {
             this.pauseClock();
             this.syncModal.visible = true;
@@ -616,7 +675,8 @@ const practiceApp = {
     },
     async mounted() {
         document.title = '词间 · 练习';
-        if (!await this.restoreDraftSession()) await this.fetchWords();
+        const needsSetup = await this.checkServerSetup();
+        if (!needsSetup && !await this.restoreDraftSession()) await this.fetchWords();
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) { this.pauseClock(); this.saveDraftSession(); }
             else this.resumeClock();
@@ -627,11 +687,12 @@ const practiceApp = {
             if (this.pendingAttempt) { event.preventDefault(); event.returnValue = ''; }
         });
         window.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && this.setup.visible) { this.closeServerSetup(); return; }
             if (event.key === 'Escape' && this.syncModal.visible) { this.closeSyncModal(); return; }
             if (event.target === document.body) {
                 if (event.code === 'Space') event.preventDefault();
                 if (event.key === 'Enter' && this.showAnswer) this.handleEnter(event);
-                if (/^[a-zA-Z]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey && !this.isFinished && !this.syncModal.visible) this.focusInput();
+                if (/^[a-zA-Z]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey && !this.isFinished && !this.syncModal.visible && !this.setup.visible) this.focusInput();
             }
         });
     }

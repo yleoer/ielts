@@ -2,15 +2,18 @@
 //!
 //! 现有前端按 `location.origin + "/api"` 调用接口，因此无需改动 JS。
 //! 页面与脚本来自内嵌的 `dist/`；接口、插图由本地 SQLite 与媒体目录提供。
-//! 后台线程每天检查一次是否需要优化 FSRS 参数（见 `cijian_core::optimize`）。
+//! 后台线程每天检查一次是否需要优化 FSRS 参数（见 `cijian_core::optimize`）；
+//! 配置了同步服务器时，启动后及每隔一段时间自动同步作答日志（见 `cijian_core::remote`）；
+//! 未配置时页面在首次启动时要求填写服务器地址与访问令牌（保存到数据目录的 `server.json`）。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use cijian_core::api::{App, AppConfig, Request};
+use cijian_core::api::{App, AppConfig, Request, ServerSource};
 use cijian_core::optimize::{evaluate_with_fsrs_rs, OptimizationConfig};
+use cijian_core::remote::{sync_all, ServerConfig};
 use cijian_core::srs::MemoryConfig;
 use cijian_core::store::Store;
 use tauri::http::{header::CONTENT_TYPE, Response};
@@ -23,7 +26,11 @@ fn env_path(name: &str) -> Option<PathBuf> {
 }
 
 fn open_app(handle: &tauri::AppHandle) -> Result<App, Box<dyn std::error::Error>> {
-    let data_dir = handle.path().app_data_dir()?;
+    // CIJIAN_DATA_DIR moves the database and server.json together (development, testing).
+    let data_dir = match env_path("CIJIAN_DATA_DIR") {
+        Some(dir) => dir,
+        None => handle.path().app_data_dir()?,
+    };
     std::fs::create_dir_all(&data_dir)?;
     let db_path = env_path("CIJIAN_DB_PATH").unwrap_or_else(|| data_dir.join("cijian.db"));
     let store = Store::open(&db_path, MemoryConfig::default(), Box::new(chrono::Utc::now))?;
@@ -31,14 +38,30 @@ fn open_app(handle: &tauri::AppHandle) -> Result<App, Box<dyn std::error::Error>
     let config = AppConfig {
         dist_dir: PathBuf::new(),
         media_dir: env_path("CIJIAN_MEDIA_DIR").or(resource_media),
-        vocab_path: env_path("CIJIAN_VOCAB_PATH").or_else(|| Some(data_dir.join("vocab.json"))),
+        server_file: Some(data_dir.join("server.json")),
     };
-    eprintln!("cijian: db={} media={:?} vocab={:?}", db_path.display(), config.media_dir, config.vocab_path);
     let optimization = OptimizationConfig {
         enabled: std::env::var("CIJIAN_OPTIMIZATION").map_or(true, |v| v != "0"),
         ..OptimizationConfig::default()
     };
-    Ok(App { store, config, optimization })
+    let server_file = config.server_file.clone().unwrap_or_default();
+    let app = App::new(store, config, optimization);
+    // Environment variables win; otherwise the file saved by the first-run dialog.
+    let from_env = std::env::var("CIJIAN_SERVER_URL").ok().filter(|v| !v.trim().is_empty());
+    if let Some(url) = from_env {
+        let server = ServerConfig::new(&url, &std::env::var("CIJIAN_SERVER_TOKEN").unwrap_or_default())?;
+        app.set_server(server, ServerSource::Environment);
+    } else {
+        match ServerConfig::load(&server_file) {
+            Ok(Some(server)) => app.set_server(server, ServerSource::File),
+            Ok(None) => {}
+            // A damaged file is reported and the setup dialog asks again.
+            Err(error) => eprintln!("cijian: ignoring server settings: {error}"),
+        }
+    }
+    eprintln!("cijian: db={} media={:?} server={}", db_path.display(), app.config.media_dir,
+              app.remote().map_or("none".into(), |r| r.label()));
+    Ok(app)
 }
 
 /// Checks at startup and then every `check_interval_seconds`; training runs on this
@@ -57,6 +80,24 @@ fn start_optimizer(app: Arc<App>) {
     });
     if let Err(error) = spawned {
         eprintln!("cijian: could not start the optimizer: {error}");
+    }
+}
+
+/// Syncs at startup and then every `CIJIAN_SYNC_MINUTES` (default 10) while a server
+/// is configured. Failures, e.g. while offline, are only logged; practice keeps working.
+fn start_sync(app: Arc<App>) {
+    let minutes = std::env::var("CIJIAN_SYNC_MINUTES").ok().and_then(|v| v.parse::<u64>().ok()).filter(|m| *m > 0).unwrap_or(10);
+    let spawned = std::thread::Builder::new().name("log-sync".into()).spawn(move || loop {
+        if let Some(remote) = app.remote() {
+            match sync_all(&app.store, remote.as_ref()) {
+                Ok(status) => eprintln!("cijian: {}", status["message"].as_str().unwrap_or_default()),
+                Err(error) => eprintln!("cijian: sync skipped: {error}"),
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_secs(minutes * 60));
+    });
+    if let Err(error) = spawned {
+        eprintln!("cijian: could not start sync: {error}");
     }
 }
 
@@ -87,6 +128,7 @@ fn main() {
         .setup(|app| {
             let state = Arc::new(open_app(app.handle())?);
             start_optimizer(state.clone());
+            start_sync(state.clone());
             app.manage(state);
             // Windows WebView2 maps custom schemes to http://<scheme>.localhost.
             let url = if cfg!(windows) { "http://cijian.localhost/" } else { "cijian://localhost/" };
