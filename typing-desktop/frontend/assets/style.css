@@ -350,3 +350,13 @@ ul { margin: 0; padding: 0; list-style: none; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.header-settings { min-height: 36px; margin: 0; padding: 6px 10px; }
+.setup-resources { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--rule); }
+.setup-resources h3 { margin-bottom: 10px; }
+.setup-resources p { font-size: 13px; line-height: 1.7; }
+.resource-status { margin-top: 12px; }
+.resource-status p + p { margin-top: 8px; }
+.resource-status progress { width: 100%; height: 6px; margin-top: 12px; accent-color: var(--accent); }
+.setup-resources .button { margin-top: 12px; }
+.resource-credit { margin-top: 12px; font-size: 12px; }

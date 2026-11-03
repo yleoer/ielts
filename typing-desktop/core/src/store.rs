@@ -229,8 +229,8 @@ impl Store {
         self.lock().vocabulary.iter().filter(|w| w.learned).count()
     }
 
-    pub fn illustration_file(&self, note_id: i64) -> Option<String> {
-        self.lock().vocabulary.iter().find(|w| w.note_id == note_id).map(|w| w.illustration_file.clone()).filter(|f| !f.is_empty())
+    pub fn source_id(&self, note_id: i64) -> Option<String> {
+        self.lock().vocabulary.iter().find(|w| w.note_id == note_id).map(|w| w.source_id.clone())
     }
 
     /// Replaces the vocabulary and records a sync history row, like `AppState.sync_now`.

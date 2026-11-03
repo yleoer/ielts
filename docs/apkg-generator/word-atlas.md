@@ -34,6 +34,8 @@
 
 ## 重新生成
 
+桌面端通过 `scripts/export_desktop_media.py` 单独生成 `cijian-media.zip`，包含插图、四类音频、SourceId/文件名清单及授权，不生成逐文件 SHA 或整包 `.sha256`。无需生成 APKG，资源不随桌面安装包，首次设置时与服务器配置一起选择本地 ZIP 导入，之后可更换；没有下载功能。两种导出共用 `generate_word_atlas.media_report` 的选择与命名规则，见 [独立媒体资源包](../typing-desktop/MEDIA.md)。
+
 以下命令在本机的仓库根目录执行，使用本地 Python 虚拟环境；测试约定见 `AGENTS.md`。
 
 ```powershell

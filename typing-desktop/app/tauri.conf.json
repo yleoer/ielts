@@ -3,6 +3,8 @@
   "productName": "词间",
   "identifier": "com.yleoer.cijian",
   "build": {
+    "beforeDevCommand": "node scripts/prepare.mjs",
+    "beforeBuildCommand": "node scripts/prepare.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -14,8 +16,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
-    "resources": {}
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico"
+    ]
   }
 }

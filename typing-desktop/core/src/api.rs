@@ -9,11 +9,11 @@ use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 use crate::optimize::OptimizationConfig;
+use crate::media_install::MediaManager;
 use std::sync::{Arc, RwLock};
 
 use crate::remote::{sync_all, HttpRemote, Remote, ServerConfig};
 use crate::store::{Store, FREE_PRACTICE_LIMIT};
-use crate::vocab::safe_media_name;
 
 const MAX_LIMIT: usize = 100;
 
@@ -90,7 +90,7 @@ impl Response {
 pub struct AppConfig {
     /// Rendered frontend (`scripts/build_frontend.py` output).
     pub dist_dir: PathBuf,
-    /// Directory holding illustration files named in the vocabulary snapshot.
+    /// Writable resource-package directory (active.json and versioned ZIP files).
     pub media_dir: Option<PathBuf>,
     /// Where the sync server chosen in the first-run dialog is saved (`server.json`).
     pub server_file: Option<PathBuf>,
@@ -120,6 +120,7 @@ pub struct App {
     /// Builds the client for a server setting (HTTP in the app, a fake in tests).
     pub connect: Connector,
     connection: RwLock<Option<Connection>>,
+    media: Arc<MediaManager>,
 }
 
 fn content_type(path: &Path) -> &'static str {
@@ -135,6 +136,7 @@ fn content_type(path: &Path) -> &'static str {
         Some("gif") => "image/gif",
         Some("avif") => "image/avif",
         Some("json") => "application/json",
+        Some("mp3") => "audio/mpeg",
         _ => "application/octet-stream",
     }
 }
@@ -157,10 +159,12 @@ fn file(path: Option<PathBuf>) -> Response {
 
 impl App {
     pub fn new(store: Store, config: AppConfig, optimization: OptimizationConfig) -> Self {
+        let media = MediaManager::new(config.media_dir.as_deref());
         App {
             store, config, optimization,
             connect: Box::new(|c| Arc::new(HttpRemote::new(c.clone()))),
             connection: RwLock::new(None),
+            media,
         }
     }
 
@@ -224,7 +228,7 @@ impl App {
             return file(Some(self.config.dist_dir.join(page)));
         }
         if let Some(rest) = path.strip_prefix("/api/media/") {
-            return self.media(rest);
+            return if request.method == "GET" { self.media(rest) } else { Response::error(ApiError::NotFound) };
         }
         if let Some(id) = path.strip_prefix("/api/memory/optimization/runs/").filter(|_| request.method == "GET") {
             return match id.parse::<i64>().ok().map(|id| self.store.optimization_run(id)) {
@@ -234,23 +238,50 @@ impl App {
             };
         }
         match self.api(request) {
-            Ok(value) => Response::json(200, value),
+            Ok(mut value) => {
+                self.media.current().decorate(&mut value);
+                Response::json(200, value)
+            }
             Err(error) => Response::error(error),
         }
     }
 
     fn media(&self, rest: &str) -> Response {
-        let file_name = match rest.split_once('/') {
-            Some((id, "illustration")) => id.parse().ok().and_then(|id| self.store.illustration_file(id)),
-            _ => None,
-        };
-        match (file_name.filter(|f| safe_media_name(f)), &self.config.media_dir) {
-            (Some(name), Some(dir)) => file(Some(dir.join(name))),
-            _ => Response::error(ApiError::NotFound),
+        let result = rest.split_once('/').and_then(|(id, route)| {
+            id.parse().ok().and_then(|id| self.store.source_id(id)).map(|source| self.media.current().read(&source, route))
+        }).unwrap_or(Err(ApiError::NotFound));
+        match result {
+            Ok((path, body)) => Response { status: 200, content_type: content_type(&path).into(), body },
+            Err(error) => Response::error(error),
         }
     }
 
     fn api(&self, request: &Request) -> ApiResult<Value> {
+        if request.path.starts_with("/api/resources/") {
+            let payload = || serde_json::from_slice::<Value>(&request.body).map_err(|_| ApiError::bad("无效请求"));
+            let data = match (request.method.as_str(), request.path.as_str()) {
+                ("GET", "/api/resources/status") => self.media.status(),
+                ("POST", "/api/resources/urls") => {
+                    let payload = payload()?;
+                    let ids = payload["ids"].as_array()
+                        .ok_or_else(|| ApiError::bad("无效词条列表"))?;
+                    Value::Array(ids.iter().filter_map(|id| {
+                        let id = id.as_i64()?;
+                        self.store.source_id(id).map(|source| json!({"id": id, "source_id": source}))
+                    }).collect())
+                }
+                ("POST", "/api/resources/upload") => self.media.begin_upload(payload()?["size"].as_u64().unwrap_or(0))?,
+                ("POST", "/api/resources/chunk") => {
+                    let offset = request.get("offset").parse().map_err(|_| ApiError::bad("无效分块位置"))?;
+                    self.media.append(request.get("id"), offset, &request.body)?;
+                    json!({})
+                }
+                ("POST", "/api/resources/finish") => { self.media.finish_upload(request.get("id"))?; json!({}) }
+                ("POST", "/api/resources/cancel") => { self.media.cancel_upload(request.get("id"))?; json!({}) }
+                _ => return Err(ApiError::NotFound),
+            };
+            return Ok(json!({"success": true, "data": data}));
+        }
         let s = &self.store;
         let config = s.memory_config();
         match (request.method.as_str(), request.path.as_str()) {

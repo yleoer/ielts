@@ -46,6 +46,82 @@ function harness() {
         wordChanged() { options.watch.currentWord.call(app); }, tick(ms) { now += ms; } };
 }
 
+test('resource installation refreshes URLs without replacing the active question or typed answer', async () => {
+    const h = harness();
+    h.app.words[0].id = 41;
+    h.app.userInput = 'app';
+    h.context.axios.get = async () => ({ data: { data: { phase: 'ready', id: 'package', installed: true, busy: false } } });
+    let requests = 0;
+    h.context.axios.post = async (url, payload) => {
+        assert.equal(url, 'http://test/api/resources/urls');
+        assert.deepEqual(Array.from(payload.ids), [41]);
+        requests++;
+        return { data: { data: [{ id: 41, illustration_url: '/api/media/41/illustration?v=new', audio_urls: {} }] } };
+    };
+    const attempt = h.app.currentWord.attempt_id;
+    await h.app.loadResourceStatus();
+    await h.app.loadResourceStatus();
+    assert.equal(h.app.currentWord.attempt_id, attempt);
+    assert.equal(h.app.userInput, 'app');
+    assert.equal(h.app.currentWord.illustration_url, '/api/media/41/illustration?v=new');
+    assert.equal(requests, 1);
+});
+
+test('combined settings load server and resources and pause practice until closed', async () => {
+    const h = harness();
+    h.app.clockStartedAt = 0;
+    h.tick(1000);
+    h.context.axios.get = async url => ({ data: { data: url.endsWith('/resources/status')
+        ? { installed: false, phase: 'idle', busy: false }
+        : { configured: true, url: 'https://sync.example', has_token: true, editable: true } } });
+    await h.app.openServerSetup();
+    assert.equal(h.app.clockStartedAt, null);
+    assert.equal(h.app.setup.visible, true);
+    assert.equal(h.app.resources.status.installed, false);
+    assert.equal(h.app.setup.url, 'https://sync.example');
+    h.tick(5000);
+    h.app.closeServerSetup();
+    assert.equal(h.app.setup.visible, false);
+    assert.equal(h.app.elapsedMs, 1000);
+    assert.equal(h.app.clockStartedAt, 6000);
+});
+
+test('an interrupted local import can be cancelled', async () => {
+    const h = harness();
+    const calls = [];
+    h.context.axios.post = async url => { calls.push(url); return { data: { data: {} } }; };
+    h.context.axios.get = async () => ({ data: { data: { phase: 'idle', busy: false } } });
+    h.app.resources.status = { phase: 'uploading', id: 'interrupted', busy: true };
+    await h.app.cancelResourceUpload();
+    assert.equal(calls[0], 'http://test/api/resources/cancel?id=interrupted');
+    assert.equal(h.app.resourceBusy, false);
+});
+
+test('first-run local import preserves the server form and uploads in chunks', async () => {
+    const h = harness();
+    h.app.words = [];
+    Object.assign(h.app.setup, { visible: true, required: true, url: 'https://sync.example', token: 'test-token' });
+    const calls = [];
+    h.context.axios.post = async (url, body) => {
+        calls.push(url);
+        return { data: { data: url.endsWith('/upload') ? { id: 'package', chunk_size: 4 } : {} } };
+    };
+    h.context.axios.get = async () => ({ data: { data: { phase: 'ready', id: 'package', installed: true, busy: false } } });
+    const target = { files: [{ name: 'media.zip', size: 8, slice: () => ({ arrayBuffer: async () => new ArrayBuffer(4) }) }], value: 'selected' };
+    await h.app.importResources({ target });
+    assert.equal(h.app.setup.url, 'https://sync.example');
+    assert.equal(h.app.setup.token, 'test-token');
+    assert.equal(h.app.setup.visible, true);
+    assert.equal(h.app.resources.status.installed, true);
+    assert.equal(target.value, '');
+    assert.deepEqual(calls, [
+        'http://test/api/resources/upload',
+        'http://test/api/resources/chunk?id=package&offset=0',
+        'http://test/api/resources/chunk?id=package&offset=4',
+        'http://test/api/resources/finish?id=package'
+    ]);
+});
+
 test('an empty queue has no Chinese senses', () => {
     const h = harness();
     h.app.words = [];
@@ -554,6 +630,7 @@ function serverStub(h, { configured, saveError } = {}) {
             if (url.endsWith('/settings/server')) return { data: { data: configured
                 ? { configured: true, url: 'https://sync.example.com', has_token: true, editable: true, source: 'file' }
                 : { configured: false, url: null, has_token: false, editable: true, source: null } } };
+            if (url.endsWith('/resources/status')) return { data: { data: { installed: false, phase: 'idle', busy: false } } };
             return { data: { data: { history: [] } } };
         },
         post: async (url, body) => {
@@ -573,6 +650,7 @@ test('first launch requires server settings before practice', async () => {
     assert.equal(await h.app.checkServerSetup(), true);
     assert.equal(h.app.setup.visible, true);
     assert.equal(h.app.setup.required, true);
+    assert.equal(h.app.resources.status.installed, false);
     h.app.closeServerSetup();
     assert.equal(h.app.setup.visible, true, 'the first-run dialog cannot be dismissed');
 });

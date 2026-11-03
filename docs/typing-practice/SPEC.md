@@ -29,7 +29,7 @@
 
 ### 词库快照
 
-`GET /api/vocab` 返回 `{"format":1,"generated_at","deck_name","words":[...]}`。`words` 包含配置牌组及子牌组的全部有效词条，每项带 `learned`（Anki 中是否已学习）和 `illustration_file`（插图文件名，桌面端从本地媒体目录读取）。词条字段沿用 Word Atlas 映射：`id`（Anki note_id）、`source_id`、`word`、`phonetic`、`part_of_speech`、`chinese_meaning`、`chinese_senses`、`example_en` / `example_cn`、`category`（Topic）、`cefr`。HTML 先去标签再解码实体，不返回音频。每次返回完整快照，没有增量游标。
+`GET /api/vocab` 返回 `{"format":1,"generated_at","deck_name","words":[...]}`。`words` 包含配置牌组及子牌组的全部有效词条，每项带 `learned`（Anki 中是否已学习）和 `illustration_file`（保留兼容的插图文件名）。桌面端按 `source_id` 查询自行导入的独立资源包清单读取插图和音频，不依赖服务端文件名，见 [独立媒体资源包](../typing-desktop/MEDIA.md)。词条字段沿用 Word Atlas 映射：`id`（Anki note_id）、`source_id`、`word`、`phonetic`、`part_of_speech`、`chinese_meaning`、`chinese_senses`、`example_en` / `example_cn`、`category`（Topic）、`cefr`。HTML 先去标签再解码实体，不返回音频。每次返回完整快照，没有增量游标。
 
 ### 作答日志
 

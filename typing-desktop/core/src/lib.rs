@@ -13,6 +13,8 @@ pub mod answer;
 pub mod api;
 pub mod error;
 pub mod fsrs;
+pub mod media;
+pub mod media_install;
 pub mod optimize;
 pub mod remote;
 pub mod srs;

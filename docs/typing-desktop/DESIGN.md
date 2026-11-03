@@ -6,7 +6,7 @@
 
 | 部分 | 位置 | 职责 |
 | --- | --- | --- |
-| 桌面端 | `typing-desktop/`（Tauri 2，Rust 后端 + 现有 Vue 页面） | 判题、FSRS 调度与参数优化、统计查询、本地 SQLite、内置插图与音频 |
+| 桌面端 | `typing-desktop/`（Tauri 2，Rust 后端 + 现有 Vue 页面） | 判题、FSRS 调度与参数优化、统计查询、本地 SQLite、本地资源包中的插图与音频 |
 | 服务端 | `typing-practice/backend`（最小 Python 同步服务） | 从 anki-sync-server 复制并读取 `collection.anki2`，提供词库快照；保存只追加的作答日志；访问令牌 |
 
 服务端不再运行 FSRS、不提供页面和媒体，只依赖 Flask、PyYAML、python-dotenv，镜像约 219 MB（原含 PyTorch）。网页版已下线。
@@ -22,7 +22,7 @@
 - **统计**：`core/src/stats.rs` 移植 `stats.py`、`activity.py`、`vocabulary.py` 及 `memory.py` 的日历与词库查询：概览与连续天数、近 30 天、学习日历（前 6 个月至后 5 个月，北京时间）、日历单日词表、词库进度与分组明细、单词错误记录，均为只读查询，路径、参数校验与 JSON 与 Flask 一致。
 - **存储**：`core/src/store.rs` 移植 `memory.py` 的出题、提交与汇总，本地 SQLite 沿用 `srs_configs`、`word_memory`、`practice_items`、`word_reviews` 结构，另有 `vocabulary`（词库快照）、`sync_history`（新增词记录）、`sync_state`（设备 ID、服务端游标、上次同步时间）与 `synced_attempts`（服务端已有的作答）。`practice_items` 只在本地使用，不同步。
 - **词库**：服务端 `GET /api/vocab` 返回 JSON 快照（全部词条 + `learned` + 插图文件名，`AnkiReader.snapshot()`）。桌面端必须连接服务器，没有离线导入词库的方式；已同步的词库和作答保存在本地，断网时照常练习。
-- **媒体**：插图与音频随安装包放入 Tauri 资源目录，按 `SourceId` 建 manifest（文件名 + 哈希），由 `apkg-generator` 生成；通过自定义协议读取，不经过服务端。
+- **媒体**：个人自用，插图与四类音频单独分发为 `cijian-media.zip`。首次设置将服务器配置与可选的本地 ZIP 导入放在同一窗口，之后可在设置中更换；没有下载功能。`media.rs` 按 SourceId 直接读取 ZIP，`media_install.rs` 管理分块复制与切换；不逐文件校验 SHA，不做成员扫描、多实例锁、后台安装线程或旧散文件兼容。保留基本解析和失败保留原包，详见 [独立媒体资源包](MEDIA.md)。
 
 ## 同步
 
@@ -34,7 +34,7 @@
 - **作答字段**：`attempt_id`、`word_key`（`word-atlas:<SourceId>`）、`word`、`chinese_meaning`、`category`、`user_input`、`is_correct`、`rating`、`reviewed_at`（UTC 微秒 `Z`）、`duration_ms`、`first_input_ms`。评分在作答设备上确定，重放直接使用记录的评分。
 - **流程**（`remote::sync_all`）：先刷新词库；再循环“上传未确认的本地作答 + 取回游标后的日志”，直到没有待上传作答且 `more` 为假。网络请求不持有存储锁，练习不受影响；同一时间只允许一次同步。
 - **合并**：每批返回的日志在一个事务里处理：记录已确认的作答，插入本机没有的作答，按 `reviewed_at, attempt_id` 重放受影响词条的完整日志并重写卡片（`version + 1`，该词未提交的题目会提示已在其他设备完成复习），最后保存游标。fuzz 由 `attempt_id` 决定，多台设备得到相同计划；`card_id` 是本地行号，各设备不同，不影响调度。服务端返回无效作答时整批拒绝，本地不变。
-- **服务器设置**：首次启动时页面调用 `GET /api/settings/server`，未配置则弹出不可关闭的“连接同步服务器”。`POST /api/settings/server` 先用填写的令牌请求 `/api/vocab` 验证，地址错误或令牌无效都不保存；验证通过后原子写入数据目录的 `server.json` 并立即生效，页面随后执行首次同步再加载练习。同步弹窗的“服务器设置”可修改，令牌留空表示保留原值。`CIJIAN_SERVER_URL` / `CIJIAN_SERVER_TOKEN` 优先于 `server.json`，此时界面只读。
+- **首次设置**：首次启动时页面调用 `GET /api/settings/server`，未配置则弹出不可关闭的“首次设置”，在同一窗口填写服务器和访问令牌，并可选导入本地 ZIP 资源包。`POST /api/settings/server` 先用填写的令牌请求 `/api/vocab` 验证，地址错误或令牌无效都不保存；验证通过后原子写入数据目录的 `server.json` 并立即生效，页面随后执行首次同步再加载练习。之后从练习页或同步弹窗的“设置”修改服务器或更换资源包，令牌留空表示保留原值。`CIJIAN_SERVER_URL` / `CIJIAN_SERVER_TOKEN` 优先于 `server.json`，此时服务器字段只读，仍可导入资源。
 - **触发**：启动时及每隔 `CIJIAN_SYNC_MINUTES`（默认 10）分钟自动同步（未设置服务器时跳过），另可点“立即同步”。离线时照常练习，联网后补传；失败只记录日志。
 - **初始日志**：服务端首次启动时把同一数据库中网页版的 `word_reviews` 一次性导入 `attempts`（`device_id` 为 `web`，记录在 `ledger_migrations`），旧表保留不删。新设备首次同步即可得到全部历史与统计。
 
@@ -45,7 +45,7 @@
 3. 前端迁入，实现练习相关接口，先做纯离线版本（已完成：练习页在真实窗口中验证出题、判题、FSRS 写库与插图）。
 4. 迁移统计查询，接入本地参数优化（已完成：统计页全部接口与参数优化记录在 `cijian-core` 中实现）。
 5. 精简服务端，增加 `/api/vocab`、`/api/sync`，把现有 `stats.db` 作答导入服务端作为初始日志（已完成：服务端只保留词库、作答日志与令牌；桌面端同步在真实窗口中验证上传与合并，镜像在 `typetest` 检查通过）。
-6. 媒体打包与 manifest；安装包构建与发布流程。
+6. 独立媒体资源包的生成、本地导入与 NSIS 安装包构建（已实现）；发布流程待完善。
 
 ## 本机环境
 

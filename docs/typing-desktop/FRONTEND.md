@@ -22,7 +22,7 @@
 
 提前请求当前及后续两道题的插图，并尝试异步解码。每个页面最多保留 32 个预加载引用；自由练习和错词重练按当前位置滚动预加载。缺图或解码失败不阻塞答题。
 
-插图 URL 为 `/api/media/<note_id>/illustration`，core 按词库快照中的 `illustration_file` 从本地媒体目录（`CIJIAN_MEDIA_DIR` 或安装目录 `media/`）读取，不经过同步服务器，也不需要访问凭证。
+插图 URL 为 `/api/media/<note_id>/illustration?v=<版本>`。core 用 note id 找到词条的稳定 `SourceId`，再按用户导入的资源 ZIP 内的 `manifest.json` 读取文件，不依赖快照中的 `illustration_file`。音频同时提供 `audio_url`（优先英音，否则美音）及 `audio_urls`（存在时含 `uk/us/example/ielts`），对应 `/api/media/<note_id>/audio/<类型>?v=<版本>`。缺失插图返回空 URL，缺失音频不进入 `audio_urls`；缺失文件返回 404，ZIP 读取失败返回 503。所有媒体经过桌面自定义协议，读取无需访问凭证；当前练习页只预加载插图，音频接口供按需读取。详见 [独立媒体资源包](MEDIA.md)。
 
 ## 时间与草稿
 
@@ -45,7 +45,7 @@
 
 ## 同步
 
-页首“同步 Anki”按钮打开同步弹窗，“立即同步”调用 `POST /api/sync/now`：拉取词库快照、上传未同步作答并合并其他设备的作答。服务器在首次启动的“连接同步服务器”弹窗中设置，之后可在同步弹窗的“服务器设置”中修改。配置与后台同步周期见 [typing-desktop/README.md](../../typing-desktop/README.md)。
+页首“同步 Anki”按钮打开同步弹窗，“立即同步”调用 `POST /api/sync/now`：拉取词库快照、上传未同步作答并合并其他设备的作答。服务器与可选资源包在首次启动的“首次设置”中配置，之后可从练习页或同步弹窗的“设置”修改。配置与后台同步周期见 [typing-desktop/README.md](../../typing-desktop/README.md)。
 
 ## 统计与验证
 
@@ -60,3 +60,11 @@ node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src
 ```
 
 修改模板或静态资源后重新执行 `build_frontend.py` 并在真实窗口中检查输入、提交、订正、恢复、错误与窄屏布局；core 用 `cargo test` 验证。视觉约束见根目录 PRODUCT.md / DESIGN.md。
+
+## 首次设置与资源导入
+
+首次启动将服务器地址、访问令牌与可选的 ZIP 资源包导入放到同一“首次设置”窗口。以后可从练习页“设置”或同步窗口的“设置”重新打开；服务器由环境变量配置时只读，资源仍可导入。没有资源包也可先练习文字。
+
+本地文件按 4 MiB 分块导入，显示复制与安装状态，失败后重新选择；页面跳转遗留的上传可取消。没有下载入口、下载接口或后台轮询；完成复制后读取 ZIP 清单并启用，不做逐文件 SHA 校验。缓存版本使用安装时的 UUID。
+
+打开设置暂停练习计时，Tab 留在窗口内；允许关闭时，Esc/关闭返回触发按钮。安装只通过 `/api/resources/urls` 刷新媒体字段，保留 attempt_id、输入与作答状态；不重新出题。布局沿用现有组件和纸色墨绿，窄窗口滚动。详见 [独立媒体资源包](MEDIA.md)。
