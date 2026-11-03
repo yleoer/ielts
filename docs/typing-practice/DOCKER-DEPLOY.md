@@ -7,7 +7,7 @@
 - `anki-sync`：接收 Anki 客户端同步数据
 - `typing-practice`：为桌面端提供词库快照和作答日志同步
 
-同步服务使用 Docker Hub 上的预构建镜像，镜像内只有 Flask、PyYAML、python-dotenv，不含 FSRS 或 PyTorch。
+同步服务使用 Docker Hub 上的预构建镜像，镜像内只有 Flask、Waitress、PyYAML、python-dotenv，不含 FSRS 或 PyTorch。默认命令仍为 `python app.py`，由 Waitress 提供生产 WSGI 服务，监听地址沿用 `SERVER_HOST` / `SERVER_PORT`。
 
 ## 运行文件
 
