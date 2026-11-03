@@ -14,7 +14,9 @@
 
 当前已实现练习页（正式/自由练习、提交、汇总、插图、同步弹窗）和统计页（概览、学习日历、近 30 天、词库进度与明细、错误记录、参数优化记录）。FSRS 参数优化在后台线程运行：启动时检查一次，此后每天一次，有效间隔复习满 1000 条后每月最多训练一次。
 
-词库和作答日志通过同步服务器（`typing-practice/backend`）获取与合并。首次启动时页面弹出“首次设置”，要求填写地址和访问令牌：保存前先用令牌请求一次服务器，通过后写入数据目录的 `server.json`，并立即同步。之后启动时和每 10 分钟自动同步；离线时照常练习，联网后补传。同步弹窗或顶栏的“设置”可修改地址或令牌（令牌留空表示不变）。
+窗口使用与页面融合的自定义顶栏，隐藏系统标题及原生窗口按钮；顶栏固定在窗口顶部，页面滚动时始终可见；右上角提供最小化、最大化／还原和关闭，空白处可拖动、双击最大化／还原。练习页和统计页均显示设置与同步图标，可在当前页打开同一套弹窗；统计页同步成功后在原页刷新数据，复用已挂载的图表。顶栏图标不显示鼠标悬停文字，保留辅助工具可读的名称。首次设置等弹窗打开时仍可操作窗口按钮。当前各设备独立优化 FSRS，参数暂不同步，限制及后续方案见 [SRS 计划](../docs/typing-desktop/SRS-PLAN.md#待办多设备参数优化同步)。
+
+词库和作答日志通过同步服务器（`typing-practice/backend`）获取与合并。首次启动时页面弹出“首次设置”，要求填写地址和访问令牌：保存前先用令牌请求一次服务器，通过后写入数据目录的 `server.json`，并立即同步。之后启动时和每 10 分钟自动同步；离线时照常练习，联网后补传。同步弹窗或任一页顶栏的设置图标可修改地址或令牌（令牌留空表示不变）。
 
 ## 构建与运行
 
@@ -36,7 +38,7 @@ cargo run -p cijian
 
 Windows 安装器与卸载器固定使用简体中文（NSIS `SimpChinese`），图标均复用程序的 `app/icons/icon.ico`。语言和图标由 `app/tauri.conf.json` 的 `bundle.windows.nsis` 配置，重新构建安装包后生效。
 
-覆盖同名安装包后，文件列表可能沿用旧图标缓存；刷新目录或将安装包换一个文件名，可重新读取图标。本次另提供内容相同的 `词间_0.1.0_x64-中文安装.exe` 便于确认。
+`app/tauri.conf.json` 的 `productName` 使用英文 `Cijian`，生成的安装包为 `Cijian_<版本>_x64-setup.exe`，当前用户默认安装目录为 `%LOCALAPPDATA%\Cijian`。程序窗口和页面继续显示“词间”，本地数据仍由应用标识 `com.yleoer.cijian` 定位。覆盖同名安装包后，文件列表可能沿用旧图标缓存，刷新目录可重新读取图标。
 
 环境变量（均可选）：
 
@@ -84,7 +86,7 @@ cargo test
 前端脚本测试在仓库根目录运行：
 
 ```powershell
-node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs
+node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs typing-desktop/frontend/src/window-controls.test.cjs
 ```
 
 - `core/tests/golden.rs`：逐条比对 Rust 调度、评分与答案归一化结果。
@@ -92,7 +94,8 @@ node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src
 - `core/tests/media.rs`：按 SourceId 获取本地插图与英美单词读音（练习和统计明细可点击播放）、Anki note id 变化、缺失媒体、无哈希清单与资源包 URL 版本。
 - `core/tests/stats.rs`：移植 `test_activity.py` / `test_vocabulary.py`（日历窗口与北京时间边界、到期分布、移出词库后的历史、近 30 天、连续天数、词库进度与平滑错误率排序、分页与参数校验、错误记录），并确认统计查询不写库。
 - `core/tests/sync.rs`：两台设备经内存服务器同步（交错作答收敛为同一重放结果、重复同步不重传、小分页、离线失败不改数据后补传、服务器词库替换本地、合并使未提交题目失效、以及首次设置（地址与令牌校验、错误令牌不保存、保存后同步、只改地址保留令牌、环境变量配置不可修改、损坏的 `server.json`）。
-- `frontend/src/app.test.cjs`：另含首次设置弹窗（未配置时不可关闭、已配置跳过、错误令牌保留弹窗、保存后先同步再加载练习）。
+- `frontend/src/app.test.cjs` 与 `stats.test.cjs`：使用共享的 `workspace.js` 验证两页设置、资源与同步，统计页同步后在原页刷新；前者另含首次设置弹窗（未配置时不可关闭、已配置跳过、错误令牌保留弹窗、保存后先同步再加载练习）。
+- `frontend/src/window-controls.test.cjs`：窗口按钮调用原生操作，最大化／还原图标与名称随窗口状态更新；拖动、双击、缩放和关闭另在真实桌面窗口验证。
 - `core/tests/optimize.rs`：移植 `test_optimizer.py` / `test_optimizer_service.py`（有效复习计数、时间留出不泄漏、1000 条门槛、每月跳过、启用后保留到期时间并接受未提交题目、重启恢复、失败与异常一天后重试、无效结果、退出中断恢复、接口），另用 fsrs-rs 实际训练一次合成数据。
 
 `Cargo.toml` 对 `fsrs`、`ndarray` 在开发构建中开启优化，否则训练测试会慢很多。

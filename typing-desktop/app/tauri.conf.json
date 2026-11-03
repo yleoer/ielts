@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "词间",
+  "productName": "Cijian",
   "identifier": "com.yleoer.cijian",
   "build": {
     "beforeDevCommand": "node scripts/prepare.mjs",
@@ -8,7 +8,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": false,
+    "withGlobalTauri": true,
     "windows": [],
     "security": {
       "csp": null

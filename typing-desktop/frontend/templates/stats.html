@@ -9,7 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
     <script src="/src/pronunciation.js?v=20261103-plain-audio" defer></script>
-    <script src="/src/stats.js?v=20261103-plain-audio" defer></script>
+    <script src="/src/stats.js?v=20261103-sticky-header" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -17,7 +17,7 @@
       <div class="app-shell">
         {% set active_page = 'stats' %}
         {% include '_header.html' %}
-        <main id="main-content" class="stats-workspace">
+        <main :inert="workspaceModalOpen || null" id="main-content" class="stats-workspace">
             <div class="page-heading"><h1>学习统计</h1><span class="heading-note">{{ monthLabel }}</span></div>
             <div v-if="loading" class="report-sheet empty-state" role="status"><div class="loading-skeleton"><span></span><span></span><span></span></div><p>正在加载统计…</p></div>
             <div v-else-if="loadError" class="report-sheet empty-state" role="alert"><h2>无法加载统计数据</h2><p>请确认服务正在运行，然后重试。</p><button type="button" class="button button-primary" @click="loadAllData">重试</button></div>
@@ -163,6 +163,7 @@
                 </div>
             </section>
         </div>
+        {% include '_workspace_dialogs.html' %}
       </div>
     </div>
 </body>

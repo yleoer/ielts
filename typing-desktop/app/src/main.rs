@@ -133,6 +133,7 @@ fn main() {
             let url = if cfg!(windows) { "http://cijian.localhost/" } else { "cijian://localhost/" };
             WebviewWindowBuilder::new(app, "main", WebviewUrl::CustomProtocol(url.parse()?))
                 .title("词间")
+                .decorations(false)
                 .inner_size(1100.0, 780.0)
                 .min_inner_size(420.0, 560.0)
                 .build()?;
