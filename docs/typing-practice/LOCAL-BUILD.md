@@ -19,7 +19,7 @@ python3 typing-practice/scripts/check_image.py ielts-typing-practice:check
 
 正式 Dockerfile 使用 Debian 官方源，`Dockerfile.local` 使用阿里云 Debian 源；应用文件和依赖一致。验证正式打包时将上述 `-f` 改为 `typing-practice/backend/Dockerfile`。
 
-镜像只安装 Flask、PyYAML、python-dotenv，不再下载 PyTorch，也没有 `TORCH_INDEX_URL` 构建参数；镜像约 219MB。运行冒烟检查的容器由脚本设为 `--network none`。
+镜像只安装 Flask、Waitress、PyYAML、python-dotenv，不再下载 PyTorch，也没有 `TORCH_INDEX_URL` 构建参数。应用通过 Waitress 启动，冒烟检查确认实际 HTTP 响应来自 Waitress；检查容器由脚本设为 `--network none`。
 
 需要实际切换现有服务时，才通过 `docker-compose.local-build.yml` 覆盖同步服务的构建方式。Compose 会使用现有数据挂载并重建服务，不用于隔离冒烟检查。
 

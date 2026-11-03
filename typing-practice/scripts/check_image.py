@@ -29,12 +29,13 @@ while True:
         with urlopen(base + "/api/health", timeout=2) as response:
             health = json.load(response)
         assert health.get("success") is True and health.get("status") == "ok", health
+        assert response.headers.get("Server") == "waitress", response.headers.get("Server")
         break
     except (URLError, TimeoutError):
         if time.monotonic() >= deadline:
             raise
         time.sleep(1)
-print("PASS /api/health", flush=True)
+print("PASS Waitress /api/health", flush=True)
 
 from urllib.error import HTTPError
 from urllib.request import Request

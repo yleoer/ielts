@@ -9,7 +9,7 @@
 | 桌面端 | `typing-desktop/`（Tauri 2，Rust 后端 + 现有 Vue 页面） | 判题、FSRS 调度与参数优化、统计查询、本地 SQLite、本地资源包中的插图与音频 |
 | 服务端 | `typing-practice/backend`（最小 Python 同步服务） | 从 anki-sync-server 复制并读取 `collection.anki2`，提供词库快照；保存只追加的作答日志；访问令牌 |
 
-服务端不再运行 FSRS、不提供页面和媒体，只依赖 Flask、PyYAML、python-dotenv，镜像约 219 MB（原含 PyTorch）。网页版已下线。
+服务端不再运行 FSRS、不提供页面和媒体，运行依赖为 Flask、Waitress、PyYAML、python-dotenv，通过 Waitress 提供生产 WSGI 服务。网页版已下线。
 
 ## 桌面端
 

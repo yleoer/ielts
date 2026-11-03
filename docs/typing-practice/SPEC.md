@@ -6,14 +6,14 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `app.py` | 路由、错误处理、后台复制 Anki 数据库 |
+| `app.py` | 路由、错误处理、后台复制 Anki 数据库、Waitress 启动入口 |
 | `anki.py` | 只读解析 Word Atlas 22 字段笔记，生成词库快照 |
 | `ledger.py` | 作答日志表、上传校验、去重与分页、网页版历史导入 |
 | `auth.py` | Bearer 访问令牌 |
 | `sync.py` | 选择并复制最新的 `collection.anki2` 及 SQLite 附属文件 |
 | `config.py` | YAML、`.env` 与环境变量配置 |
 
-依赖只有 Flask、PyYAML、python-dotenv；不再安装 `fsrs[optimizer]` 或 PyTorch。
+依赖为 Flask、Waitress、PyYAML、python-dotenv；不再安装 `fsrs[optimizer]` 或 PyTorch。`python app.py` 通过 Waitress 启动生产 WSGI 服务，沿用现有监听配置、后台复制任务与退出时的数据库关闭流程。
 
 ## API
 

@@ -10,7 +10,7 @@
 
 ## 本地 Python 运行
 
-需要 Python 3.12 或更高版本，依赖只有 Flask、PyYAML、python-dotenv。在仓库根目录：
+需要 Python 3.12 或更高版本，依赖为 Flask、Waitress、PyYAML、python-dotenv。在仓库根目录：
 
 ```powershell
 python -m venv .venv
@@ -23,7 +23,7 @@ $env:ACCESS_TOKEN = '自己的令牌'
 .\.venv\Scripts\python.exe typing-practice\backend\app.py
 ```
 
-默认监听 <http://127.0.0.1:8080>。默认读取 `Word Atlas` 牌组（生成时 ID `1958430017`），优先按名称解析实际导入后的牌组和子牌组；只支持 Word Atlas 的 22 字段结构。`ANKI_DECK_NAME` / `ANKI_DECK_ID` 可覆盖。
+`app.py` 使用纯 Python 的 Waitress WSGI 服务器启动，本地与 Docker 共用此入口，默认监听 <http://127.0.0.1:8080>。`SERVER_HOST` / `SERVER_PORT` 控制监听地址；不使用 Flask 开发服务器。默认读取 `Word Atlas` 牌组（生成时 ID `1958430017`），优先按名称解析实际导入后的牌组和子牌组；只支持 Word Atlas 的 22 字段结构。`ANKI_DECK_NAME` / `ANKI_DECK_ID` 可覆盖。
 
 配置来自 `backend/config/config.yaml`、`typing-practice/.env` 和进程环境变量，环境变量优先：
 

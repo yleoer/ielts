@@ -64,7 +64,7 @@ python3 check_image.py yleoer/ielts-typing-practice:提交SHA --pull
 
 检查项包括：
 
-- 默认 60 秒内 `/api/health` 返回 `success: true`、`status: ok`。
+- 默认 60 秒内 `/api/health` 返回 `success: true`、`status: ok`，且 `Server` 响应头为 `waitress`，确认镜像默认入口使用生产服务器。
 - 没有 Anki 数据库时 `/api/vocab` 返回 503。
 - `/api/sync` 接受一条作答并在日志中返回，再次上传同一 `attempt_id` 记为重复，验证临时 SQLite 初始化与读写。
 - 已退役的 `/`、`/stats.html`、`/api/stats/overview` 返回 404。

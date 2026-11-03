@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from flask import Flask, jsonify, request
+from waitress import serve
 
 from anki import AnkiReader
 from auth import install_token_gate
@@ -157,6 +158,6 @@ if __name__ == "__main__":
     if not state.config.access_token:
         LOG.warning("ACCESS_TOKEN is empty: the sync API accepts any request")
     try:
-        application.run(host=state.config.server.host, port=state.config.server.port, threaded=True)
+        serve(application, host=state.config.server.host, port=state.config.server.port)
     finally:
         state.close()
