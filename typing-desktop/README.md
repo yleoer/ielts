@@ -34,11 +34,13 @@ cargo run -p cijian
 
 首次启动按提示填写服务器地址和令牌（本机开发可先运行服务端，见 [typing-practice/README.md](../typing-practice/README.md)）。前端模板或脚本修改后需重新执行 `build_frontend.py` 再编译，页面在编译时内嵌。
 
-在 `typing-desktop` 目录运行 `npm run tauri -- dev` 或 `npm run tauri -- build` 时，Tauri 钩子只准备前端；`build` 生成约 4 MiB 的 Windows NSIS 安装包，位于 `target/release/bundle/nsis/`。媒体独立导出和安装，构建不需要 Word Atlas 源仓库。直接 `cargo run` / `cargo build` 不执行钩子，需要先完成第 1 步。详见 [独立媒体资源包](../docs/typing-desktop/MEDIA.md)。
+在 `typing-desktop` 目录运行 `npm run tauri -- dev` 或 `npm run tauri -- build` 时，Tauri 钩子只准备前端；`build` 生成 Windows NSIS 安装包和更新签名，位于 `target/release/bundle/nsis/`，需设置签名环境变量（见 [发布与更新](../docs/typing-desktop/RELEASING.md)）。媒体独立导出和安装，构建不需要 Word Atlas 源仓库。直接 `cargo run` / `cargo build` 不执行钩子，需要先完成第 1 步。详见 [独立媒体资源包](../docs/typing-desktop/MEDIA.md)。
 
 Windows 安装器与卸载器固定使用简体中文（NSIS `SimpChinese`），图标均复用程序的 `app/icons/icon.ico`。语言和图标由 `app/tauri.conf.json` 的 `bundle.windows.nsis` 配置，重新构建安装包后生效。
 
 `app/tauri.conf.json` 的 `productName` 使用英文 `Cijian`，生成的安装包为 `Cijian_<版本>_x64-setup.exe`，当前用户默认安装目录为 `%LOCALAPPDATA%\Cijian`。程序窗口和页面继续显示“词间”，本地数据仍由应用标识 `com.yleoer.cijian` 定位。覆盖同名安装包后，文件列表可能沿用旧图标缓存，刷新目录可重新读取图标。
+
+GitHub Actions 在任意分支桌面代码变化或手动运行时构建 Windows x64 artifact，推送 `desktop-v<版本>` 标签时发布安装包、签名与 `latest.json`。版本统一来自工作区 `Cargo.toml`，可用 `scripts/version.py --set <版本>` 更新。程序后台检查正式 Release，在“设置 → 软件更新”中下载、安装并自动重启；检测到更新时设置图标显示圆点。发布步骤、签名备份和本机打包命令见 [发布与更新](../docs/typing-desktop/RELEASING.md)。
 
 环境变量（均可选）：
 
@@ -86,7 +88,8 @@ cargo test
 前端脚本测试在仓库根目录运行：
 
 ```powershell
-node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs typing-desktop/frontend/src/window-controls.test.cjs
+node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs typing-desktop/frontend/src/window-controls.test.cjs typing-desktop/frontend/src/updates.test.cjs
+.\.venv\Scripts\python.exe -m unittest discover -s typing-desktop/scripts -p test_version.py
 ```
 
 - `core/tests/golden.rs`：逐条比对 Rust 调度、评分与答案归一化结果。
@@ -96,6 +99,7 @@ node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src
 - `core/tests/sync.rs`：两台设备经内存服务器同步（交错作答收敛为同一重放结果、重复同步不重传、小分页、离线失败不改数据后补传、服务器词库替换本地、合并使未提交题目失效、以及首次设置（地址与令牌校验、错误令牌不保存、保存后同步、只改地址保留令牌、环境变量配置不可修改、损坏的 `server.json`）。
 - `frontend/src/app.test.cjs` 与 `stats.test.cjs`：使用共享的 `workspace.js` 验证两页设置、资源与同步，统计页同步后在原页刷新；前者另含首次设置弹窗（未配置时不可关闭、已配置跳过、错误令牌保留弹窗、保存后先同步再加载练习）。
 - `frontend/src/window-controls.test.cjs`：窗口按钮调用原生操作，最大化／还原图标与名称随窗口状态更新；拖动、双击、缩放和关闭另在真实桌面窗口验证。
+- `frontend/src/updates.test.cjs`：发现新版本、无更新、下载进度、安装前保存草稿、失败重试与未保存答案阻止安装；`scripts/test_version.py` 验证标签匹配、正式版格式与 Cargo 工作区/锁文件版本同步。
 - `core/tests/optimize.rs`：移植 `test_optimizer.py` / `test_optimizer_service.py`（有效复习计数、时间留出不泄漏、1000 条门槛、每月跳过、启用后保留到期时间并接受未提交题目、重启恢复、失败与异常一天后重试、无效结果、退出中断恢复、接口），另用 fsrs-rs 实际训练一次合成数据。
 
 `Cargo.toml` 对 `fsrs`、`ndarray` 在开发构建中开启优化，否则训练测试会慢很多。

@@ -14,8 +14,9 @@
         </a>
     </nav>
     <div class="header-actions" :inert="workspaceModalOpen || null">
-        <button ref="settingsButton" type="button" class="icon-button" @click="openServerSetup" aria-label="设置">
+        <button ref="settingsButton" type="button" class="icon-button settings-button" @click="openServerSetup" :aria-label="updates.available ? '设置，有可用更新' : '设置'">
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#settings"/></svg>
+            <span v-if="updates.available" class="update-dot" aria-hidden="true"></span>
         </button>
         <button type="button" class="icon-button" @click="openSyncModal" aria-label="同步 Anki">
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#sync"/></svg>

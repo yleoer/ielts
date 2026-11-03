@@ -99,6 +99,7 @@ createApp({
         }
     },
     mounted() {
+        this.initUpdates();
         this.updatePageAppearance();
         this.loadAllData();
         window.addEventListener('pagehide', this.stopWordAudio);

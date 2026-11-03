@@ -595,6 +595,7 @@ const practiceApp = {
     },
     async mounted() {
         document.title = '词间 · 练习';
+        this.initUpdates();
         const needsSetup = await this.checkServerSetup();
         if (!needsSetup && !await this.restoreDraftSession()) await this.fetchWords();
         document.addEventListener('visibilitychange', () => {

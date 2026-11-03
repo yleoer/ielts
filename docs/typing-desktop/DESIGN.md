@@ -16,6 +16,7 @@
 - **窗口**：隐藏系统标题栏，页面共用固定顶栏承载设置／同步图标及最小化、最大化／还原、关闭按钮，滚动时保持顶部可见、无悬停文字；空白可拖动，双击最大化／还原。Tauri 开启全局窗口 API，`app/capabilities/main-window.json` 授权主窗口的控制与状态监听；`frontend/src/window-controls.js` 为两页共用逻辑，两页使用共享 `frontend/src/workspace.js` 与 `_workspace_dialogs.html` 提供设置、资源导入和同步弹窗，统计页同步后在原页刷新数据并复用图表容器，避免整体重新挂载导致图表空白。视觉规范见仓库根目录 `DESIGN.md`。
 - **前端**：`typing-desktop/frontend`（由网页版迁入，删除登录页）。`scripts/build_frontend.py` 用 Jinja 模板渲染到 `dist/`，CDN 脚本替换为 `vendor/` 中的固定版本，编译时内嵌。
 - **Windows 安装包**：NSIS 安装器与卸载器固定使用简体中文，图标与程序共用 `app/icons/icon.ico`。`app/tauri.conf.json` 的 `productName` 为英文 `Cijian`，安装包名为 `Cijian_<版本>_x64-setup.exe`，当前用户默认安装目录为 `%LOCALAPPDATA%\Cijian`；窗口与页面品牌继续为“词间”，应用标识仍为 `com.yleoer.cijian`。
+- **发布与更新**：版本统一来自 Cargo 工作区；`scripts/version.py` 更新版本及本地包锁记录、校验 `desktop-v<版本>` 标签。独立 Windows Actions 生成签名 NSIS 包，普通分支构建保存 artifact，正式标签发布 GitHub Release 与 `latest.json`。Tauri updater 直接访问公开 Release，不经过同步服务器；两页后台检查，设置中确认下载安装，NSIS 完成后重启。签名私钥只在本机用户目录与 Actions secrets 中，应用只内嵌公钥。详见 [发布流程](RELEASING.md)。
 - **接口**：Tauri 注册 `cijian://` 自定义协议（Windows 上为 `http://cijian.localhost/`）。页面按 `location.origin + "/api"` 发出的请求由 `core/src/api.rs` 处理，路径、状态码与 JSON 与 Flask 一致（409 `practice_conflict`、400、503），不使用 `invoke`。
 - **FSRS**：`typing-desktop/core`（`cijian-core`）逐行移植 py-fsrs 6.3.2 `Scheduler`，与 `srs.py` 行为一致，包括学习步骤 1/10 分钟、重学 10 分钟、保持率 0.9、6/20 秒评分阈值；Card JSON 与 py-fsrs `to_dict()` 兼容，可直接读取现有 `card_json`。原 `srs.py` 保留为 `scripts/srs_reference.py`，只供基准生成使用。
 - **参数优化**：`core/src/optimize.rs` 移植 `optimize_fsrs.py` 与 `optimizer_service.py`，表结构（`fsrs_optimization_runs`、`fsrs_optimizer_state`）、状态值与接口 JSON 不变。训练改用 fsrs-rs 6.6.2 `compute_parameters`（纯 Rust，无 PyTorch），每张卡取前 64 次作答，以“距上次作答整天数 > 0”的作答为训练目标。验收规则不变：有效间隔复习满 1000 条后每月评估一次，前 80% 作答训练、后 20% 留出验证，候选的 log loss 低于现用与默认参数且 Brier 不升高才启用；启用后新参数在下一次作答时重放该词日志生效，不改已有到期时间。训练在桌面端后台线程运行（启动时检查，此后每天一次），应用退出导致未完成的记录在下次启动时标为“任务中断”并立即重新评估，取代原来的进程租约。
@@ -47,7 +48,7 @@
 3. 前端迁入，实现练习相关接口，先做纯离线版本（已完成：练习页在真实窗口中验证出题、判题、FSRS 写库与插图）。
 4. 迁移统计查询，接入本地参数优化（已完成：统计页全部接口与参数优化记录在 `cijian-core` 中实现）。
 5. 精简服务端，增加 `/api/vocab`、`/api/sync`，把现有 `stats.db` 作答导入服务端作为初始日志（已完成：服务端只保留词库、作答日志与令牌；桌面端同步在真实窗口中验证上传与合并，镜像在 `typetest` 检查通过）。
-6. 独立媒体资源包的生成、本地导入与 NSIS 安装包构建（已实现）；发布流程待完善。
+6. 独立媒体资源包的生成、本地导入与 NSIS 安装包构建（已实现）；Windows Actions、统一版本和程序内更新已接入，正式 Release 由标签触发。
 
 ## 本机环境
 
