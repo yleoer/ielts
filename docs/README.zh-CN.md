@@ -25,6 +25,7 @@
 
 - [Tauri 2 桌面端设计](typing-desktop/DESIGN.md)
 - [前端说明](typing-desktop/FRONTEND.md)
+- [独立媒体资源包](typing-desktop/MEDIA.md)
 - [选词策略](typing-desktop/WORD-SELECTION.md)
 - [FSRS 单词记忆与参数优化](typing-desktop/SRS-PLAN.md)
 

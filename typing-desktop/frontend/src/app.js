@@ -21,12 +21,25 @@ const practiceApp = {
             nextQueue: null, nextQueueReceivedAt: 0, feedbackStartedAt: null,
             stats: { correct: 0, incorrect: 0, errors: [], attempts: [] },
             syncModal: { visible: false, loading: false, syncing: false, error: '', status: null },
+            resources: { loading: false, transferring: false, status: null, error: '', appliedId: '' },
             // Sync server settings; `required` blocks the page until a first server is saved.
             setup: { visible: false, required: false, url: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
             apiBaseUrl: `${window.location.origin}/api`
         };
     },
     computed: {
+        resourceBusy() { return this.resources.transferring || Boolean(this.resources.status?.busy); },
+        resourceProgress() {
+            const status = this.resources.status;
+            return status?.phase === 'uploading' && status.total ? Math.floor(status.done * 100 / status.total) : null;
+        },
+        resourceProgressText() {
+            const status = this.resources.status;
+            if (!status) return '';
+            if (status.phase === 'installing') return '正在安装…';
+            if (status.phase !== 'uploading') return '';
+            return `正在导入 ${(status.done / 1048576).toFixed(1)} / ${(status.total / 1048576).toFixed(1)} MiB`;
+        },
         currentWord() { return this.words[this.currentIndex] || null; },
         currentChineseSenses() {
             if (!this.currentWord) return [];
@@ -555,6 +568,82 @@ const practiceApp = {
             return previous[right.length];
         },
 
+        setupKeydown(event) {
+            if (event.key === 'Escape') { this.closeServerSetup(); event.preventDefault(); return; }
+            if (event.key !== 'Tab') return;
+            const controls = [...event.currentTarget.querySelectorAll('button:not(:disabled), input:not(:disabled):not([tabindex="-1"])')];
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        },
+        async loadResourceStatus() {
+            this.resources.loading = true;
+            try {
+                const status = (await axios.get(`${this.apiBaseUrl}/resources/status`)).data.data;
+                this.resources.status = status;
+                if (status.phase === 'ready' && this.resources.appliedId !== status.id) {
+                    await this.refreshResourceUrls();
+                    this.resources.appliedId = status.id;
+                }
+                this.resources.error = '';
+            } catch (error) {
+                this.resources.error = error.response?.data?.error || '无法读取资源状态，请重试。';
+            } finally {
+                this.resources.loading = false;
+            }
+        },
+        async refreshResourceUrls() {
+            if (!this.words.length) return;
+            const items = (await axios.post(`${this.apiBaseUrl}/resources/urls`, { ids: this.words.map(w => w.id) })).data.data;
+            for (const item of items) {
+                const word = this.words.find(w => w.id === item.id);
+                if (word) Object.assign(word, { illustration_url: item.illustration_url, audio_url: item.audio_url, audio_urls: item.audio_urls });
+            }
+            this.illustrationFailed = false;
+            this.nextQueue = null;
+            this.saveDraftSession();
+        },
+        async importResources(event) {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file || this.resourceBusy) return;
+            this.resources.error = '';
+            if (!/\.zip$/i.test(file.name) || !file.size) {
+                this.resources.error = '请选择非空 ZIP 资源包。'; return;
+            }
+            this.resources.transferring = true;
+            let id;
+            try {
+                const session = (await axios.post(`${this.apiBaseUrl}/resources/upload`, { size: file.size })).data.data;
+                id = session.id;
+                for (let offset = 0; offset < file.size; offset += session.chunk_size) {
+                    const chunk = await file.slice(offset, offset + session.chunk_size).arrayBuffer();
+                    await axios.post(`${this.apiBaseUrl}/resources/chunk?id=${id}&offset=${offset}`, chunk,
+                        { headers: { 'Content-Type': 'application/octet-stream' }, timeout: 60000 });
+                    this.resources.status = { ...this.resources.status, phase: 'uploading', busy: true, done: Math.min(offset + session.chunk_size, file.size), total: file.size };
+                }
+                this.resources.status = { ...this.resources.status, phase: 'installing', busy: true };
+                await axios.post(`${this.apiBaseUrl}/resources/finish?id=${id}`);
+            } catch (error) {
+                if (id) { try { await axios.post(`${this.apiBaseUrl}/resources/cancel?id=${id}`); } catch (_) {} }
+                this.resources.error = error.response?.data?.error || '导入失败，请重新选择资源包。';
+                if (this.resources.status) this.resources.status.busy = false;
+                return;
+            } finally {
+                this.resources.transferring = false;
+            }
+            await this.loadResourceStatus();
+        },
+        async cancelResourceUpload() {
+            if (this.resources.transferring || this.resources.status?.phase !== 'uploading') return;
+            try {
+                await axios.post(`${this.apiBaseUrl}/resources/cancel?id=${this.resources.status.id}`);
+                await this.loadResourceStatus();
+            } catch (error) {
+                this.resources.error = error.response?.data?.error || '无法取消导入，请重试。';
+            }
+        },
+
         async loadServerSettings() {
             const settings = (await axios.get(`${this.apiBaseUrl}/settings/server`)).data.data;
             Object.assign(this.setup, { url: settings.url || '', token: '', hasToken: settings.has_token, editable: settings.editable, error: '' });
@@ -568,6 +657,8 @@ const practiceApp = {
                 if (settings.configured) return false;
                 Object.assign(this.setup, { visible: true, required: true });
                 this.pauseClock();
+                await this.loadResourceStatus();
+                this.$nextTick(() => this.$refs.serverUrl?.focus());
                 return true;
             } catch (error) {
                 console.error('Error loading server settings:', error);
@@ -576,24 +667,29 @@ const practiceApp = {
         },
 
         async openServerSetup() {
+            this.setupOpener = document.activeElement;
             this.syncModal.visible = false;
             this.pauseClock();
             Object.assign(this.setup, { visible: true, required: false, error: '' });
             try {
                 await this.loadServerSettings();
+                await this.loadResourceStatus();
+                this.$nextTick(() => (this.setup.editable ? this.$refs.serverUrl : this.$refs.resourceChoose)?.focus());
             } catch (error) {
                 this.setup.error = '无法加载服务器设置';
             }
         },
 
         closeServerSetup() {
-            if (this.setup.required || this.setup.saving) return;
+            if (this.setup.required || this.setup.saving || this.resources.transferring) return;
             this.setup.visible = false;
             this.resumeClock();
+            this.$nextTick(() => this.setupOpener?.focus());
         },
 
         async saveServerSetup() {
-            if (this.setup.saving || !this.setup.editable) return;
+            if (this.setup.saving || this.resourceBusy) return;
+            if (!this.setup.editable) { this.closeServerSetup(); return; }
             this.setup.saving = true;
             this.setup.error = '';
             try {

@@ -41,6 +41,14 @@ RELEARNING_STEPS_MINUTES = [10]
 LEECH_THRESHOLD = 8
 LEECH_ACTION = 0  # Suspend the card after tagging it as a leech.
 STUDY_TIMES = {"morning": "07:00", "afternoon_commute": "17:00", "bedtime": "23:00"}
+MEDIA_SPECS = (
+    ("Illustration", "img", ".webp", 1, "img"),
+    ("AudioUK", "audio/uk", ".mp3", 2, "uk"),
+    ("AudioUS", "audio/us", ".mp3", 4, "us"),
+    ("AudioExample", "audio/ex", ".mp3", 8, "ex"),
+    # ex2 is present in this build, but absent from docs/dataset.md.
+    ("AudioIELTS", "audio/ex2", ".mp3", None, "ex2"),
+)
 
 
 def study_plan_summary(deck_name: str) -> dict:
@@ -111,29 +119,29 @@ def select_entries(entries: list[dict], ids: list[str]) -> list[dict]:
     return [lookup[item] for item in ids]
 
 
-def copy_media(entry: dict, flags: int, atlas: Path, output: Path) -> tuple[dict, list[dict]]:
-    """Anki flattens filenames: UK, US and examples must have distinct basenames."""
-    result = {}
+def media_report(entry: dict, flags: int, atlas: Path) -> list[dict]:
+    """Shared media selection and filenames for Anki and desktop exports."""
     report = []
-    specs = (
-        ("Illustration", "img", ".webp", 1, "img"),
-        ("AudioUK", "audio/uk", ".mp3", 2, "uk"),
-        ("AudioUS", "audio/us", ".mp3", 4, "us"),
-        ("AudioExample", "audio/ex", ".mp3", 8, "ex"),
-        # ex2 is present in this build, but absent from docs/dataset.md.
-        ("AudioIELTS", "audio/ex2", ".mp3", None, "ex2"),
-    )
-    for field, folder, extension, bit, kind in specs:
+    for _, folder, extension, bit, kind in MEDIA_SPECS:
         original = atlas / folder / (entry["id"] + extension)
         declared = bool(flags & bit) if bit is not None else None
         available = original.is_file() and (declared is not False)
         filename = f"wa_{entry['id']}_{kind}{extension}"
         report.append({"kind": kind, "declared": declared, "available": available,
                        "source": original.as_posix(), "filename": filename if available else None})
-        if not available:
+    return report
+
+
+def copy_media(entry: dict, flags: int, atlas: Path, output: Path) -> tuple[dict, list[dict]]:
+    """Anki flattens filenames: UK, US and examples must have distinct basenames."""
+    result = {}
+    report = media_report(entry, flags, atlas)
+    for (field, _, _, _, kind), item in zip(MEDIA_SPECS, report):
+        if not item["available"]:
             result[field] = ""
             continue
-        shutil.copy2(original, output / filename)
+        filename = item["filename"]
+        shutil.copy2(item["source"], output / filename)
         result[field] = (f'<img src="{filename}" alt="词义插画">'
                          if kind == "img" else f"[sound:{filename}]")
     return result, report

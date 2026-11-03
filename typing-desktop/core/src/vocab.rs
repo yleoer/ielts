@@ -50,8 +50,10 @@ pub fn parse_snapshot(text: &str) -> ApiResult<Vec<Word>> {
             Some(Value::String(v)) => v,
             _ => String::new(),
         };
-        let url = if illustration_file.is_empty() { String::new() } else { format!("/api/media/{note_id}/illustration") };
-        data.insert("illustration_url".into(), Value::String(url));
+        // The app resolves media against its locally installed SourceId manifest, never the server.
+        data.insert("illustration_url".into(), Value::String(String::new()));
+        data.remove("audio_url");
+        data.remove("audio_urls");
         Ok(Word { note_id, source_id, learned, illustration_file, data })
     }).collect()
 }
@@ -72,26 +74,4 @@ pub fn pool_by_key(words: &[Word]) -> ApiResult<Vec<(String, &Word)>> {
         result.push((key, word));
     }
     Ok(result)
-}
-
-/// Media file names come from the snapshot; only plain image names are served.
-pub fn safe_media_name(name: &str) -> bool {
-    const EXTENSIONS: [&str; 6] = [".webp", ".png", ".jpg", ".jpeg", ".gif", ".avif"];
-    !name.is_empty()
-        && !name.starts_with('.')
-        && !name.chars().any(|c| matches!(c, '/' | '\\' | ':' | '\0'))
-        && EXTENSIONS.iter().any(|ext| name.to_ascii_lowercase().ends_with(ext))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rejects_unsafe_media_names() {
-        assert!(safe_media_name("demo_library.webp"));
-        assert!(!safe_media_name("../secret.webp"));
-        assert!(!safe_media_name("C:evil.png"));
-        assert!(!safe_media_name("sound.mp3"));
-    }
 }

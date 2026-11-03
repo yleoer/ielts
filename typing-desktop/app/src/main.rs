@@ -1,7 +1,7 @@
 //! 词间桌面壳：`cijian://` 自定义协议把页面和 `/api/*` 请求交给 `cijian-core`。
 //!
 //! 现有前端按 `location.origin + "/api"` 调用接口，因此无需改动 JS。
-//! 页面与脚本来自内嵌的 `dist/`；接口、插图由本地 SQLite 与媒体目录提供。
+//! 页面与脚本来自内嵌的 `dist/`；接口、插图与音频由本地 SQLite 与媒体清单提供。
 //! 后台线程每天检查一次是否需要优化 FSRS 参数（见 `cijian_core::optimize`）；
 //! 配置了同步服务器时，启动后及每隔一段时间自动同步作答日志（见 `cijian_core::remote`）；
 //! 未配置时页面在首次启动时要求填写服务器地址与访问令牌（保存到数据目录的 `server.json`）。
@@ -34,10 +34,9 @@ fn open_app(handle: &tauri::AppHandle) -> Result<App, Box<dyn std::error::Error>
     std::fs::create_dir_all(&data_dir)?;
     let db_path = env_path("CIJIAN_DB_PATH").unwrap_or_else(|| data_dir.join("cijian.db"));
     let store = Store::open(&db_path, MemoryConfig::default(), Box::new(chrono::Utc::now))?;
-    let resource_media = handle.path().resource_dir().ok().map(|d| d.join("media")).filter(|d| d.is_dir());
     let config = AppConfig {
         dist_dir: PathBuf::new(),
-        media_dir: env_path("CIJIAN_MEDIA_DIR").or(resource_media),
+        media_dir: Some(env_path("CIJIAN_MEDIA_DIR").unwrap_or_else(|| data_dir.join("media"))),
         server_file: Some(data_dir.join("server.json")),
     };
     let optimization = OptimizationConfig {
