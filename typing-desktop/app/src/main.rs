@@ -2,6 +2,7 @@
 //!
 //! 现有前端按 `location.origin + "/api"` 调用接口，因此无需改动 JS。
 //! 页面与脚本来自内嵌的 `dist/`；接口、插图由本地 SQLite 与媒体目录提供。
+//! 后台线程每天检查一次是否需要优化 FSRS 参数（见 `cijian_core::optimize`）。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -9,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use cijian_core::api::{App, AppConfig, Request};
+use cijian_core::optimize::{evaluate_with_fsrs_rs, OptimizationConfig};
 use cijian_core::srs::MemoryConfig;
 use cijian_core::store::Store;
 use tauri::http::{header::CONTENT_TYPE, Response};
@@ -32,7 +34,30 @@ fn open_app(handle: &tauri::AppHandle) -> Result<App, Box<dyn std::error::Error>
         vocab_path: env_path("CIJIAN_VOCAB_PATH").or_else(|| Some(data_dir.join("vocab.json"))),
     };
     eprintln!("cijian: db={} media={:?} vocab={:?}", db_path.display(), config.media_dir, config.vocab_path);
-    Ok(App { store, config })
+    let optimization = OptimizationConfig {
+        enabled: std::env::var("CIJIAN_OPTIMIZATION").map_or(true, |v| v != "0"),
+        ..OptimizationConfig::default()
+    };
+    Ok(App { store, config, optimization })
+}
+
+/// Checks at startup and then every `check_interval_seconds`; training runs on this
+/// thread so practice requests are never blocked by it.
+fn start_optimizer(app: Arc<App>) {
+    if !app.optimization.enabled {
+        return;
+    }
+    let spawned = std::thread::Builder::new().name("fsrs-optimizer".into()).spawn(move || loop {
+        match app.store.check_optimization(&app.optimization, &evaluate_with_fsrs_rs) {
+            Ok(Some(run)) => eprintln!("cijian: FSRS evaluation {} {}", run["id"], run["status"]),
+            Ok(None) => {}
+            Err(error) => eprintln!("cijian: FSRS evaluation check failed: {error}"),
+        }
+        std::thread::sleep(std::time::Duration::from_secs(app.optimization.check_interval_seconds));
+    });
+    if let Err(error) = spawned {
+        eprintln!("cijian: could not start the optimizer: {error}");
+    }
 }
 
 fn main() {
@@ -60,8 +85,9 @@ fn main() {
             Response::builder().status(status).header(CONTENT_TYPE, content_type).body(body).unwrap()
         })
         .setup(|app| {
-            let state = open_app(app.handle())?;
-            app.manage(Arc::new(state));
+            let state = Arc::new(open_app(app.handle())?);
+            start_optimizer(state.clone());
+            app.manage(state);
             // Windows WebView2 maps custom schemes to http://<scheme>.localhost.
             let url = if cfg!(windows) { "http://cijian.localhost/" } else { "cijian://localhost/" };
             WebviewWindowBuilder::new(app, "main", WebviewUrl::CustomProtocol(url.parse()?))

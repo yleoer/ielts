@@ -98,29 +98,58 @@ pub fn shanghai() -> FixedOffset {
     FixedOffset::east_opt(8 * 3600).unwrap()
 }
 
-struct Inner {
-    db: Connection,
-    vocabulary: Vec<Word>,
+/// The scheduling rules in force; replaced when an optimization run is accepted.
+pub(crate) struct Active {
+    pub srs: Srs,
+    pub version: String,
+    pub snapshot: Value,
+}
+
+impl Active {
+    pub(crate) fn new(config: MemoryConfig) -> ApiResult<Self> {
+        let srs = Srs::new(config).map_err(ApiError::BadRequest)?;
+        let s = &srs.scheduler;
+        let snapshot = json!({
+            "engine": "cijian-core", "fsrs_version": "6.3.2", "rating_version": RATING_VERSION,
+            "easy_seconds": srs.config.easy_seconds, "hard_seconds": srs.config.hard_seconds,
+            "scheduler": {
+                "parameters": s.parameters, "desired_retention": s.desired_retention,
+                "learning_steps": s.learning_steps.iter().map(|d| d.num_seconds()).collect::<Vec<_>>(),
+                "relearning_steps": s.relearning_steps.iter().map(|d| d.num_seconds()).collect::<Vec<_>>(),
+                "maximum_interval": s.maximum_interval, "enable_fuzzing": s.enable_fuzzing,
+            },
+        });
+        let version = format!("{:x}", Sha256::digest(snapshot.to_string().as_bytes()))[..20].to_string();
+        Ok(Active { srs, version, snapshot })
+    }
+
+    pub(crate) fn save(&self, db: &Connection) -> ApiResult<()> {
+        db.execute("INSERT OR IGNORE INTO srs_configs VALUES(?,?)", params![self.version, self.snapshot.to_string()])?;
+        Ok(())
+    }
+}
+
+pub(crate) struct Inner {
+    pub db: Connection,
+    pub vocabulary: Vec<Word>,
+    pub active: Active,
 }
 
 pub struct Store {
     inner: Mutex<Inner>,
-    pub srs: Srs,
-    version: String,
-    snapshot: Value,
     now: Clock,
 }
 
-struct MemoryRow {
-    id: i64,
-    card_json: String,
-    due: String,
-    state: i64,
-    version: i64,
-    config_version: String,
+pub(crate) struct MemoryRow {
+    pub id: i64,
+    pub card_json: String,
+    pub due: String,
+    pub state: i64,
+    pub version: i64,
+    pub config_version: String,
 }
 
-fn memory_rows(db: &Connection) -> ApiResult<HashMap<String, MemoryRow>> {
+pub(crate) fn memory_rows(db: &Connection) -> ApiResult<HashMap<String, MemoryRow>> {
     let mut stmt = db.prepare("SELECT word_key,id,card_json,due,state,version,config_version FROM word_memory")?;
     let rows = stmt.query_map([], |r| {
         Ok((r.get::<_, String>(0)?, MemoryRow {
@@ -150,31 +179,33 @@ impl Store {
     pub fn with_connection(db: Connection, config: MemoryConfig, now: Clock) -> ApiResult<Self> {
         db.busy_timeout(std::time::Duration::from_secs(5))?;
         db.execute_batch(SCHEMA)?;
-        let srs = Srs::new(config).map_err(ApiError::BadRequest)?;
-        let s = &srs.scheduler;
-        let snapshot = json!({
-            "engine": "cijian-core", "fsrs_version": "6.3.2", "rating_version": RATING_VERSION,
-            "easy_seconds": srs.config.easy_seconds, "hard_seconds": srs.config.hard_seconds,
-            "scheduler": {
-                "parameters": s.parameters, "desired_retention": s.desired_retention,
-                "learning_steps": s.learning_steps.iter().map(|d| d.num_seconds()).collect::<Vec<_>>(),
-                "relearning_steps": s.relearning_steps.iter().map(|d| d.num_seconds()).collect::<Vec<_>>(),
-                "maximum_interval": s.maximum_interval, "enable_fuzzing": s.enable_fuzzing,
-            },
-        });
-        let text = snapshot.to_string();
-        let version: String = format!("{:x}", Sha256::digest(text.as_bytes()))[..20].to_string();
-        db.execute("INSERT OR IGNORE INTO srs_configs VALUES(?,?)", params![version, text])?;
+        db.execute_batch(crate::optimize::SCHEMA)?;
         db.execute("INSERT OR IGNORE INTO schema_migrations VALUES('desktop-v1',?)", params![time_text(now())])?;
+        // Parameters accepted by an earlier optimization run replace the configured defaults.
+        let active = match crate::optimize::accepted_parameters(&db)? {
+            Some(parameters) => Active::new(MemoryConfig { parameters, ..config })?,
+            None => Active::new(config)?,
+        };
+        active.save(&db)?;
+        crate::optimize::recover_interrupted(&db, now())?;
         let vocabulary = Self::load_vocabulary(&db)?;
-        Ok(Store { inner: Mutex::new(Inner { db, vocabulary }), srs, version, snapshot, now })
+        Ok(Store { inner: Mutex::new(Inner { db, vocabulary, active }), now })
+    }
+
+    /// Scheduling rules currently in force (thresholds and FSRS parameters).
+    pub fn memory_config(&self) -> MemoryConfig {
+        self.lock().active.srs.config.clone()
+    }
+
+    pub fn config_version(&self) -> String {
+        self.lock().active.version.clone()
     }
 
     pub fn now(&self) -> Time {
         (self.now)()
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
@@ -244,9 +275,9 @@ impl Store {
 
     // ---- practice ---------------------------------------------------------------------
 
-    fn describe_row(&self, row: &MemoryRow, now: Time) -> ApiResult<Value> {
+pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<Value> {
         let card: Card = serde_json::from_str(&row.card_json)?;
-        Ok(serde_json::to_value(self.srs.describe(&card, now))?)
+        Ok(serde_json::to_value(srs.describe(&card, now))?)
     }
 
     fn new_today(db: &Connection, now: Time) -> ApiResult<i64> {
@@ -315,7 +346,7 @@ impl Store {
             let mut item = word.data.clone();
             let row = states.get(key);
             let memory = match row {
-                Some(row) => self.describe_row(row, now)?,
+                Some(row) => Self::describe_row(&inner.active.srs, row, now)?,
                 None => json!({"status": "new", "is_due": false}),
             };
             let card_version = row.map_or(0, |r| r.version);
@@ -325,7 +356,7 @@ impl Store {
             item.insert("attempt_id".into(), attempt_id.clone().into());
             item.insert("issued_at".into(), time_text(now).into());
             tx.execute("INSERT INTO practice_items(attempt_id,session_id,word_key,word_json,card_version,issued_at,config_version,mode) VALUES(?,?,?,?,?,?,?,?)",
-                params![attempt_id, session_id, key, Value::Object(word.data.clone()).to_string(), card_version, time_text(now), self.version, mode])?;
+                params![attempt_id, session_id, key, Value::Object(word.data.clone()).to_string(), card_version, time_text(now), inner.active.version, mode])?;
             items.push(Value::Object(item));
         }
         tx.commit()?;
@@ -388,10 +419,11 @@ impl Store {
         if elapsed > (reviewed - issued).num_microseconds().unwrap_or(i64::MAX) as f64 / 1000.0 + 2000.0 {
             return Err(ApiError::bad("有效耗时不能超过题目展示后的实际时间"));
         }
-        if config_version != self.version {
+        let active = &inner.active;
+        if config_version != active.version {
             let previous: Option<String> = tx.query_row("SELECT config_json FROM srs_configs WHERE version=?", [&config_version], |r| r.get(0)).optional()?;
             let rules: Value = previous.map(|t| serde_json::from_str(&t)).transpose()?.unwrap_or(Value::Null);
-            if ["rating_version", "easy_seconds", "hard_seconds"].iter().any(|k| rules[k].as_f64() != self.snapshot[k].as_f64()) {
+            if ["rating_version", "easy_seconds", "hard_seconds"].iter().any(|k| rules[k].as_f64() != active.snapshot[k].as_f64()) {
                 return Err(ApiError::conflict("评分配置已更新，请重新获取题目"));
             }
         }
@@ -420,7 +452,7 @@ impl Store {
                 if mode != "free" && reviewed < card.due {
                     return Err(ApiError::conflict("这个词尚未到期，请重新获取题目"));
                 }
-                if row.config_version != self.version {
+                if row.config_version != active.version {
                     let mut stmt = tx.prepare("SELECT reviewed_at,rating,attempt_id FROM word_reviews WHERE memory_id=? ORDER BY reviewed_at,id")?;
                     let logs = stmt.query_map([row.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u8>(1)?, r.get::<_, String>(2)?)))?
                         .map(|log| {
@@ -429,32 +461,32 @@ impl Store {
                                 Some(crate::srs::fuzz_sample(&id))))
                         })
                         .collect::<ApiResult<Vec<_>>>()?;
-                    card = self.srs.scheduler.reschedule(&card, &logs);
+                    card = active.srs.scheduler.reschedule(&card, &logs);
                 }
                 let before = serde_json::to_string(&card)?;
                 (card, Some(before))
             }
             None => {
                 tx.execute("INSERT INTO word_memory(word_key,card_json,due,state,first_review,last_review,version,config_version) VALUES(?, '', ?, 1, ?, ?, 0, ?)",
-                    params![word_key, time_text(reviewed), time_text(reviewed), time_text(reviewed), self.version])?;
+                    params![word_key, time_text(reviewed), time_text(reviewed), time_text(reviewed), active.version])?;
                 (Card::new(tx.last_insert_rowid(), reviewed), None)
             }
         };
         let correct = is_correct(word.text("word"), user_input);
-        let (updated, rating) = self.srs.review(&card, correct, elapsed, reviewed, attempt_id).map_err(ApiError::BadRequest)?;
+        let (updated, rating) = active.srs.review(&card, correct, elapsed, reviewed, attempt_id).map_err(ApiError::BadRequest)?;
         let version = card_version + 1;
         let after_json = serde_json::to_string(&updated)?;
         tx.execute("UPDATE word_memory SET card_json=?,due=?,state=?,stability=?,last_review=?,version=?,config_version=? WHERE id=?",
-            params![after_json, time_text(updated.due), updated.state as i64, updated.stability, time_text(reviewed), version, self.version, card.card_id])?;
+            params![after_json, time_text(updated.due), updated.state as i64, updated.stability, time_text(reviewed), version, active.version, card.card_id])?;
         let response = json!({
             "attempt_id": attempt_id, "is_correct": correct, "rating": rating as u8, "rating_name": rating.name(),
             "reviewed_at": time_text(reviewed), "duration_ms": elapsed,
-            "memory": self.srs.describe(&updated, now), "card_version": version,
+            "memory": active.srs.describe(&updated, now), "card_version": version,
         });
         tx.execute("INSERT INTO word_reviews(attempt_id,request_hash,session_id,memory_id,word_key,word,chinese_meaning,category,user_input,is_correct,rating,reviewed_at,received_at,duration_ms,first_input_ms,answer_length,before_json,after_json,config_version,response_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![attempt_id, request_hash, session_id, card.card_id, word_key, word.text("word"), word.text("chinese_meaning"),
                     word.text("category"), user_input, correct, rating as u8, time_text(reviewed), time_text(now), elapsed, first_input,
-                    normalize_answer(user_input).chars().count(), before_json, after_json, self.version, response.to_string()])?;
+                    normalize_answer(user_input).chars().count(), before_json, after_json, active.version, response.to_string()])?;
         tx.commit()?;
         Ok(response)
     }
