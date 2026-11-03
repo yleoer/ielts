@@ -43,7 +43,7 @@ ul { margin: 0; padding: 0; list-style: none; }
 .icon, .state-icon { display: block; flex: 0 0 auto; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .state-icon { width: 32px; height: 32px; color: var(--secondary); }
 .app-shell { min-height: 100vh; min-height: 100dvh; background: var(--canvas); color: var(--ink); }
-.app-shell, .login-page {
+.app-shell {
     --canvas: #f4f3ed;
     --paper: #fffefb;
     --ink: #2d3e35;
@@ -296,16 +296,15 @@ ul { margin: 0; padding: 0; list-style: none; }
 .history-row { padding: 12px 0; border-top: 1px solid var(--rule); }
 .history-row p { margin-top: 8px; font-size: 13px; }
 .scroll-list { max-height: 250px; overflow-y: auto; }
+.sync-server { margin-top: 16px; gap: 12px; font-size: 13px; }
+.sync-server .mono { overflow-wrap: anywhere; }
+.setup-form > p { margin-bottom: 18px; font-size: 14px; }
+.text-input { display: block; width: 100%; height: 46px; margin-bottom: 16px; padding: 10px 12px; color: var(--ink); border: 1px solid #bcc3cc; border-radius: 6px; background: var(--paper); font-size: 15px; }
+.text-input:focus { border-color: var(--accent); outline: 1px solid var(--accent); outline-offset: 0; }
+.text-input[aria-invalid="true"] { border-color: var(--error); }
+.text-input:disabled { color: var(--secondary); background: var(--soft); }
+.setup-form .error-message { margin: -4px 0 16px; }
 .error-message { margin-top: 16px; color: var(--error); font-size: 13px; overflow-wrap: anywhere; }
-.login-page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 20px; background: var(--canvas); color: var(--ink); }
-.login-brand { margin-bottom: 28px; }
-.login-sheet { width: min(100%, 390px); padding: 32px; border: 1px solid var(--rule); border-radius: 12px; background: var(--paper); }
-.login-sheet h1 { margin-top: 18px; font-size: 22px; }
-.login-sheet > p { margin-top: 8px; }
-.login-sheet form { margin-top: 26px; }
-.password-input { display: block; height: 46px; padding: 10px 12px; width: 100%; color: var(--ink); border: 1px solid #bcc3cc; border-radius: 6px; background: var(--paper); }
-.password-input[aria-invalid="true"] { border-color: var(--error); }
-.login-sheet .button { margin-top: 20px; }
 @keyframes practiceShake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
 .practice-shake { animation: practiceShake 200ms ease-out; }
 @media (max-width: 700px) {

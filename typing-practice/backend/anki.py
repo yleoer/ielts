@@ -282,3 +282,12 @@ class AnkiReader:
         with self._lock:
             return int(self.db.execute(query, self._learned_deck_ids()).fetchone()[0])
 
+    def snapshot(self) -> list[dict[str, Any]]:
+        """Every deck word with `learned` and the illustration file name (vocabulary format 1)."""
+        learned = {word["id"] for word in self.get_learned_word_pool()}
+        words = []
+        for word in self.get_word_pool():
+            word["learned"] = word["id"] in learned
+            word["illustration_file"] = self.get_media_filename(word["id"], "illustration")
+            words.append(word)
+        return words

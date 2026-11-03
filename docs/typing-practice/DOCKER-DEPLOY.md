@@ -1,68 +1,54 @@
 # Docker 部署
 
-这是 `typing-practice` 的标准 Docker Compose 部署说明。
+这是 `typing-practice` 同步服务的标准 Docker Compose 部署说明。
 
 ## 服务
 
 - `anki-sync`：接收 Anki 客户端同步数据
-- `typing-practice`：提供练习页面和统计接口
+- `typing-practice`：为桌面端提供词库快照和作答日志同步
 
-练习服务使用 Docker Hub 上的预构建镜像，镜像内运行 Python Flask 单体应用。
+同步服务使用 Docker Hub 上的预构建镜像，镜像内只有 Flask、PyYAML、python-dotenv，不含 FSRS 或 PyTorch。
 
 ## 运行文件
 
 - `typing-practice/.env.example`
 - `typing-practice/docker-compose.yml`
-- `typing-practice/data/anki-sync/`
-- `typing-practice/data/anki-cache/`
-- `typing-practice/data/anki-media/`：从 Anki `collection.media/` 复制的插图，保留原文件名；只读挂载到 `/app/anki-media`
-- `typing-practice/data/stats/`
+- `typing-practice/data/anki-sync/`：anki-sync-server 数据，只读挂载到 `/app/anki-sync`
+- `typing-practice/data/anki-cache/`：复制出的 `collection.anki2`
+- `typing-practice/data/stats/`：作答日志数据库 `stats.db`
 
 ## 运行模型
 
 - Anki 数据先进入同步服务。
-- 练习服务再把同步结果复制到本地缓存。
-- 统计数据保存在 SQLite 中，容器重启后不丢失。
-- Flask 同时提供 Jinja2 页面、静态资源和 `/api` 接口。
-- `ANKI_MEDIA_DIR=/app/anki-media` 提供 Word Atlas 的插图，不需要复制音频。数据库同步不会自动复制媒体文件，需单独维护 `data/anki-media/`；媒体不提交 Git。
-
-## FSRS 配置
-
-Compose 从 .env 传入 FSRS_DESIRED_RETENTION（默认 0.9）、FSRS_EASY_SECONDS（6）、FSRS_HARD_SECONDS（20）和 FSRS_PARAMETERS_PATH（空，使用默认模型）。正式练习按当前可练词数安排，不设每轮作答数或每日新词上限；自由练习每轮最多 20 个，并计入历史统计与 FSRS。旧 FSRS_DAILY_NEW 已停用，即使 .env 中保留旧值也会忽略。参数配置变化需重建容器。
-
-镜像包含 `fsrs[optimizer]==6.3.2` 与 CPU 版 PyTorch。启动时检查一次，之后默认每天检查一次；累计 1,000 条有效间隔复习后在下一次检查中后台训练，留出较新数据验证，误差改善才启用；后续按自然月评估，默认至少新增 100 条有效记录。训练使用独立 CPU 子进程，答案接口不执行训练。Compose 还传入 `FSRS_AUTO_OPTIMIZE=true`、`FSRS_OPTIMIZER_CHECK_SECONDS=86400`、`FSRS_OPTIMIZER_MIN_NEW_REVIEWS=100`、`FSRS_OPTIMIZER_TIMEOUT_SECONDS=3600`。实际 `.env` 如果还配置旧值 `300`，需改为 `86400` 或删除该覆盖项，再重建容器。
-
-评估记录和启用指针存于原统计数据库；参数 JSON 与进程日志存于 `data/stats/fsrs-optimization/`（容器 `/app/stats/fsrs-optimization/`），随现有 stats 挂载持久化。统计页底部可查询历史。重启自动恢复已接受参数，原到期时间保留，下次正式复习应用新参数。回退时设置 `FSRS_AUTO_OPTIMIZE=false`，将 `FSRS_PARAMETERS_PATH` 指向旧已接受 JSON 或 baseline JSON 后重建容器；清空路径则使用默认权重。备份时保留整个 stats 目录。详见 [FSRS 实施说明](SRS-PLAN.md)。
-
-## 常用接口
-
-- `GET /api/config`
-- `GET /api/sync/status`
-- `POST /api/sync/now`
+- 后台任务在 `ANKI_SYNC_INITIAL_WAIT_SECONDS`（默认 60）后，每 `ANKI_SYNC_INTERVAL_SECONDS`（默认 300）秒把最新 `collection.anki2` 复制到缓存并重新读取。
+- `/api/vocab` 返回缓存中 Word Atlas 的完整词库快照；`/api/sync` 读写 `stats.db` 中的只追加作答日志，容器重启后不丢失。
+- 不提供页面、插图、FSRS 或统计；这些在桌面端运行。
+- 除 `/api/health` 外需要 `Authorization: Bearer <ACCESS_TOKEN>`。
 
 ## 常见检查
 
-- 确认同步服务已有数据
-- 确认缓存里的 `collection.anki2` 存在
-- 确认 `data/anki-media/` 中有笔记引用的 `wa_*.webp` 等原始插图文件，不需要音频
-- 确认练习容器能读到缓存和统计路径
+- 确认同步服务已有数据，缓存里的 `collection.anki2` 存在
+- 确认容器能读写 `/app/stats`
+- 确认 `.env` 里的 `ACCESS_TOKEN` 与桌面端配置一致
 - 确认 `.env` 里的镜像标签是目标版本
 
-## 从旧版升级到词间 / Word Atlas
+```bash
+curl -fsS http://127.0.0.1:8080/api/health
+curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://127.0.0.1:8080/api/vocab | head -c 200
+```
 
-本版本使用 Word Atlas 固定 22 字段笔记与 py-fsrs 6.3.2。镜像包含 memory.py / srs.py、自动优化模块和训练依赖；首次启用 FSRS 会在原统计数据库中创建 FSRS 表，清空旧练习会话、作答与掌握度一次并记录迁移标记。Anki、媒体、同步记录和访问凭证保留，后续重启不再清理。已经启用 FSRS 的数据库只新增优化表，保留现有正式复习历史。
+## 从网页版升级到同步服务
 
-首次升级需要在实际部署目录完成以下准备：
+本版本移除了网页练习、统计页、插图接口和服务端 FSRS。在实际部署目录完成以下准备：
 
-1. 同步最新版 `docker-compose.yml`。如果服务器将服务合并在其他 Compose 文件中，只补充练习服务的 `./data/anki-media:/app/anki-media:ro` 挂载及 `ANKI_MEDIA_DIR: /app/anki-media` 环境变量，路径以服务器部署目录为准。
-2. 创建 `data/anki-media/`，把 Anki `collection.media/` 中笔记引用的插图按原文件名复制进去。应用同步任务仅复制数据库及 SQLite 侧文件，不会复制插图；后续新增插图也需另行更新此目录。缺图时页面隐藏插画，仍可答题。
-3. 在 Anki 导入并同步 Word Atlas 牌组，确认其中已有学习过的卡片。旧 IELTS Vocabulary 字段布局不兼容本版本；如服务器自行覆盖了牌组名称或 ID，应一并调整为实际 Word Atlas 牌组。只导入全新卡片但尚未学习时，练习列表可能为空。
-4. 等待目标版本镜像构建完成，再设置部署目录 `.env` 中的 `TYPING_PRACTICE_IMAGE_TAG`。自动部署会填写提交 SHA；手动部署可填写已发布的 SHA 或 `latest`。旧 SHA 不会自动指向新版本。
+1. 在 `.env` 中设置 `ACCESS_TOKEN`（建议使用新的长随机值），并在各桌面端配置相同令牌。未设置时沿用旧的 `ACCESS_PASSWORD`，不会因升级而开放访问。
+2. 同步最新版 `docker-compose.yml`，或在自有 Compose 文件中为 `typing-practice` 服务传入 `ACCESS_TOKEN`。`anki-media` 挂载与 `ANKI_MEDIA_DIR`、全部 `FSRS_*` 变量已不再使用，可以删除；保留也会被忽略。`data/anki-media/` 目录可在确认不再需要后自行清理。
+3. 保留 `data/stats/`。首次启动时，`stats.db` 中网页版的 `word_reviews` 会一次性导入作答日志（迁移记录 `web-history-v1`），桌面端首次同步后即可得到原有记忆与统计。旧表原样保留，不会删除；`fsrs-optimization/` 与 `.access-secret` 不再使用。
+4. 等待目标版本镜像构建完成，再设置 `.env` 中的 `TYPING_PRACTICE_IMAGE_TAG`。自动部署会填写提交 SHA；手动部署可填写已发布的 SHA 或 `latest`。
 
 在包含 Compose 文件和 `.env` 的目录中执行：
 
 ```bash
-mkdir -p data/anki-media
 docker compose config --quiet
 docker compose pull typing-practice
 docker compose up -d --no-deps typing-practice
@@ -70,20 +56,20 @@ docker compose ps typing-practice
 docker compose logs --tail=100 typing-practice
 ```
 
-先完成插图复制和 Compose 配置更新，再启动新容器。此操作只更新练习服务；无需重启 `anki-sync`，无需清空缓存或统计目录。仅执行 `restart` 不会应用新的镜像、挂载或环境变量。
+此操作只更新同步服务，无需重启 `anki-sync`。仅执行 `restart` 不会应用新的镜像或环境变量。升级前建议备份整个 `data/stats/`。
 
-GitHub Actions 自动部署仅修改镜像标签、拉取镜像和重建练习容器，**不会同步服务器 Compose 文件、插图或 Anki 牌组**；以上首次准备需单独完成。仓库本地合并不会触发部署，推送到远端 `master` 后才会触发镜像构建，并在部署密钥已配置时执行部署。
-
-部署后检查容器健康状态、实际练习词条及插图。健康接口不验证 Word Atlas 数据和插图是否齐全，因此容器健康也需继续检查页面。旧网页图标若仍被浏览器缓存，可强制刷新页面。
+GitHub Actions 自动部署仅修改镜像标签、拉取镜像和重建练习容器，**不会同步服务器 Compose 文件或 `.env`**；以上准备需单独完成。推送到远端 `master` 后才会触发镜像构建，并在部署密钥已配置时执行部署。
 
 ## 排障
 
-- 正式队列为空表示当前没有到期词或未开始的词；/api/memory/summary 可查看数量及下次到期时间。词库为空时检查 Anki 学习与同步状态。
-- 统计数据缺失，通常是统计库路径或挂载不对。
-- 同步延迟，通常只是容器内的初始等待时间还没过。
+- `/api/vocab` 返回 503：缓存数据库不存在或不可读，检查同步目录与挂载；同步延迟通常只是初始等待时间未过。
+- 词数为 0：检查 Anki 中是否已导入并同步 Word Atlas 牌组，以及 `ANKI_DECK_NAME` / `ANKI_DECK_ID`。
+- 401：桌面端令牌与 `ACCESS_TOKEN`（或旧 `ACCESS_PASSWORD`）不一致。
+- 历史未出现在桌面端：确认 `STATS_DB_PATH` 指向原 `stats.db`，并检查 `ledger_migrations` 表中的 `web-history-v1` 记录（`detail` 含导入条数）。
 
 ## 相关文档
 
-- [系统概览](SPEC.md)
+- [服务概览](SPEC.md)
 - [自动部署](AUTO-DEPLOY.md)
 - [本地构建说明](LOCAL-BUILD.md)
+- [桌面端说明](../../typing-desktop/README.md)

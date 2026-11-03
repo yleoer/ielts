@@ -1,4 +1,4 @@
-"""Runtime configuration for the Flask application."""
+"""Runtime configuration for the sync server."""
 
 from __future__ import annotations
 
@@ -8,8 +8,6 @@ from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
-from srs import MemoryConfig
-from optimizer_service import OptimizationConfig
 
 DEFAULT_DECK_NAME = "Word Atlas"
 DEFAULT_DECK_ID = 1958430017
@@ -26,30 +24,16 @@ class AnkiConfig:
     db_path: str = ""
     deck_name: str = DEFAULT_DECK_NAME
     deck_id: int = DEFAULT_DECK_ID
-    media_dir: str = ""
-
-
-@dataclass
-class PracticeConfig:
-    # Read-only vocabulary and explicit queue batch limits, not session limits.
-    default_limit: int = 20
-    max_limit: int = 100
-
-
-@dataclass
-class StatsConfig:
-    db_path: str = "data/stats.db"
 
 
 @dataclass
 class Config:
-    server: ServerConfig
-    anki: AnkiConfig
-    practice: PracticeConfig
-    stats: StatsConfig
-    access_password: str = ""
-    memory: MemoryConfig = field(default_factory=MemoryConfig)
-    optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
+    server: ServerConfig = field(default_factory=ServerConfig)
+    anki: AnkiConfig = field(default_factory=AnkiConfig)
+    # Answer log; kept at the old stats path so the web history is imported in place.
+    db_path: str = "data/stats.db"
+    # Desktop clients send `Authorization: Bearer <token>`; empty disables the check.
+    access_token: str = ""
 
 
 def discover_anki_db(anki_root: Path) -> str:
@@ -113,38 +97,21 @@ def load_config() -> Config:
     if path:
         with path.open("r", encoding="utf-8") as handle:
             raw = yaml.safe_load(handle) or {}
-
     server = raw.get("server", {}) or {}
     anki = raw.get("anki", {}) or {}
-    practice = raw.get("practice", {}) or {}
     stats = raw.get("stats", {}) or {}
-    memory = raw.get("memory", {}) or {}
-    # Old YAML files may still contain the retired daily new-word quota.
-    memory.pop("daily_new", None)
-    optimization = raw.get("optimization", {}) or {}
-
+    env = os.environ
     cfg = Config(
-        server=ServerConfig(
-            host=str(server.get("host", "localhost")),
-            port=_as_int(server.get("port", 8080), 8080),
-        ),
+        server=ServerConfig(host=str(server.get("host", "localhost")), port=_as_int(server.get("port", 8080), 8080)),
         anki=AnkiConfig(
             db_path=str(anki.get("db_path", "") or ""),
             deck_name=str(anki.get("deck_name", DEFAULT_DECK_NAME) or DEFAULT_DECK_NAME),
             deck_id=_as_int(anki.get("deck_id", DEFAULT_DECK_ID), DEFAULT_DECK_ID),
-            media_dir=str(anki.get("media_dir", "") or ""),
         ),
-        practice=PracticeConfig(
-            default_limit=_as_int(practice.get("default_limit", 20), 20),
-            max_limit=_as_int(practice.get("max_limit", 100), 100),
-        ),
-        stats=StatsConfig(db_path=str(stats.get("db_path", "data/stats.db") or "data/stats.db")),
-        access_password=os.environ.get("ACCESS_PASSWORD", ""),
-        memory=MemoryConfig(**memory),
-        optimization=OptimizationConfig(**optimization),
+        db_path=str(stats.get("db_path", "") or "data/stats.db"),
+        # ACCESS_PASSWORD is the old web login; honour it so an upgrade never opens the server.
+        access_token=(env.get("ACCESS_TOKEN", "").strip() or env.get("ACCESS_PASSWORD", "").strip()),
     )
-
-    env = os.environ
     if env.get("SERVER_HOST", "").strip():
         cfg.server.host = env["SERVER_HOST"].strip()
     if env.get("SERVER_PORT", "").strip():
@@ -155,47 +122,12 @@ def load_config() -> Config:
         cfg.anki.deck_name = env["ANKI_DECK_NAME"].strip()
     if env.get("ANKI_DECK_ID", "").strip():
         cfg.anki.deck_id = _as_int(env["ANKI_DECK_ID"], cfg.anki.deck_id)
-    if env.get("ANKI_MEDIA_DIR", "").strip():
-        cfg.anki.media_dir = env["ANKI_MEDIA_DIR"].strip()
-    if env.get("PRACTICE_DEFAULT_LIMIT", "").strip():
-        cfg.practice.default_limit = _as_int(env["PRACTICE_DEFAULT_LIMIT"], cfg.practice.default_limit)
-    if env.get("PRACTICE_MAX_LIMIT", "").strip():
-        cfg.practice.max_limit = _as_int(env["PRACTICE_MAX_LIMIT"], cfg.practice.max_limit)
     if env.get("STATS_DB_PATH", "").strip():
-        cfg.stats.db_path = env["STATS_DB_PATH"].strip()
-    for name, attribute, convert in (
-        ("FSRS_DESIRED_RETENTION", "desired_retention", float),
-        ("FSRS_EASY_SECONDS", "easy_seconds", float),
-        ("FSRS_HARD_SECONDS", "hard_seconds", float),
-        ("FSRS_PARAMETERS_PATH", "parameters_path", str),
-    ):
-        if env.get(name, "").strip():
-            setattr(cfg.memory, attribute, convert(env[name].strip()))
-    cfg.memory.validate()
-    if "FSRS_AUTO_OPTIMIZE" in env:
-        value = env["FSRS_AUTO_OPTIMIZE"].strip().lower()
-        if value not in {"true", "false", "1", "0"}:
-            raise ValueError("FSRS_AUTO_OPTIMIZE 必须为 true/false 或 1/0")
-        cfg.optimization.enabled = value in {"true", "1"}
-    for name, attribute in (("FSRS_OPTIMIZER_CHECK_SECONDS", "check_interval_seconds"),
-                            ("FSRS_OPTIMIZER_MIN_NEW_REVIEWS", "min_new_reviews"),
-                            ("FSRS_OPTIMIZER_TIMEOUT_SECONDS", "timeout_seconds")):
-        if env.get(name, "").strip():
-            setattr(cfg.optimization, attribute, int(env[name]))
-    cfg.optimization.validate()
-
+        cfg.db_path = env["STATS_DB_PATH"].strip()
     if not cfg.anki.db_path.strip():
         cfg.anki.db_path = default_anki_db_path()
     if not cfg.server.host.strip():
         cfg.server.host = "localhost"
     if cfg.server.port <= 0:
         cfg.server.port = 8080
-    if cfg.practice.default_limit <= 0:
-        cfg.practice.default_limit = 20
-    if cfg.practice.max_limit <= 0:
-        cfg.practice.max_limit = 100
-    cfg.practice.default_limit = min(cfg.practice.default_limit, cfg.practice.max_limit)
-    if not cfg.stats.db_path.strip():
-        cfg.stats.db_path = "data/stats.db"
     return cfg
-

@@ -9,8 +9,11 @@ use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 use crate::optimize::OptimizationConfig;
+use std::sync::{Arc, RwLock};
+
+use crate::remote::{sync_all, HttpRemote, Remote, ServerConfig};
 use crate::store::{Store, FREE_PRACTICE_LIMIT};
-use crate::vocab::{parse_snapshot, safe_media_name};
+use crate::vocab::safe_media_name;
 
 const MAX_LIMIT: usize = 100;
 
@@ -89,14 +92,34 @@ pub struct AppConfig {
     pub dist_dir: PathBuf,
     /// Directory holding illustration files named in the vocabulary snapshot.
     pub media_dir: Option<PathBuf>,
-    /// Vocabulary snapshot imported by “同步”.
-    pub vocab_path: Option<PathBuf>,
+    /// Where the sync server chosen in the first-run dialog is saved (`server.json`).
+    pub server_file: Option<PathBuf>,
 }
+
+/// Where the current server setting came from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ServerSource {
+    /// `CIJIAN_SERVER_URL` / `CIJIAN_SERVER_TOKEN`; not editable in the app.
+    Environment,
+    /// `server.json`, written by the settings dialog.
+    File,
+}
+
+struct Connection {
+    config: ServerConfig,
+    source: ServerSource,
+    remote: Arc<dyn Remote>,
+}
+
+pub type Connector = Box<dyn Fn(&ServerConfig) -> Arc<dyn Remote> + Send + Sync>;
 
 pub struct App {
     pub store: Store,
     pub config: AppConfig,
     pub optimization: OptimizationConfig,
+    /// Builds the client for a server setting (HTTP in the app, a fake in tests).
+    pub connect: Connector,
+    connection: RwLock<Option<Connection>>,
 }
 
 fn content_type(path: &Path) -> &'static str {
@@ -133,6 +156,57 @@ fn file(path: Option<PathBuf>) -> Response {
 }
 
 impl App {
+    pub fn new(store: Store, config: AppConfig, optimization: OptimizationConfig) -> Self {
+        App {
+            store, config, optimization,
+            connect: Box::new(|c| Arc::new(HttpRemote::new(c.clone()))),
+            connection: RwLock::new(None),
+        }
+    }
+
+    /// Uses `config` for all later syncs; does not contact the server.
+    pub fn set_server(&self, config: ServerConfig, source: ServerSource) {
+        let remote = (self.connect)(&config);
+        *self.connection.write().unwrap_or_else(|p| p.into_inner()) = Some(Connection { config, source, remote });
+    }
+
+    /// The configured sync server, if any.
+    pub fn remote(&self) -> Option<Arc<dyn Remote>> {
+        self.connection.read().unwrap_or_else(|p| p.into_inner()).as_ref().map(|c| c.remote.clone())
+    }
+
+    fn server_settings(&self) -> Value {
+        let connection = self.connection.read().unwrap_or_else(|p| p.into_inner());
+        match connection.as_ref() {
+            Some(c) => json!({"configured": true, "url": c.config.url, "has_token": !c.config.token.is_empty(),
+                              "editable": c.source == ServerSource::File,
+                              "source": if c.source == ServerSource::File { "file" } else { "environment" }}),
+            None => json!({"configured": false, "url": null, "has_token": false, "editable": true, "source": null}),
+        }
+    }
+
+    /// Checks the address and token against the server, then saves and applies them.
+    /// An empty token keeps the saved one, so the address can change alone.
+    fn save_server_settings(&self, payload: &Value) -> ApiResult<Value> {
+        let current = self.connection.read().unwrap_or_else(|p| p.into_inner()).as_ref()
+            .map(|c| (c.config.clone(), c.source));
+        if current.as_ref().is_some_and(|(_, source)| *source == ServerSource::Environment) {
+            return Err(ApiError::bad("服务器由环境变量 CIJIAN_SERVER_URL 指定，请修改环境变量"));
+        }
+        let text = |k: &str| payload.get(k).and_then(Value::as_str).unwrap_or_default();
+        let token = match (text("token").trim(), &current) {
+            ("", Some((saved, _))) => saved.token.clone(),
+            (token, _) => token.to_string(),
+        };
+        let config = ServerConfig::new(text("url"), &token).map_err(ApiError::BadRequest)?;
+        (self.connect)(&config).check().map_err(ApiError::BadRequest)?;
+        if let Some(path) = &self.config.server_file {
+            config.save(path).map_err(ApiError::Unavailable)?;
+        }
+        self.set_server(config, ServerSource::File);
+        Ok(self.server_settings())
+    }
+
     pub fn handle(&self, request: &Request) -> Response {
         let path = request.path.as_str();
         if !path.starts_with("/api/") {
@@ -183,7 +257,7 @@ impl App {
             ("GET", "/api/health") => Ok(json!({"success": true, "status": "ok"})),
             ("GET", "/api/config") => Ok(json!({
                 "success": true, "anki_available": true,
-                "anki_path": self.config.vocab_path.as_ref().map(|p| p.display().to_string()),
+                "anki_path": self.remote().map(|r| r.label()),
                 "deck_name": "Word Atlas", "total_learned": s.learned_count(),
                 "default_limit": FREE_PRACTICE_LIMIT, "max_limit": MAX_LIMIT,
                 "easy_seconds": config.easy_seconds, "hard_seconds": config.hard_seconds,
@@ -246,6 +320,11 @@ impl App {
                 }
                 Ok(json!({"success": true, "data": s.word_errors(request.get("source_id"), before_id, limit as usize)?}))
             }
+            ("GET", "/api/settings/server") => Ok(json!({"success": true, "data": self.server_settings()})),
+            ("POST", "/api/settings/server") => {
+                let payload: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
+                Ok(json!({"success": true, "data": self.save_server_settings(&payload)?}))
+            }
             ("GET", "/api/sync/status") => Ok(json!({"success": true, "data": self.sync_status(None)?})),
             ("POST", "/api/sync/now") => self.sync_now(),
             _ => Err(ApiError::NotFound),
@@ -257,22 +336,21 @@ impl App {
             "before_words": 0, "after_words": self.store.learned_count(), "added_words": 0,
             "added_word_list": [], "success": false,
         }));
-        status["sync_configured"] = self.config.vocab_path.is_some().into();
-        status["target_path"] = self.config.vocab_path.as_ref().map(|p| p.display().to_string()).into();
+        let remote = self.remote();
+        status["sync_configured"] = remote.is_some().into();
+        status["target_path"] = remote.map(|r| r.label()).into();
         status["history"] = self.store.sync_history(50)?.into();
         if status.get("last_sync_at").is_none() {
-            status["last_sync_at"] = status["history"].get(0).map_or(Value::Null, |h| h["synced_at"].clone());
+            let last = self.store.last_sync_at()?.map(Value::from);
+            status["last_sync_at"] = last.unwrap_or_else(|| status["history"].get(0).map_or(Value::Null, |h| h["synced_at"].clone()));
         }
         Ok(status)
     }
 
-    /// Offline phase: re-import the configured vocabulary snapshot.
+    /// Full log sync with the configured server (set on first launch).
     fn sync_now(&self) -> ApiResult<Value> {
-        let result = self.config.vocab_path.as_ref()
-            .ok_or_else(|| ApiError::bad("未配置词库文件（CIJIAN_VOCAB_PATH）"))
-            .and_then(|p| std::fs::read_to_string(p).map_err(|e| ApiError::bad(format!("无法读取词库文件：{e}"))))
-            .and_then(|text| parse_snapshot(&text))
-            .and_then(|words| self.store.import_vocabulary(words));
-        Ok(json!({"success": true, "data": self.sync_status(Some(result?))?}))
+        let remote = self.remote().ok_or_else(|| ApiError::bad("尚未设置同步服务器"))?;
+        let result = sync_all(&self.store, remote.as_ref())?;
+        Ok(json!({"success": true, "data": self.sync_status(Some(result))?}))
     }
 }

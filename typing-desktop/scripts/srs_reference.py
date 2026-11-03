@@ -1,4 +1,8 @@
-"""FSRS scheduling and the application's automatic spelling grades."""
+"""Reference FSRS rules from the retired web app (`typing-practice/backend/srs.py`).
+
+Only `gen_fsrs_fixtures.py` uses it, to produce the golden vectors that the Rust
+port (`typing-desktop/core`) must match. Change it together with the Rust code.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-//! Vocabulary snapshot produced by `scripts/export_vocab.py` (later `/api/vocab`).
+//! Vocabulary snapshot served by the sync server (`GET /api/vocab`).
 
 use serde_json::{Map, Value};
 

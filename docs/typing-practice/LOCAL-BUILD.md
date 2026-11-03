@@ -19,9 +19,9 @@ python3 typing-practice/scripts/check_image.py ielts-typing-practice:check
 
 正式 Dockerfile 使用 Debian 官方源，`Dockerfile.local` 使用阿里云 Debian 源；应用文件和依赖一致。验证正式打包时将上述 `-f` 改为 `typing-practice/backend/Dockerfile`。
 
-两份 Dockerfile 的 `TORCH_INDEX_URL` 构建参数默认使用官方 CPU 源 `https://download.pytorch.org/whl/cpu`。如果测试机下载大文件过慢，可用 `--build-arg TORCH_INDEX_URL=可信CPU镜像源地址` 指定缓存或镜像源；保持 CPU wheel 的版本与官方 SHA256 一致。该参数只影响构建下载，不需要为应用另建测试配置。测试机上的临时缓存服务应随验证一起清理。Linux 测试机可在需要访问主机回环缓存服务时加 `--network host`；运行冒烟检查的容器仍由脚本设为 `--network none`。
+镜像只安装 Flask、PyYAML、python-dotenv，不再下载 PyTorch，也没有 `TORCH_INDEX_URL` 构建参数；镜像约 219MB。运行冒烟检查的容器由脚本设为 `--network none`。
 
-需要实际切换现有服务时，才通过 `docker-compose.local-build.yml` 覆盖练习服务的构建方式。Compose 会使用现有数据挂载并重建服务，不用于隔离冒烟检查。
+需要实际切换现有服务时，才通过 `docker-compose.local-build.yml` 覆盖同步服务的构建方式。Compose 会使用现有数据挂载并重建服务，不用于隔离冒烟检查。
 
 ## 运行约定
 

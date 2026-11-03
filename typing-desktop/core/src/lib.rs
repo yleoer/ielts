@@ -6,6 +6,7 @@
 //! - [`store`]：本地 SQLite 练习队列、作答记录与卡片（移植 `memory.py`）。
 //! - [`stats`]：统计页查询（移植 `stats.py` 与 `memory.py` 的日历、词库进度）。
 //! - [`optimize`]：本地参数优化（fsrs-rs 训练 + 时间留出验证，移植 `optimizer_service.py`）。
+//! - [`sync`] / [`remote`]：与同步服务器交换只追加的作答日志，合并后重放受影响词条。
 //! - [`api`]：与 Flask 相同路径和 JSON 的请求路由，供桌面壳的自定义协议调用。
 
 pub mod answer;
@@ -13,8 +14,10 @@ pub mod api;
 pub mod error;
 pub mod fsrs;
 pub mod optimize;
+pub mod remote;
 pub mod srs;
 pub mod stats;
 pub mod store;
+pub mod sync;
 pub mod time;
 pub mod vocab;

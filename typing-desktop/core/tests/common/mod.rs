@@ -39,11 +39,9 @@ impl Env {
         let path = dir.path().join("cijian.db");
         let clock = Arc::new(Mutex::new(now));
         let store = open_store(&path, &clock);
-        let app = App {
-            store,
-            config: AppConfig { dist_dir: dir.path().into(), media_dir: None, vocab_path: None },
-            optimization: OptimizationConfig::default(),
-        };
+        let config = AppConfig { dist_dir: dir.path().into(), media_dir: None,
+                                 server_file: Some(dir.path().join("server.json")) };
+        let app = App::new(store, config, OptimizationConfig::default());
         let env = Env { _dir: dir, path, clock, app, words: Mutex::new(vec![]) };
         env.import(words);
         env

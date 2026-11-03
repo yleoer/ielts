@@ -8,7 +8,7 @@
 2. 同时推送 `latest` 和提交 SHA 标签的 Docker Hub 多架构镜像。
 3. 通过 SSH 登录服务器。
 4. 更新部署镜像标签。
-5. 只重启练习服务。
+5. 只重建同步服务（`typing-practice`）。
 6. 检查生产容器健康状态。
 7. 健康失败时回滚。
 
@@ -16,12 +16,12 @@
 
 ## 范围
 
-- 只更新练习服务。
+- 只更新同步服务。
 - 同步服务和其他组件保持不动。
-- 只有文档改动时会跳过构建和部署。
+- 只有 `typing-practice/backend/`、`typing-practice/.dockerignore` 或工作流本身改动时才构建和部署；文档和桌面端改动会跳过。
 - `latest` 和提交 SHA 标签都同时支持 AMD64 与 ARM64；服务器执行 `docker compose pull` 时会自动拉取与本机架构匹配的镜像。
 - 单元测试与 Docker 镜像检查独立于 GitHub Actions 执行。镜像检查使用 `typetest` 的临时容器，见 [镜像验证](IMAGE-CHECK.md)。只修改仓库的检查脚本不会触发镜像重建和部署。
-- 工作流不执行服务器仓库的 `git pull`，也不复制 Compose 文件、插图或 Anki 数据。首次升级词间 / Word Atlas 前，需先完成 [Docker 部署](DOCKER-DEPLOY.md#从旧版升级到词间--word-atlas) 中的配置与数据准备；健康检查成功不代表练习词条和插图已就绪。
+- 工作流不执行服务器仓库的 `git pull`，也不复制 Compose 文件、`.env` 或 Anki 数据。从网页版升级前，需先完成 [Docker 部署](DOCKER-DEPLOY.md#从网页版升级到同步服务) 中的令牌与配置准备；健康检查成功不代表词库已就绪。
 
 ## 需要的密钥
 

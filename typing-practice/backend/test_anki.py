@@ -108,20 +108,6 @@ class WordAtlasFieldTest(unittest.TestCase):
         self.assertEqual(fallback.anki.deck_name, DEFAULT_DECK_NAME)
         self.assertEqual(fallback.anki.deck_id, DEFAULT_DECK_ID)
 
-    def test_media_directory_environment_overrides_yaml(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "config.yaml"
-            path.write_text('anki:\n  media_dir: "from-yaml"\n', encoding="utf-8")
-            with patch("config.load_dotenv"), patch("config.default_anki_db_path", return_value=""), patch("config._config_path", return_value=path), patch.dict("os.environ", {"ANKI_MEDIA_DIR": "from-env"}, clear=True):
-                self.assertEqual(load_config().anki.media_dir, "from-env")
-
-    def test_retired_daily_new_setting_is_ignored(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "config.yaml"
-            path.write_text("memory:\n  daily_new: 20\n", encoding="utf-8")
-            with patch("config.load_dotenv"), patch("config.default_anki_db_path", return_value=""), patch("config._config_path", return_value=path), patch.dict("os.environ", {"FSRS_DAILY_NEW": "20"}, clear=True):
-                self.assertFalse(hasattr(load_config().memory, "daily_new"))
-
 
 class WordAtlasReaderTest(unittest.TestCase):
     def test_pool_cache_refreshes_external_commits_including_wal_and_keeps_results_independent(self):

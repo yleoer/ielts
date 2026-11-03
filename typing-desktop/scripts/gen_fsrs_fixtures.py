@@ -1,7 +1,7 @@
 """Generate py-fsrs golden vectors for the desktop (Rust) FSRS port.
 
-The desktop scheduler must reproduce typing-practice/backend/srs.py exactly
-(fuzz disabled). Run from the repository root:
+The desktop scheduler must reproduce srs_reference.py (the retired web app's
+srs.py, kept as the reference) exactly with fuzz disabled. Needs `fsrs==6.3.2`. Run from the repository root:
 
     .venv/Scripts/python.exe typing-desktop/scripts/gen_fsrs_fixtures.py
 """
@@ -15,11 +15,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "typing-practice" / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fsrs import Card, Rating  # noqa: E402
 
-from srs import SRS, MemoryConfig, answer_candidates, normalize_answer, time_text  # noqa: E402
+from srs_reference import SRS, MemoryConfig, answer_candidates, normalize_answer, time_text  # noqa: E402
 
 OUTPUT = ROOT / "typing-desktop" / "fixtures" / "fsrs-golden.json"
 START = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
