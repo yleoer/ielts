@@ -10,8 +10,7 @@ from pathlib import Path
 
 from generate_word_atlas import ROOT, load_source, media_report
 
-KINDS = {"img": "illustration", "uk": "audio_uk", "us": "audio_us",
-         "ex": "audio_example", "ex2": "audio_ielts"}
+KINDS = {"img": "illustration", "uk": "audio_uk", "us": "audio_us"}
 DEFAULT_OUTPUT = ROOT.parent / "typing-desktop/media"
 
 
@@ -26,7 +25,7 @@ def export(source: Path, output: Path) -> dict:
         for position, entry in enumerate(entries, 1):
             media = {}
             for item in media_report(entry, flags.get(entry["id"], 0), source / "dist/atlas"):
-                if not item["available"]:
+                if item["kind"] not in KINDS or not item["available"]:
                     continue
                 original = Path(item["source"])
                 media[KINDS[item["kind"]]] = {"file": item["filename"]}

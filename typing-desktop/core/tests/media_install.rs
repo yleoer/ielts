@@ -161,7 +161,7 @@ fn resource_api_keeps_queue_attempts_and_updates_media_urls_after_import() {
     assert!(urls[0]["illustration_url"]
         .as_str()
         .unwrap()
-        .starts_with("/api/media/41/illustration"));
+        .starts_with("/api/media/source/library/illustration"));
     assert_eq!(
         app.handle(&Request::new("GET", "/api/media/41/illustration", vec![]))
             .body,

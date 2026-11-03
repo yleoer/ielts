@@ -247,9 +247,13 @@ impl App {
     }
 
     fn media(&self, rest: &str) -> Response {
-        let result = rest.split_once('/').and_then(|(id, route)| {
-            id.parse().ok().and_then(|id| self.store.source_id(id)).map(|source| self.media.current().read(&source, route))
-        }).unwrap_or(Err(ApiError::NotFound));
+        let result = if let Some(rest) = rest.strip_prefix("source/") {
+            rest.split_once('/').map(|(source, route)| self.media.current().read(source, route))
+        } else {
+            rest.split_once('/').and_then(|(id, route)| {
+                id.parse().ok().and_then(|id| self.store.source_id(id)).map(|source| self.media.current().read(&source, route))
+            })
+        }.unwrap_or(Err(ApiError::NotFound));
         match result {
             Ok((path, body)) => Response { status: 200, content_type: content_type(&path).into(), body },
             Err(error) => Response::error(error),

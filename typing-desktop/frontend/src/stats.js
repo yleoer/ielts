@@ -4,6 +4,7 @@ createApp({
     data() {
         return {
             loading: true,
+            audioError: '',
             loadError: false,
             overview: {},
             calendar: null,
@@ -97,6 +98,8 @@ createApp({
     mounted() {
         this.updatePageAppearance();
         this.loadAllData();
+        window.addEventListener('pagehide', this.stopWordAudio);
+        document.addEventListener('visibilitychange', () => { if (document.hidden) this.stopWordAudio(); });
 
         window.addEventListener('resize', () => {
             if (this.trendChart) {
@@ -120,6 +123,7 @@ createApp({
         });
     },
     methods: {
+        ...wordAudio,
         updatePageAppearance() {
             document.title = '词间 · 统计';
             document.documentElement.lang = 'zh-CN';
@@ -483,6 +487,8 @@ createApp({
         },
 
         closeDetailModal() {
+            this.stopWordAudio();
+            this.audioError = '';
             this.detailModal.visible = false;
             if (typeof document !== 'undefined') document.body.style.overflow = this.detailBodyOverflow || '';
             this.detailOpener?.focus();

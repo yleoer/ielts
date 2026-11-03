@@ -35,13 +35,12 @@ class DesktopMediaTests(unittest.TestCase):
         path.write_bytes(body)
         return path
 
-    def test_manifest_maps_all_variants_to_exact_bytes_and_is_reproducible(self):
-        expected = {"illustration": b"picture", "audio_uk": b"uk", "audio_us": b"us",
-                    "audio_example": b"example", "audio_ielts": b"ielts"}
+    def test_exports_only_illustrations_and_word_pronunciations_reproducibly(self):
+        expected = {"illustration": b"picture", "audio_uk": b"uk", "audio_us": b"us"}
         for folder, ext, kind in (("img", ".webp", "illustration"), ("audio/uk", ".mp3", "audio_uk"),
                                   ("audio/us", ".mp3", "audio_us"), ("audio/ex", ".mp3", "audio_example"),
                                   ("audio/ex2", ".mp3", "audio_ielts")):
-            self.media(folder, "library" + ext, expected[kind])
+            self.media(folder, "library" + ext, expected.get(kind, b"excluded example"))
         # A file that is not declared by the index must not be bundled.
         self.media("audio/uk", "missing.mp3", b"undeclared")
         report = export(self.source, self.output)
@@ -49,13 +48,16 @@ class DesktopMediaTests(unittest.TestCase):
         manifest = json.loads(manifest_bytes)
         self.assertEqual(manifest["format"], 1)
         self.assertEqual(manifest["words"]["missing"], {})
-        self.assertEqual(report["files"], 5)
+        self.assertEqual(report["files"], 3)
         contents = self.contents()
+        self.assertEqual(set(manifest["words"]["library"]), set(expected))
+        self.assertEqual({name for name in contents if name.startswith("wa_")},
+                         {"wa_library_img.webp", "wa_library_uk.mp3", "wa_library_us.mp3"})
         for kind, item in manifest["words"]["library"].items():
             self.assertEqual(contents[item["file"]], expected[kind])
             self.assertEqual(set(item), {"file"})
         self.assertNotIn("sha256", report)
-        self.assertEqual(len({item["file"] for item in manifest["words"]["library"].values()}), 5)
+        self.assertEqual(len({item["file"] for item in manifest["words"]["library"].values()}), 3)
         self.assertEqual(contents["CONTENT_LICENSE.md"],
                          (self.source / "CONTENT_LICENSE.md").read_bytes())
         self.assertIn("Word Atlas contributors", contents["ATTRIBUTION.txt"].decode("utf-8"))

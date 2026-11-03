@@ -98,8 +98,8 @@ ul { margin: 0; padding: 0; list-style: none; }
 .practice-secondary-meanings { display: grid; gap: 8px; width: min(100%, 28rem); margin: 0 auto; }
 .practice-meaning { color: var(--ink); font-size: 26px; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
 .practice-meaning.is-secondary { font-size: 16px; font-weight: 400; line-height: 1.7; }
-.practice-meaning > span[lang] { white-space: pre-line; }
-.practice-part-of-speech + span { margin-left: 8px; }
+.practice-meaning > [lang] { white-space: pre-line; }
+.practice-part-of-speech + .word-audio { margin-left: 8px; }
 .practice-part-of-speech { color: var(--part-of-speech); font-size: 14px; font-weight: 400; }
 .practice-more-meanings, .practice-extra-meanings { margin-top: 8px; }
 .sense-toggle { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--secondary); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
@@ -360,3 +360,7 @@ ul { margin: 0; padding: 0; list-style: none; }
 .resource-status progress { width: 100%; height: 6px; margin-top: 12px; accent-color: var(--accent); }
 .setup-resources .button { margin-top: 12px; }
 .resource-credit { margin-top: 12px; font-size: 12px; }
+.word-audio { min-height: 28px; padding: 2px 0; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; text-align: inherit; white-space: inherit; overflow-wrap: anywhere; text-decoration: none; }
+.word-audio:hover:not(:disabled) { color: var(--accent); }
+.word-audio:disabled { opacity: 1; cursor: default; }
+.audio-error { margin-bottom: 12px; }

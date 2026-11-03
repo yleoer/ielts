@@ -104,7 +104,7 @@ fn serves_package_variants_by_source_id_without_server_filenames() {
     assert!(item["illustration_url"]
         .as_str()
         .unwrap()
-        .starts_with("/api/media/41/illustration?v="));
+        .starts_with("/api/media/source/library/illustration?v="));
     let image = get(&app, item["illustration_url"].as_str().unwrap());
     assert_eq!(
         (
@@ -114,9 +114,10 @@ fn serves_package_variants_by_source_id_without_server_filenames() {
         ),
         (200, "image/webp", b"picture".as_slice())
     );
-    for suffix in ["uk", "us", "example", "ielts"] {
+    assert_eq!(item["audio_urls"].as_object().unwrap().len(), 2);
+    for suffix in ["uk", "us"] {
         let url = item["audio_urls"][suffix].as_str().unwrap();
-        assert!(url.starts_with(&format!("/api/media/41/audio/{suffix}?v=")));
+        assert!(url.starts_with(&format!("/api/media/source/library/audio/{suffix}?v=")));
         let audio = get(&app, url);
         assert_eq!(
             (
@@ -129,6 +130,19 @@ fn serves_package_variants_by_source_id_without_server_filenames() {
     }
     assert_eq!(item["audio_url"], item["audio_urls"]["uk"]);
     assert_eq!(get(&app, "/api/media/41/audio").body, b"uk");
+    assert_eq!(get(&app, "/api/media/41/audio/example").status, 404);
+    assert_eq!(get(&app, "/api/media/41/audio/ielts").status, 404);
+    let status: Value = serde_json::from_slice(&get(&app, "/api/resources/status").body).unwrap();
+    assert_eq!(status["data"]["counts"]["files"], 3);
+    let active: String = serde_json::from_slice(&std::fs::read(bundle.dir.path().join("active.json")).unwrap()).unwrap();
+    let media = cijian_core::media::Media::load_package(&bundle.dir.path().join(active)).unwrap();
+    let mut historical = json!({"id": "history-1", "source_id": "library", "word": "library"});
+    media.decorate(&mut historical);
+    assert_eq!(historical["audio_urls"], item["audio_urls"]);
+
+    let stats: Value = serde_json::from_slice(&get(&app,
+        "/api/stats/vocabulary-words?dimension=topic&value=教育&status=all").body).unwrap();
+    assert_eq!(stats["data"]["items"][0]["audio_urls"], item["audio_urls"]);
 
     // Anki note ids may change between snapshots. Stable SourceId still finds the media.
     app.store.import_vocabulary(words(99, "library")).unwrap();
@@ -138,6 +152,8 @@ fn serves_package_variants_by_source_id_without_server_filenames() {
         .import_vocabulary(words(99, "different_source"))
         .unwrap();
     assert_eq!(get(&app, "/api/media/99/illustration").status, 404);
+    // Calendar history can retain a SourceId after the word leaves the current vocabulary.
+    assert_eq!(get(&app, "/api/media/source/library/audio/uk").body, b"uk");
 }
 
 #[test]

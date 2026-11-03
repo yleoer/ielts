@@ -14,6 +14,7 @@
 ## 桌面端
 
 - **前端**：`typing-desktop/frontend`（由网页版迁入，删除登录页）。`scripts/build_frontend.py` 用 Jinja 模板渲染到 `dist/`，CDN 脚本替换为 `vendor/` 中的固定版本，编译时内嵌。
+- **Windows 安装包**：NSIS 安装器与卸载器固定使用简体中文，图标与程序共用 `app/icons/icon.ico`，通过 `app/tauri.conf.json` 配置。
 - **接口**：Tauri 注册 `cijian://` 自定义协议（Windows 上为 `http://cijian.localhost/`）。页面按 `location.origin + "/api"` 发出的请求由 `core/src/api.rs` 处理，路径、状态码与 JSON 与 Flask 一致（409 `practice_conflict`、400、503），不使用 `invoke`。
 - **FSRS**：`typing-desktop/core`（`cijian-core`）逐行移植 py-fsrs 6.3.2 `Scheduler`，与 `srs.py` 行为一致，包括学习步骤 1/10 分钟、重学 10 分钟、保持率 0.9、6/20 秒评分阈值；Card JSON 与 py-fsrs `to_dict()` 兼容，可直接读取现有 `card_json`。原 `srs.py` 保留为 `scripts/srs_reference.py`，只供基准生成使用。
 - **参数优化**：`core/src/optimize.rs` 移植 `optimize_fsrs.py` 与 `optimizer_service.py`，表结构（`fsrs_optimization_runs`、`fsrs_optimizer_state`）、状态值与接口 JSON 不变。训练改用 fsrs-rs 6.6.2 `compute_parameters`（纯 Rust，无 PyTorch），每张卡取前 64 次作答，以“距上次作答整天数 > 0”的作答为训练目标。验收规则不变：有效间隔复习满 1000 条后每月评估一次，前 80% 作答训练、后 20% 留出验证，候选的 log loss 低于现用与默认参数且 Brier 不升高才启用；启用后新参数在下一次作答时重放该词日志生效，不改已有到期时间。训练在桌面端后台线程运行（启动时检查，此后每天一次），应用退出导致未完成的记录在下次启动时标为“任务中断”并立即重新评估，取代原来的进程租约。
@@ -22,7 +23,7 @@
 - **统计**：`core/src/stats.rs` 移植 `stats.py`、`activity.py`、`vocabulary.py` 及 `memory.py` 的日历与词库查询：概览与连续天数、近 30 天、学习日历（前 6 个月至后 5 个月，北京时间）、日历单日词表、词库进度与分组明细、单词错误记录，均为只读查询，路径、参数校验与 JSON 与 Flask 一致。
 - **存储**：`core/src/store.rs` 移植 `memory.py` 的出题、提交与汇总，本地 SQLite 沿用 `srs_configs`、`word_memory`、`practice_items`、`word_reviews` 结构，另有 `vocabulary`（词库快照）、`sync_history`（新增词记录）、`sync_state`（设备 ID、服务端游标、上次同步时间）与 `synced_attempts`（服务端已有的作答）。`practice_items` 只在本地使用，不同步。
 - **词库**：服务端 `GET /api/vocab` 返回 JSON 快照（全部词条 + `learned` + 插图文件名，`AnkiReader.snapshot()`）。桌面端必须连接服务器，没有离线导入词库的方式；已同步的词库和作答保存在本地，断网时照常练习。
-- **媒体**：个人自用，插图与四类音频单独分发为 `cijian-media.zip`。首次设置将服务器配置与可选的本地 ZIP 导入放在同一窗口，之后可在设置中更换；没有下载功能。`media.rs` 按 SourceId 直接读取 ZIP，`media_install.rs` 管理分块复制与切换；不逐文件校验 SHA，不做成员扫描、多实例锁、后台安装线程或旧散文件兼容。保留基本解析和失败保留原包，详见 [独立媒体资源包](MEDIA.md)。
+- **媒体**：个人自用，插图与英、美单词读音（不含例句朗读）单独分发为 `cijian-media.zip`。首次设置将服务器配置与可选的本地 ZIP 导入放在同一窗口，之后可在设置中更换；没有下载功能。`media.rs` 按 SourceId 直接读取 ZIP，`media_install.rs` 管理分块复制与切换；不逐文件校验 SHA，不做成员扫描、多实例锁、后台安装线程或旧散文件兼容。保留基本解析和失败保留原包，详见 [独立媒体资源包](MEDIA.md)。
 
 ## 同步
 

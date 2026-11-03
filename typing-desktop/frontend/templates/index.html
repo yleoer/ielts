@@ -7,7 +7,8 @@
     {% include '_appearance.html' %}
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
-    <script src="/src/app.js?v=20261103-setup-import" defer></script>
+    <script src="/src/pronunciation.js?v=20261103-plain-audio" defer></script>
+    <script src="/src/app.js?v=20261103-plain-audio" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -20,6 +21,7 @@
                 <span class="session-label">{{ isMistakePractice ? '错词重练 · 不计入记忆与统计' : '自由练习 · 最多 20 个 · 计入记忆与统计' }}</span>
             </div>
             <p v-if="summary && isFormalPractice" class="memory-summary">待复习 {{ summary.due_count }} 个 · 今日可学 {{ summary.new_available }} 个</p>
+            <p v-if="audioError" class="audio-error error-message" role="alert">{{ audioError }}</p>
             <div v-if="storageError" class="submission-status" role="alert">
                 <p class="error-message">{{ storageError }}</p>
                 <button v-if="!pendingAttempt" type="button" class="button button-secondary" @click="retryDraftSave">重试保存进度</button>
@@ -38,12 +40,12 @@
                         <div id="practice-meanings" class="practice-meanings">
                             <p v-if="primaryChineseSense" class="practice-meaning">
                                 <span v-if="primaryChineseSense.part_of_speech" class="practice-part-of-speech">{{ primaryChineseSense.part_of_speech }}</span>
-                                <span lang="zh-CN">{{ primaryChineseSense.chinese_meaning }}</span>
+                                <button type="button" class="word-audio" lang="zh-CN" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ primaryChineseSense.chinese_meaning }}</button>
                             </p>
                             <ul v-if="secondaryChineseSenses.length" class="practice-secondary-meanings" aria-label="其他中文释义">
                                 <li v-for="(sense, index) in secondaryChineseSenses" :key="index" class="practice-meaning is-secondary">
                                     <span v-if="sense.part_of_speech" class="practice-part-of-speech">{{ sense.part_of_speech }}</span>
-                                    <span lang="zh-CN">{{ sense.chinese_meaning }}</span>
+                                    <button type="button" class="word-audio" lang="zh-CN" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ sense.chinese_meaning }}</button>
                                 </li>
                             </ul>
                         </div>
@@ -57,23 +59,20 @@
                             <ul v-show="otherSensesExpanded" id="practice-extra-meanings" class="practice-secondary-meanings practice-extra-meanings" aria-label="补充中文释义">
                                 <li v-for="(sense, index) in remainingChineseSenses" :key="index" class="practice-meaning is-secondary">
                                     <span v-if="sense.part_of_speech" class="practice-part-of-speech">{{ sense.part_of_speech }}</span>
-                                    <span lang="zh-CN">{{ sense.chinese_meaning }}</span>
+                                    <button type="button" class="word-audio" lang="zh-CN" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ sense.chinese_meaning }}</button>
                                 </li>
                             </ul>
                         </div>
                         <p class="sr-only" aria-live="polite">{{ feedbackMessage }}</p>
-                        <div v-if="pendingAttempt" class="submission-status" aria-live="polite">
-                            <p v-if="isChecking" class="muted">正在保存答案…</p>
-                            <template v-else>
-                                <p class="error-message">{{ submitError || storageError || '答案等待保存。' }}</p>
-                                <button v-if="submissionConflict" type="button" class="button button-secondary" @click="continueAfterConflict">获取下一题</button>
-                                <button v-else type="button" class="button button-primary" @click="retryPending">重试保存</button>
-                            </template>
+                        <div v-if="pendingAttempt && !isChecking && (submitError || storageError)" class="submission-status" aria-live="polite">
+                            <p class="error-message">{{ submitError || storageError }}</p>
+                            <button v-if="submissionConflict" type="button" class="button button-secondary" @click="continueAfterConflict">获取下一题</button>
+                            <button v-else type="button" class="button button-primary" @click="retryPending">重试保存</button>
                         </div>
                         <div v-if="showAnswer && !isAdvancing" class="correction-area">
                             <p class="feedback-text">{{ feedbackMessage }}</p>
-                            <p class="answer-spelling"><span v-for="(segment, index) in answerDisplay.segments" :key="index" :class="segment.ok ? answerOkClass : answerMissClass">{{ segment.ch }}</span></p>
-                            <p v-if="answerDisplay.alternatives" class="muted">{{ t('也可以：', 'Also: ') }}<span class="mono">{{ answerDisplay.alternatives }}</span></p>
+                            <p class="answer-spelling"><button type="button" class="word-audio" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)"><span v-for="(segment, index) in answerDisplay.segments" :key="index" :class="segment.ok ? answerOkClass : answerMissClass">{{ segment.ch }}</span></button></p>
+                            <p v-if="answerDisplay.alternatives" class="muted">{{ t('也可以：', 'Also: ') }}<span class="mono"><button type="button" class="word-audio" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ answerDisplay.alternatives }}</button></span></p>
                             <p v-if="currentWord.phonetic" class="phonetic">{{ currentWord.phonetic }}</p>
                             <p v-if="wrongInput" class="muted">{{ t('你的输入：', 'You typed: ') }}<del class="mono">{{ wrongInput }}</del></p>
                             <div v-if="currentWord.example_en || currentWord.example_cn" class="example-area">
@@ -105,7 +104,7 @@
                 <div class="result-heading"><svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#check"/></svg><h2>{{ isPracticeAbandoned ? '已退出练习' : isMistakePractice ? '错词重练完成' : practiceMode === 'free' ? '自由练习完成' : '本轮练习完成' }}</h2></div>
                 <p v-if="!isMistakePractice" class="result-save-status">{{ attemptedTotal }} 次作答已保存<span v-if="nextDueText"> · 下次复习 {{ nextDueText }}</span></p>
                 <dl class="metrics-strip result-metrics"><div><dt>{{ t('总题数', 'Entries') }}</dt><dd>{{ resultTotal }}</dd></div><div><dt>{{ t('正确', 'Correct') }}</dt><dd>{{ stats.correct }}</dd></div><div><dt>{{ t('错误', 'To revise') }}</dt><dd>{{ stats.incorrect }}</dd></div><div><dt>{{ t('正确率', 'Accuracy') }}</dt><dd>{{ accuracy }}<small>%</small></dd></div></dl>
-                <div v-if="stats.errors.length" class="mistakes-section"><h3>{{ t('错题回顾', 'Revisions') }}</h3><ul class="entry-list"><li v-for="(error, index) in stats.errors" :key="index"><div><strong class="mono">{{ error.word }}</strong><p class="muted">{{ error.meaning }}</p></div><del class="mono muted">{{ error.user_input }}</del></li></ul></div>
+                <div v-if="stats.errors.length" class="mistakes-section"><h3>{{ t('错题回顾', 'Revisions') }}</h3><ul class="entry-list"><li v-for="(error, index) in stats.errors" :key="index"><div><strong class="mono"><button type="button" class="word-audio" :disabled="!hasWordAudio(error.wordData)" @click="playWord(error.wordData)">{{ error.word }}</button></strong><p class="muted">{{ error.meaning }}</p></div><del class="mono muted">{{ error.user_input }}</del></li></ul></div>
                 <div class="button-row"><button v-if="mistakePracticeWords.length" type="button" class="button button-secondary" @click="startMistakePractice">错词重练</button><button type="button" class="button button-secondary" @click="startFreePractice">自由练习</button><button type="button" class="button button-primary" @click="restartPractice">继续计划<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button></div>
             </section>
         </main>
