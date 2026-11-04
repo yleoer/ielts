@@ -23,6 +23,17 @@
                     <label class="field-label" for="server-token">访问令牌</label>
                     <input id="server-token" v-model="setup.token" class="text-input mono" type="password" :placeholder="setup.hasToken ? '留空则保持不变' : ''" autocomplete="off" spellcheck="false" :required="!setup.hasToken" :disabled="!setup.editable || setup.saving || updateInstalling" :aria-invalid="setup.error ? 'true' : null" aria-describedby="setup-error">
                     <p v-if="setup.error" id="setup-error" class="error-message" role="alert">{{ setup.error }}</p>
+                    <section v-if="!setup.required" class="setup-desktop" aria-labelledby="setup-desktop-title">
+                        <h3 id="setup-desktop-title">窗口</h3>
+                        <label class="field-label" for="close-behavior">关闭窗口时</label>
+                        <select id="close-behavior" v-model="desktopSettings.closeToTray" class="text-input" :disabled="!desktopSettings.loaded || desktopSettings.saving || updateInstalling" aria-describedby="close-behavior-help" @change="saveDesktopSettings">
+                            <option :value="true">收进系统托盘</option>
+                            <option :value="false">直接退出应用</option>
+                        </select>
+                        <p id="close-behavior-help" class="muted">自动保存。悬停托盘图标可查看下次复习时间，右键可退出。</p>
+                        <p v-if="desktopSettings.saving" class="muted" role="status">正在保存…</p>
+                        <div v-if="desktopSettings.error" class="desktop-settings-error"><p class="error-message" role="alert">{{ desktopSettings.error }}</p><button v-if="!desktopSettings.loaded" type="button" class="button button-secondary" @click="loadDesktopSettings">重试读取</button></div>
+                    </section>
                     <section class="setup-resources" aria-labelledby="setup-resources-title">
                         <h3 id="setup-resources-title">插图与音频</h3>
                         <p class="muted">可选：导入 ZIP 资源包，无需解压。暂不导入也可先练习文字。</p>

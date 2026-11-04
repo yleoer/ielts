@@ -46,8 +46,36 @@ function harness() {
     app.sessionId = 'session';
     app.words = [{ word: 'apple', source_id: 'apple', chinese_meaning: '苹果', attempt_id: 'attempt', issued_at: new Date().toISOString() }];
     return { app, mount, context, timers, requests, localStorage, document,
+        inputChanged() { options.watch.userInput.call(app); },
         wordChanged() { options.watch.currentWord.call(app); }, tick(ms) { now += ms; } };
 }
+
+test('native tray hide saves practice and excludes hidden time before restoring the window', () => {
+    const h = harness();
+    const listeners = {};
+    h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
+    h.context.window.matchMedia = () => ({ matches: false, addEventListener() {} });
+    h.context.window.addEventListener = h.document.addEventListener = () => {};
+    h.context.setInterval = () => {};
+    h.context.axios.get = async () => ({ data: { data: { last_sync_at: null } } });
+    let stopped = 0;
+    h.app.stopWordAudio = () => { stopped++; };
+    h.app.initDesktopShell();
+    h.app.userInput = 'app';
+    h.app.beginCurrentWord();
+    h.tick(1500);
+    listeners['cijian-window-hidden']();
+    assert.equal(stopped, 1);
+    assert.equal(h.app.clockStartedAt, null);
+    const draft = JSON.parse(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'));
+    assert.equal(draft.userInput, 'app');
+    assert.equal(draft.elapsedMs, 1500);
+    h.tick(10000);
+    listeners['cijian-window-shown']();
+    assert.equal(h.app.effectiveDuration(), 1500);
+    h.tick(500);
+    assert.equal(h.app.effectiveDuration(), 2000);
+});
 
 test('resource installation refreshes URLs without replacing the active question or typed answer', async () => {
     const h = harness();
@@ -279,14 +307,30 @@ test('failed submission is durable, reuses timestamp and is counted once after r
     assert.equal(restored.attemptedTotal, 1);
 });
 
-test('correction allows typing and does not submit a second review', async () => {
+test('corrected spelling waits for Enter and does not submit a second review', async () => {
     const h = harness();
-    h.app.answerAccepted = true;
-    h.app.showAnswer = true;
+    h.app.practiceMode = 'mistakes';
+    h.app.words.push({ word: 'book', source_id: 'book' });
+    await h.app.submitInput('aple');
     let prevented = false;
     h.app.handleBeforeInput({ data: 'a', preventDefault() { prevented = true; } });
     assert.equal(prevented, false);
+    h.app.userInput = 'apple';
+    h.inputChanged();
+    for (const timer of h.timers.filter(timer => timer.active)) timer.fn();
+    assert.equal(h.app.currentIndex, 0);
+    assert.equal(h.app.showAnswer, true);
+    assert.equal(h.app.isAdvancing, false);
+    const restored = h.mount();
+    await restored.restoreDraftSession();
+    assert.equal(restored.currentIndex, 0);
+    assert.equal(restored.userInput, 'apple');
+    assert.equal(restored.showAnswer, true);
     await h.app.submitInput('apple');
+    h.app.handleKeydown({ key: 'Enter', preventDefault() {} });
+    assert.equal(h.app.currentWord.word, 'book');
+    assert.equal(h.app.stats.incorrect, 1);
+    assert.equal(h.app.stats.correct, 0);
     assert.equal(h.requests.length, 0);
 });
 
@@ -531,8 +575,10 @@ test('restoring a saved answer fetches a fresh queue instead of persisting short
     assert.equal(restored.attemptedTotal, 1);
 });
 
-test('correction can begin during a slow save and survives confirmation without another review', async () => {
+test('correction waits for Enter after a slow save or draft retry', async () => {
     const h = harness();
+    h.app.practiceMode = 'free';
+    h.app.words.push({ word: 'book', source_id: 'book' });
     let confirm;
     h.context.axios.post = () => new Promise(resolve => { confirm = resolve; });
     const submission = h.app.submitInput('aple');
@@ -542,16 +588,23 @@ test('correction can begin during a slow save and survives confirmation without 
     h.app.handleBeforeInput({ data: 'a', preventDefault() { blocked = true; } });
     assert.equal(blocked, false);
     h.app.userInput = 'apple';
-    h.app.startCorrectAdvance();
-    h.timers.at(-1).fn();
+    h.inputChanged();
+    h.app.handleKeydown({ key: 'Enter', preventDefault() {} });
     assert.equal(h.app.currentIndex, 0);
     assert.equal(h.app.attemptedTotal, 0);
     confirm({ data: { data: { attempt_id: 'attempt', is_correct: false } } });
     await submission;
     assert.equal(h.app.userInput, 'apple');
     assert.equal(h.app.stats.incorrect, 1);
-    assert.equal(h.app.isAdvancing, true);
-    assert.equal(h.timers.at(-1).delay, 0);
+    assert.equal(h.app.isAdvancing, false);
+    assert.equal(h.app.advanceTimer, null);
+    h.app.retryDraftSave();
+    for (const timer of h.timers.filter(timer => timer.active)) timer.fn();
+    assert.equal(h.app.currentIndex, 0);
+    assert.equal(h.app.isAdvancing, false);
+    h.app.handleKeydown({ key: 'Enter', preventDefault() {} });
+    assert.equal(h.app.currentWord.word, 'book');
+    assert.equal(h.app.stats.incorrect, 1);
 });
 
 test('server correction overrides a local preview and is the only result counted', async () => {
