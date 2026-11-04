@@ -68,11 +68,7 @@ const practiceApp = {
         },
         userInput() {
             if (this.isRestoringDraft) return;
-            if (this.showAnswer && !this.isAdvancing && !this.isComposing && this.isRetypeCorrect()) {
-                this.startCorrectAdvance();
-            } else {
-                this.scheduleDraftSave();
-            }
+            this.scheduleDraftSave();
         }
     },
     methods: {
@@ -287,9 +283,7 @@ const practiceApp = {
             if (!keepCorrection) this.userInput = '';
             const saved = this.saveDraftSession();
             if (result.is_correct && saved) this.startCorrectAdvance(remainingFeedback);
-            else if (keepCorrection && saved && this.isRetypeCorrect()) {
-                if (this.advanceTimer === null) this.startCorrectAdvance(this.isAdvancing ? 0 : 180);
-            } else {
+            else {
                 this.clearAdvanceTimer();
                 if (!previewed || !keepCorrection) this.triggerShake();
                 this.focusInput();
@@ -305,7 +299,7 @@ const practiceApp = {
             if (this.answerAccepted) {
                 const id = this.stats.attempts.at(-1)?.attempt_id;
                 if (id) this.removeConfirmedOutbox(id);
-                if (this.isCorrect || (this.showAnswer && this.isRetypeCorrect())) this.startCorrectAdvance();
+                if (this.isCorrect) this.startCorrectAdvance();
             }
         },
         async continueAfterConflict() {
