@@ -8,7 +8,7 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from anki import AnkiReader, FIELD_SEPARATOR, WORD_ATLAS_FIELDS, clean_field, media_filename, parse_word
+from anki import AnkiReader, FIELD_SEPARATOR, WORD_ATLAS_FIELDS, clean_field, parse_word
 from config import AnkiConfig, DEFAULT_DECK_ID, DEFAULT_DECK_NAME, load_config
 
 
@@ -40,19 +40,16 @@ class WordAtlasFieldTest(unittest.TestCase):
                                {"part_of_speech": "", "chinese_meaning": "资料库"}],
             "example_en": "I borrowed books from the library.",
             "example_cn": "我从图书馆借了书。", "category": "教育", "cefr": "A1",
-            "illustration_url": "/api/media/101/illustration",
+            "illustration_file": "wa_library_img.webp",
         })
 
     def test_media_references_are_local_and_only_illustrations_are_exposed(self):
-        values = dict(zip(WORD_ATLAS_FIELDS, atlas_fields(AudioUK="").split(FIELD_SEPARATOR)))
-        self.assertEqual(media_filename(values, "audio"), "")
-        self.assertEqual(media_filename(values, "illustration"), "wa_library_img.webp")
         for reference in ("../outside.webp", "..\\outside.webp", "https://example.com/a.webp", "C:\\a.webp", "file.svg"):
             with self.subTest(reference=reference):
                 word = parse_word(101, atlas_fields(Illustration=f'<img src="{reference}">'))
-                self.assertEqual(word["illustration_url"], "")
+                self.assertEqual(word["illustration_file"], "")
         word = parse_word(101, atlas_fields(Illustration="", AudioUK="", AudioUS=""))
-        self.assertEqual(word["illustration_url"], "")
+        self.assertEqual(word["illustration_file"], "")
         self.assertNotIn("audio_url", word)
 
     def test_only_accepts_the_22_field_word_atlas_layout(self):
@@ -101,36 +98,23 @@ class WordAtlasFieldTest(unittest.TestCase):
         self.assertEqual(AnkiConfig().deck_id, 1958430017)
         with patch("config.load_dotenv"), patch("config.default_anki_db_path", return_value=""), patch.dict("os.environ", {}, clear=True):
             config = load_config()
-            with patch("config._config_path", return_value=None):
+            with patch("config.CONFIG_PATH", Path("missing.yaml")):
                 fallback = load_config()
         self.assertEqual(config.anki.deck_name, DEFAULT_DECK_NAME)
         self.assertEqual(config.anki.deck_id, DEFAULT_DECK_ID)
         self.assertEqual(fallback.anki.deck_name, DEFAULT_DECK_NAME)
         self.assertEqual(fallback.anki.deck_id, DEFAULT_DECK_ID)
 
-    def test_media_directory_environment_overrides_yaml(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "config.yaml"
-            path.write_text('anki:\n  media_dir: "from-yaml"\n', encoding="utf-8")
-            with patch("config.load_dotenv"), patch("config.default_anki_db_path", return_value=""), patch("config._config_path", return_value=path), patch.dict("os.environ", {"ANKI_MEDIA_DIR": "from-env"}, clear=True):
-                self.assertEqual(load_config().anki.media_dir, "from-env")
-
-    def test_retired_daily_new_setting_is_ignored(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "config.yaml"
-            path.write_text("memory:\n  daily_new: 20\n", encoding="utf-8")
-            with patch("config.load_dotenv"), patch("config.default_anki_db_path", return_value=""), patch("config._config_path", return_value=path), patch.dict("os.environ", {"FSRS_DAILY_NEW": "20"}, clear=True):
-                self.assertFalse(hasattr(load_config().memory, "daily_new"))
-
 
 class WordAtlasReaderTest(unittest.TestCase):
-    def test_pool_cache_refreshes_external_commits_including_wal_and_keeps_results_independent(self):
+    def test_snapshot_cache_refreshes_external_commits_including_wal(self):
         for journal in ("DELETE", "WAL"):
             with self.subTest(journal=journal), tempfile.TemporaryDirectory() as temporary:
                 path = Path(temporary) / "collection.anki2"
                 with closing(sqlite3.connect(path)) as writer:
                     writer.execute(f"PRAGMA journal_mode={journal}")
                     writer.executescript("""
+                        CREATE TABLE decks(id INTEGER PRIMARY KEY, name TEXT);
                         CREATE TABLE cards(id INTEGER PRIMARY KEY,nid INTEGER,did INTEGER,type INTEGER,queue INTEGER);
                         CREATE TABLE notes(id INTEGER PRIMARY KEY,flds TEXT);
                         INSERT INTO cards VALUES(1,101,1,1,1),(2,102,1,0,0);
@@ -140,21 +124,18 @@ class WordAtlasReaderTest(unittest.TestCase):
                     reader = AnkiReader(str(path), "Word Atlas", 1)
                     try:
                         with patch("anki.parse_word", wraps=parse_word) as parse:
-                            reader.get_learned_word_pool()[0]["word"] = "client mutation"
-                            self.assertEqual(reader.get_learned_word_pool()[0]["word"], "library")
-                            self.assertEqual(parse.call_count, 1)
-                            self.assertEqual(len(reader.get_word_pool()), 2)
-                            self.assertEqual(parse.call_count, 3)
-                            reader.get_word_pool()
-                            self.assertEqual(parse.call_count, 3)
+                            self.assertEqual([(w["word"], w["learned"]) for w in reader.snapshot()],
+                                             [("library", True), ("new", False)])
+                            reader.snapshot()
+                            self.assertEqual(parse.call_count, 2)
                             writer.execute("UPDATE notes SET flds=? WHERE id=101", (atlas_fields(
                                 Word="updated", MoreSenses='<div class="atlas-sense">更新后的义项</div>'),))
                             writer.execute("UPDATE cards SET type=1,queue=1 WHERE nid=102")
                             writer.commit()
-                            self.assertEqual([word["word"] for word in reader.get_learned_word_pool()], ["updated", "new"])
-                            self.assertEqual(reader.get_learned_word_pool()[0]["chinese_senses"][1]["chinese_meaning"], "更新后的义项")
-                            self.assertEqual(reader.get_word_pool()[0]["word"], "updated")
-                            self.assertEqual(parse.call_count, 7)
+                            words = reader.snapshot()
+                            self.assertEqual([(w["word"], w["learned"]) for w in words], [("updated", True), ("new", True)])
+                            self.assertEqual(words[0]["chinese_senses"][1]["chinese_meaning"], "更新后的义项")
+                            self.assertEqual(parse.call_count, 4)
                     finally:
                         reader.close()
 
@@ -179,12 +160,10 @@ class WordAtlasReaderTest(unittest.TestCase):
                 db.commit()
             reader = AnkiReader(str(path), "Word Atlas", DEFAULT_DECK_ID)
             try:
-                self.assertEqual(reader.count_learned(), 2)
-                self.assertEqual([word["word"] for word in reader.get_learned_word_pool()], ["library", "commute"])
-                self.assertEqual([word["word"] for word in reader.get_word_pool()], ["library", "unlearned", "commute"])
-                self.assertEqual(reader.get_media_filename(101, "illustration"), "wa_library_img.webp")
-                self.assertEqual(reader.get_media_filename(101, "audio"), "")
-                self.assertEqual(reader.get_media_filename(999, "audio"), "")
+                words = reader.snapshot()
+                self.assertEqual([(w["word"], w["learned"]) for w in words],
+                                 [("library", True), ("unlearned", False), ("commute", True)])
+                self.assertEqual(words[0]["illustration_file"], "wa_library_img.webp")
             finally:
                 reader.close()
 
@@ -202,9 +181,10 @@ class WordAtlasReaderTest(unittest.TestCase):
                 db.commit()
             reader = AnkiReader(str(path), DEFAULT_DECK_NAME, DEFAULT_DECK_ID)
             try:
-                words = reader.get_learned_word_pool()
+                snapshot = reader.snapshot()
+                words = [word for word in snapshot if word["learned"]]
                 self.assertEqual(len(words), 2)
-                self.assertEqual(len(reader.get_word_pool()), 7298)
+                self.assertEqual(len(snapshot), 7298)
                 self.assertEqual(words[0]["cefr"], "A1")
                 self.assertEqual(words[0]["word"], "library")
                 self.assertEqual(words[0]["part_of_speech"], "n.")

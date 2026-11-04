@@ -1,0 +1,11 @@
+{
+  "name": "cijian-desktop",
+  "private": true,
+  "scripts": {
+    "frontend": "python scripts/build_frontend.py",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

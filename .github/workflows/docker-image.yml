@@ -43,7 +43,7 @@ jobs:
             fi
           fi
 
-          if grep -Eq '^(typing-practice/backend/|typing-practice/frontend/|typing-practice/.dockerignore$|.github/workflows/docker-image.yml$)' changed-files.txt; then
+          if grep -Eq '^(typing-practice/backend/|typing-practice/.dockerignore$|.github/workflows/docker-image.yml$)' changed-files.txt; then
             echo "image_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "image_changed=false" >> "$GITHUB_OUTPUT"

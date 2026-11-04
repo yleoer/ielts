@@ -18,14 +18,13 @@ class SyncHelpersTest(unittest.TestCase):
             Path(str(source) + "-wal").write_bytes(b"wal")
 
             self.assertEqual(latest_collection(str(root / "source")), str(source))
-            copied = copy_collection_group(str(source), str(target), stable_seconds=0)
-            self.assertEqual(copied, ["collection.anki2", "collection.anki2-wal"])
+            copy_collection_group(str(source), str(target), stable_seconds=0)
             self.assertEqual(target.read_bytes(), b"collection")
             self.assertEqual(Path(str(target) + "-wal").read_bytes(), b"wal")
 
             Path(str(source) + "-wal").unlink()
-            copied = copy_collection_group(str(source), str(target), stable_seconds=0)
-            self.assertEqual(copied, ["collection.anki2"])
+            copy_collection_group(str(source), str(target), stable_seconds=0)
+            self.assertEqual(target.read_bytes(), b"collection")
             self.assertFalse(Path(str(target) + "-wal").exists())
 
 
