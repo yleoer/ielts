@@ -8,6 +8,7 @@ const workspaceControls = {
             narrowWindow: false,
             resources: { loading: false, transferring: false, status: null, error: '', appliedId: '' },
             updates: { current: '', available: null, phase: 'idle', downloaded: 0, total: 0, error: '' },
+            desktopSettings: { loaded: false, saving: false, closeToTray: true, savedCloseToTray: true, error: '' },
             // Sync server settings; `required` blocks the page until a first server is saved.
             setup: { visible: false, required: false, url: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
         };
@@ -55,6 +56,12 @@ const workspaceControls = {
             document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refreshSyncSummary(); });
             document.addEventListener('contextmenu', event => event.preventDefault());
             window.addEventListener('keydown', event => this.handleDesktopShortcut(event), true);
+            window.__TAURI__.event.listen('cijian-window-hidden', () => {
+                this.stopWordAudio?.();
+                this.pauseClock?.();
+                this.saveDraftSession?.();
+            });
+            window.__TAURI__.event.listen('cijian-window-shown', () => this.resumeClock?.());
         },
         handleDesktopShortcut(event) {
             const ctrl = event.ctrlKey || event.metaKey;
@@ -133,7 +140,7 @@ const workspaceControls = {
         },
         setupKeydown(event) {
             if (event.key !== 'Tab') return;
-            const controls = [...event.currentTarget.querySelectorAll('button:not(:disabled), input:not(:disabled):not([tabindex="-1"])')];
+            const controls = [...event.currentTarget.querySelectorAll('button:not(:disabled), input:not(:disabled):not([tabindex="-1"]), select:not(:disabled)')];
             const first = controls[0], last = controls[controls.length - 1];
             if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -195,6 +202,34 @@ const workspaceControls = {
             }
         },
 
+        async loadDesktopSettings() {
+            const settings = this.desktopSettings;
+            settings.loaded = false;
+            settings.error = '';
+            try {
+                const enabled = await window.__TAURI__.core.invoke('get_close_to_tray');
+                Object.assign(settings, { closeToTray: enabled, savedCloseToTray: enabled, loaded: true });
+            } catch (error) {
+                settings.error = '无法读取关闭设置，请重试。';
+            }
+        },
+
+        async saveDesktopSettings() {
+            const settings = this.desktopSettings;
+            if (!settings.loaded || settings.saving) return;
+            settings.saving = true;
+            settings.error = '';
+            try {
+                await window.__TAURI__.core.invoke('set_close_to_tray', { enabled: settings.closeToTray });
+                settings.savedCloseToTray = settings.closeToTray;
+            } catch (error) {
+                settings.closeToTray = settings.savedCloseToTray;
+                settings.error = '无法保存关闭设置，请重新选择后重试。';
+            } finally {
+                settings.saving = false;
+            }
+        },
+
         async loadServerSettings() {
             const settings = (await axios.get(`${this.apiBaseUrl}/settings/server`)).data.data;
             Object.assign(this.setup, { url: settings.url || '', token: '', hasToken: settings.has_token, editable: settings.editable, error: '' });
@@ -206,6 +241,7 @@ const workspaceControls = {
             this.syncModal.visible = false;
             this.pauseClock?.();
             Object.assign(this.setup, { visible: true, required: false, error: '' });
+            await this.loadDesktopSettings();
             try {
                 await this.loadServerSettings();
                 await this.loadResourceStatus();
@@ -216,7 +252,7 @@ const workspaceControls = {
         },
 
         closeServerSetup() {
-            if (this.setup.required || this.setup.saving || this.resources.transferring || this.updateInstalling) return;
+            if (this.setup.required || this.setup.saving || this.desktopSettings.saving || this.resources.transferring || this.updateInstalling) return;
             this.setup.visible = false;
             this.resumeClock?.();
             this.$nextTick(() => this.setupOpener?.focus());

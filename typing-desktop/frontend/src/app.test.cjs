@@ -49,6 +49,33 @@ function harness() {
         wordChanged() { options.watch.currentWord.call(app); }, tick(ms) { now += ms; } };
 }
 
+test('native tray hide saves practice and excludes hidden time before restoring the window', () => {
+    const h = harness();
+    const listeners = {};
+    h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
+    h.context.window.matchMedia = () => ({ matches: false, addEventListener() {} });
+    h.context.window.addEventListener = h.document.addEventListener = () => {};
+    h.context.setInterval = () => {};
+    h.context.axios.get = async () => ({ data: { data: { last_sync_at: null } } });
+    let stopped = 0;
+    h.app.stopWordAudio = () => { stopped++; };
+    h.app.initDesktopShell();
+    h.app.userInput = 'app';
+    h.app.beginCurrentWord();
+    h.tick(1500);
+    listeners['cijian-window-hidden']();
+    assert.equal(stopped, 1);
+    assert.equal(h.app.clockStartedAt, null);
+    const draft = JSON.parse(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'));
+    assert.equal(draft.userInput, 'app');
+    assert.equal(draft.elapsedMs, 1500);
+    h.tick(10000);
+    listeners['cijian-window-shown']();
+    assert.equal(h.app.effectiveDuration(), 1500);
+    h.tick(500);
+    assert.equal(h.app.effectiveDuration(), 2000);
+});
+
 test('resource installation refreshes URLs without replacing the active question or typed answer', async () => {
     const h = harness();
     h.app.words[0].id = 41;
