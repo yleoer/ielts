@@ -79,17 +79,14 @@ fn text<'a>(word: &'a Map<String, Value>, field: &str) -> &'a str {
     word.get(field).and_then(Value::as_str).unwrap_or_default()
 }
 
-fn group_value(word: &Map<String, Value>, dimension: &str) -> ApiResult<String> {
-    match dimension {
-        "cefr" => {
-            let value = text(word, "cefr").trim().to_uppercase();
-            Ok(if CEFR_LEVELS.iter().any(|(level, _)| *level == value) { value } else { UNKNOWN_CEFR.into() })
-        }
-        "topic" => {
-            let value = text(word, "category").trim();
-            Ok(if value.is_empty() { UNKNOWN_TOPIC.into() } else { value.into() })
-        }
-        _ => Err(ApiError::bad("无效的词库分组")),
+/// `dimension` is `cefr` or `topic` (checked by `vocabulary_words`).
+fn group_value(word: &Map<String, Value>, dimension: &str) -> String {
+    if dimension == "cefr" {
+        let value = text(word, "cefr").trim().to_uppercase();
+        if CEFR_LEVELS.iter().any(|(level, _)| *level == value) { value } else { UNKNOWN_CEFR.into() }
+    } else {
+        let value = text(word, "category").trim();
+        if value.is_empty() { UNKNOWN_TOPIC.into() } else { value.into() }
     }
 }
 
@@ -121,7 +118,7 @@ fn count(group: &mut Value, status: &str) {
     }
 }
 
-fn progress(entries: &[Map<String, Value>]) -> ApiResult<Value> {
+fn progress(entries: &[Map<String, Value>]) -> Value {
     let mut levels = Groups::default();
     for (value, label) in CEFR_LEVELS {
         levels.entry(value, Some(label));
@@ -131,10 +128,10 @@ fn progress(entries: &[Map<String, Value>]) -> ApiResult<Value> {
     for word in entries {
         let status = text(word, "status");
         count(&mut overall, status);
-        count(levels.entry(&group_value(word, "cefr")?, None), status);
-        count(topics.entry(&group_value(word, "topic")?, None), status);
+        count(levels.entry(&group_value(word, "cefr"), None), status);
+        count(topics.entry(&group_value(word, "topic"), None), status);
     }
-    Ok(json!({"overall": overall, "levels": levels.order, "topics": topics.order}))
+    json!({"overall": overall, "levels": levels.order, "topics": topics.order})
 }
 
 /// Practiced words first, prioritising a smoothed lifetime error rate (`vocabulary.word_sort_key`).
@@ -310,7 +307,7 @@ impl Store {
 
     pub fn vocabulary_progress(&self) -> ApiResult<Value> {
         let inner = self.lock();
-        progress(&self.vocabulary_entries(&inner)?)
+        Ok(progress(&self.vocabulary_entries(&inner)?))
     }
 
     pub fn vocabulary_words(&self, dimension: &str, value: &str, status: &str, offset: usize, limit: usize) -> ApiResult<Value> {
@@ -323,12 +320,9 @@ impl Store {
         let inner = self.lock();
         let mut entries = self.vocabulary_entries(&inner)?;
         with_attempt_counts(&inner.db, &mut entries)?;
-        let mut matches = vec![];
-        for word in entries {
-            if group_value(&word, dimension)? == value && (status == "all" || text(&word, "status") == status) {
-                matches.push(word);
-            }
-        }
+        let mut matches: Vec<_> = entries.into_iter()
+            .filter(|word| group_value(word, dimension) == value && (status == "all" || text(word, "status") == status))
+            .collect();
         matches.sort_by(word_order);
         let total = matches.len();
         let items: Vec<_> = matches.into_iter().skip(offset).take(limit).collect();

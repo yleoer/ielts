@@ -18,7 +18,7 @@ fn word(source: &str, id: i64) -> Value {
 }
 
 fn words(items: Vec<Value>) -> Vec<Word> {
-    parse_snapshot(&json!({"format": 1, "words": items}).to_string()).unwrap()
+    parse_snapshot(&json!({"format": 1, "words": items})).unwrap()
 }
 
 struct Fixture {
@@ -221,6 +221,8 @@ fn invalid_times_and_changed_question_do_not_mutate_memory() {
     assert!(matches!(f.store.submit(&future), Err(ApiError::Conflict(_))));
     let mut bad = payload.clone();
     bad["duration_ms"] = Value::Null;
+    assert!(matches!(f.store.submit(&bad), Err(ApiError::BadRequest(_))));
+    bad["duration_ms"] = (-1).into();
     assert!(matches!(f.store.submit(&bad), Err(ApiError::BadRequest(_))));
     let mut too_long = payload.clone();
     too_long["duration_ms"] = 60_000.into();

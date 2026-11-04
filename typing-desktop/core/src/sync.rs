@@ -15,7 +15,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::fsrs::{Card, Rating};
 use crate::srs::{fuzz_sample, Srs};
 use crate::store::Store;
-use crate::time::{parse_time, time_text};
+use crate::time::{parse_time, time_text, Time};
 
 pub const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -50,12 +50,12 @@ fn remote_attempt(item: &Value) -> Result<RemoteAttempt<'_>, String> {
     let text = |name: &str| item[name].as_str().ok_or_else(|| format!("缺少 {name}"));
     let rating = item["rating"].as_u64().and_then(|r| Rating::try_from(r as u8).ok()).ok_or("无效的 rating")?;
     let reviewed = parse_time(text("reviewed_at")?)?;
-    let word_key = text("word_key")?;
-    if !word_key.starts_with("word-atlas:") || text("attempt_id")?.is_empty() {
+    let (attempt_id, word_key) = (text("attempt_id")?, text("word_key")?);
+    if !word_key.starts_with("word-atlas:") || attempt_id.is_empty() {
         return Err("无效的作答标识".into());
     }
     Ok(RemoteAttempt {
-        attempt_id: text("attempt_id")?, word_key, word: text("word")?, chinese_meaning: text("chinese_meaning")?,
+        attempt_id, word_key, word: text("word")?, chinese_meaning: text("chinese_meaning")?,
         category: text("category")?, user_input: text("user_input")?,
         is_correct: item["is_correct"].as_bool().ok_or("无效的 is_correct")?, rating, reviewed_at: time_text(reviewed),
         duration_ms: item["duration_ms"].as_f64().filter(|v| v.is_finite() && *v >= 0.0).ok_or("无效的 duration_ms")?,
@@ -63,18 +63,22 @@ fn remote_attempt(item: &Value) -> Result<RemoteAttempt<'_>, String> {
     })
 }
 
-/// Rebuilds one word's card from its full log.
+/// One word's full log in replay order (`reviewed_at, attempt_id`), with fuzz from the attempt id.
+pub(crate) fn review_logs(db: &Connection, word_key: &str) -> ApiResult<Vec<(Time, Rating, Option<f64>)>> {
+    let mut stmt = db.prepare("SELECT reviewed_at,rating,attempt_id FROM word_reviews WHERE word_key=? ORDER BY reviewed_at,attempt_id")?;
+    let rows = stmt.query_map([word_key], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u8>(1)?, r.get::<_, String>(2)?)))?;
+    rows.map(|row| {
+        let (at, rating, attempt) = row?;
+        Ok((parse_time(&at).map_err(ApiError::Unavailable)?, Rating::try_from(rating).map_err(ApiError::Unavailable)?,
+            Some(fuzz_sample(&attempt))))
+    }).collect()
+}
+
+/// Rebuilds one word's card from its full log (the word has just received at least one answer).
 fn replay(db: &Connection, srs: &Srs, version: &str, word_key: &str) -> ApiResult<()> {
     let id: i64 = db.query_row("SELECT id FROM word_memory WHERE word_key=?", [word_key], |r| r.get(0))?;
-    let mut stmt = db.prepare("SELECT reviewed_at,rating,attempt_id FROM word_reviews WHERE word_key=? ORDER BY reviewed_at,attempt_id")?;
-    let logs = stmt.query_map([word_key], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u8>(1)?, r.get::<_, String>(2)?)))?
-        .map(|row| {
-            let (at, rating, attempt) = row?;
-            Ok((parse_time(&at).map_err(ApiError::Unavailable)?, Rating::try_from(rating).map_err(ApiError::Unavailable)?,
-                Some(fuzz_sample(&attempt))))
-        })
-        .collect::<ApiResult<Vec<_>>>()?;
-    let (Some(first), Some(last)) = (logs.first(), logs.last()) else { return Ok(()) };
+    let logs = review_logs(db, word_key)?;
+    let (first, last) = (&logs[0], &logs[logs.len() - 1]);
     let card = srs.scheduler.reschedule(&Card::new(id, first.0), &logs);
     db.execute("UPDATE word_memory SET card_json=?,due=?,state=?,stability=?,first_review=?,last_review=?,version=version+1,config_version=? WHERE id=?",
         params![serde_json::to_string(&card)?, time_text(card.due), card.state as i64, card.stability, time_text(first.0),

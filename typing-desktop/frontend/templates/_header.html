@@ -1,35 +1,47 @@
-<header class="workspace-header" data-tauri-drag-region>
-    <a class="workspace-brand" :inert="workspaceModalOpen || null" href="/index.html" aria-label="词间首页">
-        <img src="/assets/favicon.svg?v=20261028-cijian" width="28" height="28" alt="">
+<aside class="sidebar" :inert="workspaceModalOpen || null" aria-label="侧边栏">
+    <a class="sidebar-brand" href="/index.html" aria-label="词间首页" data-tauri-drag-region>
+        <img src="/assets/favicon.svg?v=20261028-cijian" width="26" height="26" alt="">
         <span class="brand-name">词间</span>
     </a>
-    <nav class="workspace-nav" :inert="workspaceModalOpen || null" aria-label="主导航">
+    <nav class="sidebar-nav" aria-label="主导航">
         <a href="/index.html" aria-label="练习" class="nav-link {% if active_page == 'practice' %}is-active{% endif %}" {% if active_page == 'practice' %}aria-current="page"{% endif %}>
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#document"/></svg>
-            <span>练习</span>
+            <span class="nav-text">练习</span><kbd class="nav-shortcut" aria-hidden="true">Ctrl 1</kbd>
         </a>
         <a href="/stats.html" aria-label="统计" class="nav-link {% if active_page == 'stats' %}is-active{% endif %}" {% if active_page == 'stats' %}aria-current="page"{% endif %}>
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#chart"/></svg>
-            <span>统计</span>
+            <span class="nav-text">统计</span><kbd class="nav-shortcut" aria-hidden="true">Ctrl 2</kbd>
         </a>
     </nav>
-    <div class="header-actions" :inert="workspaceModalOpen || null">
-        <button ref="settingsButton" type="button" class="icon-button settings-button" @click="openServerSetup" :aria-label="updates.available ? '设置，有可用更新' : '设置'">
+    <div class="sidebar-footer">
+        <button type="button" class="nav-link sidebar-sync" :class="{ 'is-syncing': syncModal.syncing }" @click="openSyncModal" :aria-label="`同步，${syncSummaryText}`">
+            <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#sync"/></svg>
+            <span class="nav-text"><span>同步</span><small>{{ syncSummaryText }}</small></span>
+        </button>
+        <button ref="settingsButton" type="button" class="nav-link settings-button" @click="openServerSetup" :aria-label="updates.available ? '设置，有可用更新' : '设置'">
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#settings"/></svg>
+            <span class="nav-text">设置</span>
             <span v-if="updates.available" class="update-dot" aria-hidden="true"></span>
         </button>
-        <button type="button" class="icon-button" @click="openSyncModal" aria-label="同步 Anki">
-            <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#sync"/></svg>
+        <button v-if="!narrowWindow" type="button" class="nav-link sidebar-toggle" @click="toggleSidebar" :aria-label="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'" :aria-expanded="!sidebarCollapsed">
+            <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#sidebar"/></svg>
+            <span class="nav-text">折叠侧栏</span><kbd class="nav-shortcut" aria-hidden="true">Ctrl B</kbd>
         </button>
     </div>
+</aside>
+<header class="titlebar" data-tauri-drag-region>
+    <div class="titlebar-heading" data-tauri-drag-region>
+        <h1 data-tauri-drag-region>{% if active_page == 'practice' %}练习{% else %}统计{% endif %}</h1>
+        <span v-if="titlebarNote" class="titlebar-note" data-tauri-drag-region>{{ titlebarNote }}</span>
+    </div>
     <div class="window-controls" role="group" aria-label="窗口控制">
-        <button type="button" class="icon-button window-control" data-window-action="minimize" aria-label="最小化">
+        <button type="button" class="window-control" data-window-action="minimize" aria-label="最小化">
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#minimize"/></svg>
         </button>
-        <button type="button" class="icon-button window-control" data-window-action="maximize" aria-label="最大化">
+        <button type="button" class="window-control" data-window-action="maximize" aria-label="最大化">
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#maximize"/></svg>
         </button>
-        <button type="button" class="icon-button window-control window-close" data-window-action="close" aria-label="关闭">
+        <button type="button" class="window-control window-close" data-window-action="close" aria-label="关闭">
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg>
         </button>
     </div>

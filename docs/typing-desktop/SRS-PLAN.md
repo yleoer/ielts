@@ -94,4 +94,4 @@
 
 ## 验证
 
-在 `typing-desktop` 目录运行 `cargo test`：`golden.rs` 对照 py-fsrs 基准，`store.rs` 覆盖评分边界、到期、幂等、并发冲突与参数变更重放，`optimize.rs` 覆盖门槛、按月跳过、验证门禁、重启恢复与中断重试。修改评分或调度规则后用 `typing-desktop/scripts/gen_fsrs_fixtures.py` 重新生成基准，详见 [typing-desktop/README.md](../../typing-desktop/README.md)。
+在 `typing-desktop` 目录运行 `cargo test`：`golden.rs` 对照 py-fsrs 基准，`store.rs` 覆盖评分边界、到期、幂等、并发冲突与参数变更重放，`optimize.rs` 覆盖门槛、按月跳过、越界参数拒绝、重启恢复与中断重试。修改评分或调度规则后用 `typing-desktop/scripts/gen_fsrs_fixtures.py` 重新生成基准，详见 [typing-desktop/README.md](../../typing-desktop/README.md)。

@@ -36,98 +36,40 @@ class Config:
     access_token: str = ""
 
 
-def discover_anki_db(anki_root: Path) -> str:
-    """Find the first Anki profile collection below an Anki data directory."""
-    if not anki_root.is_dir():
-        return ""
-    for profile in sorted(anki_root.iterdir()):
-        if not profile.is_dir() or profile.name.startswith("."):
-            continue
-        if profile.name in {"addons21", "logs"}:
-            continue
-        collection = profile / "collection.anki2"
-        if collection.is_file():
-            return str(collection)
-    return ""
+CONFIG_PATH = Path(__file__).resolve().parent / "config" / "config.yaml"
 
 
 def default_anki_db_path() -> str:
+    """The first profile collection in the local Anki data directory, or ""."""
     appdata = os.environ.get("APPDATA", "")
-    if appdata:
-        root = Path(appdata) / "Anki2"
-        user_one = root / "User 1" / "collection.anki2"
-        if user_one.is_file():
-            return str(user_one)
-        found = discover_anki_db(root)
-        if found:
-            return found
-        return str(user_one)
-
     home = Path.home()
-    for root in (
-        home / "Library" / "Application Support" / "Anki2",
-        home / ".local" / "share" / "Anki2",
-    ):
-        found = discover_anki_db(root)
-        if found:
-            return found
+    roots = ([Path(appdata) / "Anki2"] if appdata else
+             [home / "Library" / "Application Support" / "Anki2", home / ".local" / "share" / "Anki2"])
+    for root in roots:
+        for collection in sorted(root.glob("*/collection.anki2")):
+            if collection.is_file():
+                return str(collection)
     return ""
 
 
-def _config_path() -> Path | None:
-    candidates = (
-        Path("config") / "config.yaml",
-        Path("typing-practice") / "backend" / "config" / "config.yaml",
-        Path(__file__).resolve().parent / "config" / "config.yaml",
-    )
-    return next((candidate for candidate in candidates if candidate.is_file()), None)
-
-
-def _as_int(value: object, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+def _env(name: str) -> str:
+    return os.environ.get(name, "").strip()
 
 
 def load_config() -> Config:
+    """YAML defaults, overridden by `typing-practice/.env` and process environment variables."""
     load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
-    raw: dict = {}
-    path = _config_path()
-    if path:
-        with path.open("r", encoding="utf-8") as handle:
-            raw = yaml.safe_load(handle) or {}
-    server = raw.get("server", {}) or {}
-    anki = raw.get("anki", {}) or {}
-    stats = raw.get("stats", {}) or {}
-    env = os.environ
-    cfg = Config(
-        server=ServerConfig(host=str(server.get("host", "localhost")), port=_as_int(server.get("port", 8080), 8080)),
+    raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {} if CONFIG_PATH.is_file() else {}
+    server, anki, stats = (raw.get(name) or {} for name in ("server", "anki", "stats"))
+    return Config(
+        server=ServerConfig(host=_env("SERVER_HOST") or server.get("host") or "localhost",
+                            port=int(_env("SERVER_PORT") or server.get("port") or 8080)),
         anki=AnkiConfig(
-            db_path=str(anki.get("db_path", "") or ""),
-            deck_name=str(anki.get("deck_name", DEFAULT_DECK_NAME) or DEFAULT_DECK_NAME),
-            deck_id=_as_int(anki.get("deck_id", DEFAULT_DECK_ID), DEFAULT_DECK_ID),
+            db_path=_env("ANKI_DB_PATH") or anki.get("db_path") or default_anki_db_path(),
+            deck_name=_env("ANKI_DECK_NAME") or anki.get("deck_name") or DEFAULT_DECK_NAME,
+            deck_id=int(_env("ANKI_DECK_ID") or anki.get("deck_id") or DEFAULT_DECK_ID),
         ),
-        db_path=str(stats.get("db_path", "") or "data/stats.db"),
+        db_path=_env("STATS_DB_PATH") or stats.get("db_path") or "data/stats.db",
         # ACCESS_PASSWORD is the old web login; honour it so an upgrade never opens the server.
-        access_token=(env.get("ACCESS_TOKEN", "").strip() or env.get("ACCESS_PASSWORD", "").strip()),
+        access_token=_env("ACCESS_TOKEN") or _env("ACCESS_PASSWORD"),
     )
-    if env.get("SERVER_HOST", "").strip():
-        cfg.server.host = env["SERVER_HOST"].strip()
-    if env.get("SERVER_PORT", "").strip():
-        cfg.server.port = _as_int(env["SERVER_PORT"], cfg.server.port)
-    if env.get("ANKI_DB_PATH", "").strip():
-        cfg.anki.db_path = env["ANKI_DB_PATH"].strip()
-    if env.get("ANKI_DECK_NAME", "").strip():
-        cfg.anki.deck_name = env["ANKI_DECK_NAME"].strip()
-    if env.get("ANKI_DECK_ID", "").strip():
-        cfg.anki.deck_id = _as_int(env["ANKI_DECK_ID"], cfg.anki.deck_id)
-    if env.get("STATS_DB_PATH", "").strip():
-        cfg.db_path = env["STATS_DB_PATH"].strip()
-    if not cfg.anki.db_path.strip():
-        cfg.anki.db_path = default_anki_db_path()
-    if not cfg.server.host.strip():
-        cfg.server.host = "localhost"
-    if cfg.server.port <= 0:
-        cfg.server.port = 8080
-    return cfg

@@ -72,7 +72,7 @@ impl Env {
     }
 
     pub fn import(&self, words: Vec<Value>) {
-        let parsed = parse_snapshot(&json!({"format": 1, "words": words}).to_string()).unwrap();
+        let parsed = parse_snapshot(&json!({"format": 1, "words": words})).unwrap();
         self.store().import_vocabulary(parsed).unwrap();
         *self.words.lock().unwrap() = words;
     }

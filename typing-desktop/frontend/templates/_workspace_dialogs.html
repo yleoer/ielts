@@ -1,27 +1,27 @@
         <div v-if="syncModal.visible" class="dialog-backdrop" @click.self="closeSyncModal">
             <section class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="sync-title">
-                <header class="dialog-header"><h2 id="sync-title">{{ t('同步', 'Sync') }}</h2><button type="button" class="icon-button" @click="closeSyncModal" :aria-label="t('关闭', 'Close')"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
-                <div v-if="syncModal.loading" class="dialog-body muted" role="status">{{ t('加载中…', 'Loading…') }}</div>
+                <header class="dialog-header"><h2 id="sync-title">同步</h2><button type="button" class="icon-button" @click="closeSyncModal" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
+                <div v-if="syncModal.loading" class="dialog-body muted" role="status">加载中…</div>
                 <div v-else class="dialog-body">
-                    <dl class="sync-metrics"><div><dt>{{ t('上次同步', 'Last sync') }}</dt><dd>{{ formatSyncTime(syncModal.status && syncModal.status.last_sync_at) }}</dd></div><div><dt>{{ t('新增单词', 'Added') }}</dt><dd>{{ (syncModal.status && syncModal.status.added_words) || 0 }}</dd></div><div><dt>{{ t('单词总数', 'Total') }}</dt><dd>{{ (syncModal.status && syncModal.status.after_words) || 0 }}</dd></div></dl>
-                    <div class="sync-history"><h3>{{ t('同步历史', 'History') }}<span class="muted">{{ syncHistory().length }}</span></h3><div v-if="syncHistory().length" class="scroll-list"><article v-for="(item, index) in syncHistory()" :key="item.synced_at + '-' + index" class="history-row"><div class="row-between"><strong>{{ formatSyncTime(item.synced_at) }}</strong><span>+{{ item.added_words || 0 }}</span></div><p v-if="item.added_word_list && item.added_word_list.length" class="muted">{{ item.added_word_list.map(word => word.chinese_meaning || word.word).join(' · ') }}</p><p v-else class="muted">{{ t('无新增单词', 'No new entries') }}</p></article></div><p v-else class="muted">{{ t('暂无同步历史', 'No sync history yet.') }}</p></div>
+                    <dl class="sync-metrics"><div><dt>上次同步</dt><dd>{{ formatSyncTime(syncModal.status && syncModal.status.last_sync_at) }}</dd></div><div><dt>新增单词</dt><dd>{{ (syncModal.status && syncModal.status.added_words) || 0 }}</dd></div><div><dt>单词总数</dt><dd>{{ (syncModal.status && syncModal.status.after_words) || 0 }}</dd></div></dl>
+                    <div class="sync-history"><h3>同步历史<span class="muted">{{ syncHistory().length }}</span></h3><div v-if="syncHistory().length" class="scroll-list"><article v-for="(item, index) in syncHistory()" :key="item.synced_at + '-' + index" class="history-row"><div class="row-between"><strong>{{ formatSyncTime(item.synced_at) }}</strong><span>+{{ item.added_words || 0 }}</span></div><p v-if="item.added_word_list && item.added_word_list.length" class="muted">{{ item.added_word_list.map(word => word.chinese_meaning || word.word).join(' · ') }}</p><p v-else class="muted">无新增单词</p></article></div><p v-else class="muted">暂无同步历史</p></div>
                     <p v-if="syncModal.status && syncModal.status.success && syncModal.status.message" class="muted" role="status">{{ syncModal.status.message }}</p>
                     <p v-if="syncModal.error" class="error-message" role="alert">{{ syncModal.error }}</p>
-                    <button type="button" class="button button-primary full-width" @click="syncNow" :disabled="syncModal.syncing">{{ syncModal.syncing ? t('同步中…', 'Syncing…') : t('立即同步', 'Sync now') }}</button>
-                    <div class="row-between sync-server"><span class="muted">{{ t('服务器', 'Server') }} <span class="mono">{{ (syncModal.status && syncModal.status.target_path) || t('未设置', 'Not set') }}</span></span><button type="button" class="button button-secondary" @click="openServerSetup" :disabled="syncModal.syncing">设置</button></div>
+                    <button type="button" class="button button-primary full-width" @click="syncNow" :disabled="syncModal.syncing">{{ syncModal.syncing ? '同步中…' : '立即同步' }}</button>
+                    <div class="row-between sync-server"><span class="muted">服务器 <span class="mono">{{ (syncModal.status && syncModal.status.target_path) || '未设置' }}</span></span><button type="button" class="button button-secondary" @click="openServerSetup" :disabled="syncModal.syncing">设置</button></div>
                 </div>
             </section>
         </div>
         <div v-if="setup.visible" class="dialog-backdrop" @click.self="closeServerSetup">
             <section class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="setup-title" @keydown="setupKeydown">
-                <header class="dialog-header"><h2 id="setup-title">{{ setup.required ? '首次设置' : '设置' }}</h2><button v-if="!setup.required" type="button" class="icon-button" @click="closeServerSetup" :disabled="resources.transferring || updateInstalling" :aria-label="t('关闭', 'Close')"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
+                <header class="dialog-header"><h2 id="setup-title">{{ setup.required ? '首次设置' : '设置' }}</h2><button v-if="!setup.required" type="button" class="icon-button" @click="closeServerSetup" :disabled="resources.transferring || updateInstalling" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
                 <form class="dialog-body setup-form" @submit.prevent="saveServerSetup">
-                    <p v-if="setup.required" class="muted">{{ t('填写同步服务器的地址和访问令牌，用于同步词库与作答记录。', 'Enter the sync server address and access token. Vocabulary and answers from all devices sync through it.') }}</p>
-                    <p v-if="!setup.editable" class="muted">{{ t('服务器由环境变量 CIJIAN_SERVER_URL 指定，需修改环境变量后重启。', 'Set by CIJIAN_SERVER_URL; change the environment variable and restart.') }}</p>
-                    <label class="field-label" for="server-url">{{ t('服务器地址', 'Server address') }}</label>
+                    <p v-if="setup.required" class="muted">填写同步服务器的地址和访问令牌，用于同步词库与作答记录。</p>
+                    <p v-if="!setup.editable" class="muted">服务器由环境变量 CIJIAN_SERVER_URL 指定，需修改环境变量后重启。</p>
+                    <label class="field-label" for="server-url">服务器地址</label>
                     <input ref="serverUrl" id="server-url" v-model="setup.url" class="text-input mono" type="url" placeholder="https://example.com" autocomplete="url" spellcheck="false" required :disabled="!setup.editable || setup.saving || updateInstalling" autofocus>
-                    <label class="field-label" for="server-token">{{ t('访问令牌', 'Access token') }}</label>
-                    <input id="server-token" v-model="setup.token" class="text-input mono" type="password" :placeholder="setup.hasToken ? t('留空则保持不变', 'Leave empty to keep the current token') : ''" autocomplete="off" spellcheck="false" :required="!setup.hasToken" :disabled="!setup.editable || setup.saving || updateInstalling" :aria-invalid="setup.error ? 'true' : null" aria-describedby="setup-error">
+                    <label class="field-label" for="server-token">访问令牌</label>
+                    <input id="server-token" v-model="setup.token" class="text-input mono" type="password" :placeholder="setup.hasToken ? '留空则保持不变' : ''" autocomplete="off" spellcheck="false" :required="!setup.hasToken" :disabled="!setup.editable || setup.saving || updateInstalling" :aria-invalid="setup.error ? 'true' : null" aria-describedby="setup-error">
                     <p v-if="setup.error" id="setup-error" class="error-message" role="alert">{{ setup.error }}</p>
                     <section class="setup-resources" aria-labelledby="setup-resources-title">
                         <h3 id="setup-resources-title">插图与音频</h3>

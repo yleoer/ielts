@@ -22,7 +22,6 @@ use crate::time::{parse_time, time_text, whole_days, Time};
 pub const MINIMUM_REVIEWS: usize = 1000;
 /// Like py-fsrs, only the first 64 events of each card are used.
 const MAX_PER_CARD: usize = 64;
-const LEASE_SECONDS: i64 = 120;
 pub const FSRS_VERSION: &str = "6.3.2";
 
 pub const SCHEMA: &str = r#"
@@ -82,17 +81,13 @@ pub type Trainer<'a> = &'a dyn Fn(&[ReviewLog]) -> Result<Vec<f64>, String>;
 /// parameters in force (normally [`evaluate_with_fsrs_rs`]).
 pub type Evaluation<'a> = &'a dyn Fn(&[ReviewLog], [f64; 21]) -> Result<Value, String>;
 
-fn invalid(error: String) -> ApiError {
-    ApiError::Unavailable(error)
-}
-
 /// Review ledger up to `through_id`, ordered by answer time.
 pub fn load_logs(db: &Connection, through_id: i64) -> ApiResult<Vec<ReviewLog>> {
     let mut stmt = db.prepare("SELECT memory_id,rating,reviewed_at FROM word_reviews WHERE id <= ? ORDER BY reviewed_at,id")?;
     let rows = stmt.query_map([through_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, u8>(1)?, r.get::<_, String>(2)?)))?;
     rows.map(|row| {
         let (card_id, rating, at) = row?;
-        Ok(ReviewLog { card_id, rating: Rating::try_from(rating).map_err(invalid)?, at: parse_time(&at).map_err(invalid)? })
+        Ok(ReviewLog { card_id, rating: Rating::try_from(rating).map_err(ApiError::Unavailable)?, at: parse_time(&at).map_err(ApiError::Unavailable)? })
     }).collect()
 }
 
@@ -138,9 +133,9 @@ pub fn evaluate(logs: &[ReviewLog], parameters: &[f64; 21], cutoff: Time) -> Res
     Ok(json!({"reviews": losses.len(), "log_loss": mean(&losses), "brier_score": mean(&squared)}))
 }
 
+/// Bounds (and so finiteness) are checked by `Scheduler::new` when the parameters are used.
 fn as_parameters(values: &[f64]) -> Result<[f64; 21], String> {
-    let parameters: [f64; 21] = values.try_into().map_err(|_| "优化器返回无效参数".to_string())?;
-    if parameters.iter().all(|v| v.is_finite()) { Ok(parameters) } else { Err("优化器返回无效参数".into()) }
+    values.try_into().map_err(|_| "优化器返回无效参数".to_string())
 }
 
 /// Time-split evaluation like `optimize_fsrs.optimize`: train on the first 80% of
@@ -252,7 +247,7 @@ pub(crate) fn accepted_parameters(db: &Connection) -> ApiResult<Option<[f64; 21]
     let Some(report) = report else { return Ok(None) };
     let report: Value = serde_json::from_str(&report)?;
     let values: Vec<f64> = serde_json::from_value(report["parameters"].clone())?;
-    Ok(Some(as_parameters(&values).map_err(invalid)?))
+    Ok(Some(as_parameters(&values).map_err(ApiError::Unavailable)?))
 }
 
 /// The app runs training in-process, so a `running` row at startup was cut off.
@@ -271,28 +266,6 @@ fn record(mut row: serde_json::Map<String, Value>) -> ApiResult<Value> {
     let report = row.remove("report_json").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "{}".into());
     row.insert("report".into(), serde_json::from_str(&report)?);
     Ok(Value::Object(row))
-}
-
-fn validate(result: &Value) -> Result<[f64; 21], String> {
-    if result["fsrs_version"] != FSRS_VERSION {
-        return Err("优化结果的 FSRS 版本不匹配".into());
-    }
-    let values: Vec<f64> = serde_json::from_value(result["parameters"].clone()).map_err(|_| "优化结果包含无效参数".to_string())?;
-    let parameters = as_parameters(&values).map_err(|_| "优化结果包含无效参数".to_string())?;
-    let metric = |label: &str, key: &str| result[label][key].as_f64().filter(|v| v.is_finite() && *v >= 0.0);
-    for label in ["baseline", "default", "candidate"] {
-        if result[label]["reviews"].as_u64().unwrap_or(0) < 100 || metric(label, "log_loss").is_none() || metric(label, "brier_score").is_none() {
-            return Err("优化结果缺少有效验证指标".into());
-        }
-    }
-    let (b, d, c) = (&result["baseline"], &result["default"], &result["candidate"]);
-    if c["reviews"] != b["reviews"] || c["reviews"] != d["reviews"]
-        || metric("candidate", "log_loss") >= Some(metric("baseline", "log_loss").unwrap().min(metric("default", "log_loss").unwrap()))
-        || metric("candidate", "brier_score") > metric("baseline", "brier_score")
-    {
-        return Err("候选参数未通过验证，不予启用".into());
-    }
-    Ok(parameters)
 }
 
 impl Store {
@@ -333,20 +306,23 @@ impl Store {
         if !config.enabled {
             return Ok(None);
         }
-        let Some((run_id, owner, skipped, logs, baseline)) = self.claim(config)? else { return Ok(None) };
+        let Some((run_id, skipped, logs, baseline)) = self.claim(config)? else { return Ok(None) };
         if !skipped {
+            // fsrs-rs may panic on unusual data; record that as a failed run.
             let outcome = catch_unwind(AssertUnwindSafe(|| evaluation(&logs, baseline)))
                 .unwrap_or_else(|_| Err("后台训练异常终止".into()));
-            if let Err(error) = outcome.and_then(|result| self.finish(run_id, &owner, Ok(result))) {
+            if let Err(error) = outcome.and_then(|result| self.finish(run_id, Ok(result))) {
                 eprintln!("FSRS evaluation {run_id} failed: {error}");
-                self.finish(run_id, &owner, Err(error)).map_err(invalid)?;
+                self.finish(run_id, Err(error)).map_err(ApiError::Unavailable)?;
             }
         }
         self.optimization_run(run_id)
     }
 
+    /// Starts a run when one is due. Training happens on the single optimizer thread
+    /// and `recover_interrupted` clears runs cut off by an exit, so none is running here.
     #[allow(clippy::type_complexity)]
-    fn claim(&self, config: &OptimizationConfig) -> ApiResult<Option<(i64, String, bool, Vec<ReviewLog>, [f64; 21])>> {
+    fn claim(&self, config: &OptimizationConfig) -> ApiResult<Option<(i64, bool, Vec<ReviewLog>, [f64; 21])>> {
         let now = self.now();
         let mut guard = self.lock();
         let inner = &mut *guard;
@@ -356,48 +332,42 @@ impl Store {
         let effective = effective_count(&logs, Some(MAX_PER_CARD));
         tx.execute("UPDATE fsrs_optimizer_state SET last_checked_at=?,effective_reviews=?,total_events=? WHERE id=1",
             params![time_text(now), effective, logs.len()])?;
-        let running: Option<i64> = tx.query_row("SELECT 1 FROM fsrs_optimization_runs WHERE status='running'", [], |r| r.get(0)).optional()?;
         let (next_at, last_evaluated): (Option<String>, usize) = tx.query_row(
             "SELECT next_evaluation_at,last_evaluated_effective FROM fsrs_optimizer_state WHERE id=1", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
-        let not_yet = next_at.map(|t| parse_time(&t)).transpose().map_err(invalid)?.is_some_and(|t| t > now);
-        if running.is_some() || effective < MINIMUM_REVIEWS || not_yet {
+        let not_yet = next_at.map(|t| parse_time(&t)).transpose().map_err(ApiError::Unavailable)?.is_some_and(|t| t > now);
+        if effective < MINIMUM_REVIEWS || not_yet {
             tx.commit()?;
             return Ok(None);
         }
         let new_reviews = effective as i64 - last_evaluated as i64;
         let skipped = last_evaluated > 0 && new_reviews < config.min_new_reviews as i64;
         let reason = if skipped { format!("新增有效间隔复习不足：{new_reviews} / {}", config.min_new_reviews) } else { "后台评估中".into() };
-        let owner = uuid::Uuid::new_v4().to_string();
         let baseline = inner.active.srs.config.parameters;
         let report = json!({
             "fsrs_version": FSRS_VERSION, "baseline_parameters": baseline.to_vec(),
             "training_start": time_text(logs[0].at), "validation_through": time_text(logs[logs.len() - 1].at),
         });
         tx.execute("INSERT INTO fsrs_optimization_runs(status,owner,started_at,finished_at,lease_until,snapshot_review_id,
-            total_events,effective_reviews,new_effective_reviews,baseline_version,reason,report_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            params![if skipped { "skipped" } else { "running" }, owner, time_text(now), skipped.then(|| time_text(now)),
-                    time_text(now + TimeDelta::seconds(LEASE_SECONDS)), snapshot_id, logs.len(), effective, new_reviews,
+            total_events,effective_reviews,new_effective_reviews,baseline_version,reason,report_json) VALUES(?,'',?,?,NULL,?,?,?,?,?,?,?)",
+            params![if skipped { "skipped" } else { "running" }, time_text(now), skipped.then(|| time_text(now)), snapshot_id, logs.len(), effective, new_reviews,
                     inner.active.version, reason, report.to_string()])?;
         let run_id = tx.last_insert_rowid();
         tx.execute("UPDATE fsrs_optimizer_state SET next_evaluation_at=? WHERE id=1", [time_text(next_month(now))])?;
         tx.commit()?;
-        Ok(Some((run_id, owner, skipped, logs, baseline)))
+        Ok(Some((run_id, skipped, logs, baseline)))
     }
 
     /// Records the outcome; an accepted candidate becomes the active schedule
     /// unless the baseline changed while training.
-    fn finish(&self, run_id: i64, owner: &str, result: Result<Value, String>) -> Result<(), String> {
+    fn finish(&self, run_id: i64, result: Result<Value, String>) -> Result<(), String> {
         let now = self.now();
         let mut guard = self.lock();
         let inner = &mut *guard;
         let db_error = |e: rusqlite::Error| format!("无法保存优化结果：{e}");
         let tx = inner.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_error)?;
-        let (status, row_owner, report, effective, baseline_version): (String, String, String, i64, String) = tx.query_row(
-            "SELECT status,owner,report_json,effective_reviews,baseline_version FROM fsrs_optimization_runs WHERE id=?", [run_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))).map_err(db_error)?;
-        if status != "running" || row_owner != owner {
-            return Ok(());
-        }
+        let (report, effective, baseline_version): (String, i64, String) = tx.query_row(
+            "SELECT report_json,effective_reviews,baseline_version FROM fsrs_optimization_runs WHERE id=?", [run_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(db_error)?;
         let mut report: Value = serde_json::from_str(&report).map_err(|e| e.to_string())?;
         let mut updated = None;
         let (status, reason, next_at) = match result {
@@ -410,7 +380,8 @@ impl Store {
                     report[key] = value.clone();
                 }
                 let outcome = if result["accepted"] == true {
-                    let parameters = validate(&result)?;
+                    let values: Vec<f64> = serde_json::from_value(result["parameters"].clone()).map_err(|e| e.to_string())?;
+                    let parameters = as_parameters(&values)?;
                     let active = Active::new(MemoryConfig { parameters, ..inner.active.srs.config.clone() }).map_err(|e| e.to_string())?;
                     if inner.active.version != baseline_version {
                         ("superseded", "现用配置已变更，本次候选不启用".to_string(), now + TimeDelta::days(1))

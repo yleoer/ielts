@@ -55,7 +55,7 @@ impl ServerConfig {
             std::fs::create_dir_all(dir).map_err(failed)?;
         }
         let temporary = path.with_extension("json.tmp");
-        let text = serde_json::to_string_pretty(&json!({"url": self.url, "token": self.token})).unwrap_or_default();
+        let text = serde_json::to_string_pretty(&json!({"url": self.url, "token": self.token})).unwrap();
         std::fs::write(&temporary, text).map_err(failed)?;
         std::fs::rename(&temporary, path).map_err(failed)
     }
@@ -94,7 +94,7 @@ impl HttpRemote {
     }
 
     fn url(&self, path: &str) -> String {
-        format!("{}{path}", self.config.url.trim_end_matches('/'))
+        format!("{}{path}", self.config.url)
     }
 
     fn read(&self, response: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Result<Value, String> {
@@ -133,19 +133,20 @@ pub fn sync_all(store: &Store, remote: &dyn Remote) -> ApiResult<Value> {
     // Manual and background syncs must not interleave their cursor updates.
     let _running = store.sync_running.try_lock().map_err(|_| failed("正在同步，请稍候".into()))?;
     let snapshot = remote.vocab().map_err(failed)?;
-    let mut status = store.import_vocabulary(parse_snapshot(&snapshot.to_string())?)?;
+    let mut status = store.import_vocabulary(parse_snapshot(&snapshot)?)?;
     let device_id = store.device_id()?;
+    let mut cursor = store.sync_cursor()?;
     let (mut uploaded, mut merged) = (0, 0);
     // Each round either uploads pending answers or advances the cursor, so it ends.
     loop {
         let pending = store.pending_uploads(UPLOAD_BATCH)?;
-        let cursor = store.sync_cursor()?;
         let response = remote.sync(&json!({"device_id": device_id, "cursor": cursor, "attempts": pending})).map_err(failed)?;
-        let attempts = response["attempts"].as_array().cloned().unwrap_or_default();
+        let attempts = response["attempts"].as_array().map_or(&[][..], Vec::as_slice);
         let next = response["next_cursor"].as_i64().filter(|n| *n >= cursor)
             .ok_or_else(|| failed("同步服务器返回了无效的游标".into()))?;
-        merged += store.merge_remote(&pending, &attempts, next)?;
+        merged += store.merge_remote(&pending, attempts, next)?;
         uploaded += pending.len();
+        cursor = next;
         if pending.is_empty() && response["more"] != true {
             break;
         }

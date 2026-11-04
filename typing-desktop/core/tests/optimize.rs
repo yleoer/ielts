@@ -231,7 +231,7 @@ fn failure_is_saved_and_retried_after_a_day() {
 }
 
 #[test]
-fn invalid_accepted_result_is_recorded_as_failure() {
+fn out_of_bounds_accepted_parameters_are_recorded_as_failure() {
     let env = env();
     seed(&env, 100, 11);
     let store = env.store();
@@ -239,11 +239,12 @@ fn invalid_accepted_result_is_recorded_as_failure() {
     let stub = candidate(true);
     let invalid = |logs: &[ReviewLog], baseline: [f64; 21]| {
         let mut report = stub(logs, baseline)?;
-        report["candidate"]["log_loss"] = report["baseline"]["log_loss"].clone();
+        report["parameters"][0] = 1000.0.into();
         Ok(report)
     };
     let result = store.check_optimization(&config(), &invalid).unwrap().unwrap();
-    assert_eq!((result["status"].as_str(), result["reason"].as_str()), (Some("failed"), Some("候选参数未通过验证，不予启用")));
+    assert_eq!(result["status"], "failed");
+    assert!(result["reason"].as_str().unwrap().contains("out of bounds"));
     assert_eq!(store.config_version(), original);
     assert!(store.optimization_status(&config()).unwrap()["active_run_id"].is_null());
 }
@@ -255,7 +256,6 @@ fn training_cut_off_by_exit_is_marked_interrupted_on_restart() {
     env.db().execute("INSERT INTO fsrs_optimization_runs(status,owner,started_at,snapshot_review_id,total_events,effective_reviews,
         new_effective_reviews,baseline_version,reason) VALUES('running','x',?,1,1,1,1,'v','后台评估中')", [time_text(env.now())]).unwrap();
     env.db().execute("UPDATE fsrs_optimizer_state SET next_evaluation_at=? WHERE id=1", [time_text(next_month(env.now()))]).unwrap();
-    assert!(env.store().check_optimization(&config(), &candidate(false)).unwrap().is_none(), "one run at a time");
     let reopened = env.reopen();
     let status = reopened.optimization_status(&config()).unwrap();
     assert!(status["running_run_id"].is_null());
