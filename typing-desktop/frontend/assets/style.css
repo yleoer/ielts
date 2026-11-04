@@ -290,7 +290,9 @@ ul { margin: 0; padding: 0; list-style: none; }
 .dialog-header .muted { font-size: 12px; margin-top: 4px; }
 .dialog-body { padding: 24px; overflow-y: auto; }
 .dialog-body .button { margin-top: 20px; }
-.detail-dialog { width: min(100%, 680px); }
+.detail-dialog { width: min(100%, 680px); height: min(100%, 760px); }
+.detail-dialog > .dialog-header, .detail-dialog > .vocabulary-filters { flex-shrink: 0; }
+.detail-dialog > .dialog-body { flex: 1; min-height: 0; scrollbar-gutter: stable; }
 .detail-values { text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .entry-list > .vocabulary-entry, .entry-list > .calendar-entry { display: block; }
 .word-detail-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
