@@ -27,10 +27,6 @@ impl Default for MemoryConfig {
     }
 }
 
-pub fn validate_duration(value: f64, name: &str) -> Result<f64, String> {
-    if value.is_finite() && value >= 0.0 { Ok(value) } else { Err(format!("{name} 必须是非负有限数值")) }
-}
-
 pub struct Srs {
     pub config: MemoryConfig,
     pub scheduler: Scheduler,
@@ -48,15 +44,8 @@ pub struct MemoryView {
 }
 
 impl Srs {
+    /// Fails only when FSRS parameters are out of bounds (e.g. a bad optimization result).
     pub fn new(config: MemoryConfig) -> Result<Self, String> {
-        if !(0.0 < config.desired_retention && config.desired_retention < 1.0) {
-            return Err("memory.desired_retention 必须在 0 和 1 之间".into());
-        }
-        validate_duration(config.easy_seconds, "memory.easy_seconds")?;
-        validate_duration(config.hard_seconds, "memory.hard_seconds")?;
-        if !(0.0 < config.easy_seconds && config.easy_seconds < config.hard_seconds) {
-            return Err("评分阈值必须满足 0 < easy_seconds < hard_seconds".into());
-        }
         let scheduler = Scheduler::new(
             config.parameters, config.desired_retention,
             vec![TimeDelta::minutes(1), TimeDelta::minutes(10)], vec![TimeDelta::minutes(10)],
@@ -66,24 +55,24 @@ impl Srs {
     }
 
     /// Wrong → Again; otherwise strictly > hard → Hard, strictly < easy → Easy, else Good.
-    pub fn grade(&self, correct: bool, duration_ms: f64) -> Result<Rating, String> {
-        let elapsed = validate_duration(duration_ms, "duration_ms")?;
-        Ok(if !correct {
+    /// `duration_ms` is checked at the request boundary (`store::submit`).
+    pub fn grade(&self, correct: bool, duration_ms: f64) -> Rating {
+        if !correct {
             Rating::Again
-        } else if elapsed > self.config.hard_seconds * 1000.0 {
+        } else if duration_ms > self.config.hard_seconds * 1000.0 {
             Rating::Hard
-        } else if elapsed < self.config.easy_seconds * 1000.0 {
+        } else if duration_ms < self.config.easy_seconds * 1000.0 {
             Rating::Easy
         } else {
             Rating::Good
-        })
+        }
     }
 
     /// Reviews with fuzz seeded by `attempt_id`, so replaying the same log on any
     /// device yields the same schedule.
-    pub fn review(&self, card: &Card, correct: bool, duration_ms: f64, now: Time, attempt_id: &str) -> Result<(Card, Rating), String> {
-        let rating = self.grade(correct, duration_ms)?;
-        Ok((self.scheduler.review_card(card, rating, now, Some(fuzz_sample(attempt_id))), rating))
+    pub fn review(&self, card: &Card, correct: bool, duration_ms: f64, now: Time, attempt_id: &str) -> (Card, Rating) {
+        let rating = self.grade(correct, duration_ms);
+        (self.scheduler.review_card(card, rating, now, Some(fuzz_sample(attempt_id))), rating)
     }
 
     pub fn describe(&self, card: &Card, now: Time) -> MemoryView {
@@ -120,12 +109,5 @@ mod tests {
         assert_eq!(a, fuzz_sample("attempt-1"));
         assert_ne!(a, fuzz_sample("attempt-2"));
         assert!((0.0..1.0).contains(&a));
-    }
-
-    #[test]
-    fn rejects_invalid_durations() {
-        let srs = Srs::new(MemoryConfig::default()).unwrap();
-        assert!(srs.grade(true, f64::NAN).is_err());
-        assert!(srs.grade(true, -1.0).is_err());
     }
 }

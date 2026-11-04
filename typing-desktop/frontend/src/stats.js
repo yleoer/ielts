@@ -34,17 +34,15 @@ createApp({
                 error: '',
                 items: []
             },
-            apiBaseUrl: window.location.origin && window.location.origin.startsWith('http')
-                ? `${window.location.origin}/api`
-                : 'http://localhost:8080/api'
+            apiBaseUrl: `${window.location.origin}/api`
         };
     },
     computed: {
         ...workspaceControls.computed,
         workspaceModalOpen() { return this.setup.visible || this.syncModal.visible || this.detailModal.visible; },
         overviewCards() {
-            const o = this.overview || {};
-            const minutes = Number(o.total_time_minutes || 0);
+            const o = this.overview;
+            const minutes = o.total_time_minutes || 0;
             const time = minutes >= 60
                 ? { value: (minutes / 60).toFixed(1), unit: '小时' }
                 : { value: Math.round(minutes), unit: '分钟' };
@@ -84,6 +82,7 @@ createApp({
         calendarRangeLabel() {
             return this.calendar ? `${this.calendar.start_date.slice(0, 7).replace('-', '.')} — ${this.calendar.end_date.slice(0, 7).replace('-', '.')}` : '';
         },
+        titlebarNote() { return this.monthLabel; },
         monthLabel() {
             const [year, month] = this.today.split('-');
             return `${year} 年 ${Number(month)} 月`;
@@ -100,23 +99,13 @@ createApp({
     },
     mounted() {
         this.initUpdates();
-        this.updatePageAppearance();
+        this.initDesktopShell();
         this.loadAllData();
         window.addEventListener('pagehide', this.stopWordAudio);
         document.addEventListener('visibilitychange', () => { if (document.hidden) this.stopWordAudio(); });
 
-        window.addEventListener('resize', () => {
-            if (this.trendChart) {
-                this.trendChart.resize();
-            }
-            // 热力图是纯 CSS 网格，自适应无需重绘。
-        });
+        window.addEventListener('resize', () => this.trendChart?.resize());
         window.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape' && this.setup.visible) { this.closeServerSetup(); return; }
-            if (event.key === 'Escape' && this.syncModal.visible) { this.closeSyncModal(); return; }
-            if (event.key === 'Escape' && this.detailModal.visible) {
-                this.closeDetailModal();
-            }
             if (event.key === 'Tab' && this.detailModal.visible) {
                 const nodes = [...document.querySelectorAll('.detail-dialog button:not(:disabled), .detail-dialog [tabindex="0"]')];
                 const first = nodes[0], last = nodes[nodes.length - 1];
@@ -132,19 +121,13 @@ createApp({
         ...workspaceControls.methods,
         async afterSync() { await this.loadAllData({ refresh: true }); },
         ...wordAudio,
-        updatePageAppearance() {
-            document.title = '词间 · 统计';
-            document.documentElement.lang = 'zh-CN';
-        },
-
         async loadAllData({ refresh = false } = {}) {
             if (!refresh) this.loading = true;
             this.loadError = false;
             try {
                 const response = await axios.get(`${this.apiBaseUrl}/stats/overview`);
-                this.overview = response.data.data || {};
+                this.overview = response.data.data;
             } catch (error) {
-                console.error('Error loading overview:', error);
                 this.loading = false;
                 this.loadError = true;
                 return;
@@ -227,7 +210,7 @@ createApp({
         },
 
         formatMetric(value) {
-            return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '—';
+            return value == null ? '—' : value.toFixed(4);
         },
 
         formatDue(value) {
@@ -356,10 +339,8 @@ createApp({
 
         renderTrend() {
             const container = document.getElementById('trend-chart');
-            if (!container || typeof echarts === 'undefined' || this.trendEmpty) {
-                return;
-            }
-            if (!this.trendChart || this.trendChart.isDisposed()) {
+            if (!container || this.trendEmpty) return;
+            if (!this.trendChart) {
                 // ECharts owns a mutable object graph; Vue proxies break resize layout.
                 this.trendChart = Vue.markRaw(echarts.init(container));
             }
@@ -498,18 +479,13 @@ createApp({
             this.stopWordAudio();
             this.audioError = '';
             this.detailModal.visible = false;
-            if (typeof document !== 'undefined') document.body.style.overflow = this.detailBodyOverflow || '';
             this.detailOpener?.focus();
         },
 
         beginDetail(values) {
-            if (!this.detailModal.visible && typeof document !== 'undefined') {
-                this.detailOpener = document.activeElement;
-                this.detailBodyOverflow = document.body.style.overflow;
-                document.body.style.overflow = 'hidden';
-            }
+            if (!this.detailModal.visible) this.detailOpener = document.activeElement;
             this.detailModal = { visible: true, loading: true, error: '', items: [], ...values };
-            this.$nextTick?.(() => this.$refs.detailClose?.focus());
+            this.$nextTick(() => this.$refs.detailClose?.focus());
         },
 
         openCalendarWords(day) {

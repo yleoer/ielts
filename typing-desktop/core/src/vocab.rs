@@ -24,16 +24,15 @@ impl Word {
     }
 }
 
-fn required_text(word: &Map<String, Value>, field: &str, index: usize) -> ApiResult<String> {
+fn required_text<'a>(word: &'a Map<String, Value>, field: &str, index: usize) -> ApiResult<&'a str> {
     match word.get(field) {
-        Some(Value::String(v)) => Ok(v.clone()),
+        Some(Value::String(v)) => Ok(v),
         _ => Err(ApiError::bad(format!("词库第 {} 项缺少字段 {field}", index + 1))),
     }
 }
 
-/// Parses a snapshot `{"format": 1, "words": [...]}`.
-pub fn parse_snapshot(text: &str) -> ApiResult<Vec<Word>> {
-    let value: Value = serde_json::from_str(text).map_err(|e| ApiError::bad(format!("词库文件不是有效 JSON：{e}")))?;
+/// Parses a server snapshot `{"format": 1, "words": [...]}`.
+pub fn parse_snapshot(value: &Value) -> ApiResult<Vec<Word>> {
     if value.get("format").and_then(Value::as_i64) != Some(1) {
         return Err(ApiError::bad("不支持的词库文件格式"));
     }

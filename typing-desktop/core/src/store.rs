@@ -13,8 +13,8 @@ use sha2::{Digest, Sha256};
 
 use crate::answer::{is_correct, normalize_answer};
 use crate::error::{ApiError, ApiResult};
-use crate::fsrs::{Card, Rating, State};
-use crate::srs::{validate_duration, MemoryConfig, Srs};
+use crate::fsrs::{Card, State};
+use crate::srs::{MemoryConfig, Srs};
 use crate::time::{parse_time, time_text, Time};
 use crate::vocab::{pool_by_key, Word};
 
@@ -143,7 +143,6 @@ pub struct Store {
 }
 
 pub(crate) struct MemoryRow {
-    pub id: i64,
     pub card_json: String,
     pub due: String,
     pub state: i64,
@@ -152,10 +151,10 @@ pub(crate) struct MemoryRow {
 }
 
 pub(crate) fn memory_rows(db: &Connection) -> ApiResult<HashMap<String, MemoryRow>> {
-    let mut stmt = db.prepare("SELECT word_key,id,card_json,due,state,version,config_version FROM word_memory")?;
+    let mut stmt = db.prepare("SELECT word_key,card_json,due,state,version,config_version FROM word_memory")?;
     let rows = stmt.query_map([], |r| {
         Ok((r.get::<_, String>(0)?, MemoryRow {
-            id: r.get(1)?, card_json: r.get(2)?, due: r.get(3)?, state: r.get(4)?, version: r.get(5)?, config_version: r.get(6)?,
+            card_json: r.get(1)?, due: r.get(2)?, state: r.get(3)?, version: r.get(4)?, config_version: r.get(5)?,
         }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -168,9 +167,12 @@ fn text_field<'a>(payload: &'a Value, name: &str) -> ApiResult<&'a str> {
     }
 }
 
+/// Durations must be finite and non-negative, or the attempt would be graded as Easy.
 fn number_field(payload: &Value, name: &str) -> ApiResult<f64> {
-    let value = payload.get(name).and_then(Value::as_f64).unwrap_or(f64::NAN);
-    validate_duration(value, name).map_err(ApiError::BadRequest)
+    match payload.get(name).and_then(Value::as_f64) {
+        Some(v) if v.is_finite() && v >= 0.0 => Ok(v),
+        _ => Err(ApiError::bad(format!("{name} 必须是非负有限数值"))),
+    }
 }
 
 impl Store {
@@ -263,10 +265,11 @@ impl Store {
         }))
     }
 
-    pub fn sync_history(&self, limit: usize) -> ApiResult<Vec<Value>> {
+    /// The 50 most recent vocabulary changes.
+    pub fn sync_history(&self) -> ApiResult<Vec<Value>> {
         let inner = self.lock();
-        let mut stmt = inner.db.prepare("SELECT synced_at,before_words,after_words,added_words,message,added_word_list FROM sync_history ORDER BY synced_at DESC,id DESC LIMIT ?")?;
-        let rows = stmt.query_map([limit.clamp(1, 50) as i64], |r| {
+        let mut stmt = inner.db.prepare("SELECT synced_at,before_words,after_words,added_words,message,added_word_list FROM sync_history ORDER BY synced_at DESC,id DESC LIMIT 50")?;
+        let rows = stmt.query_map([], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?))
         })?;
         rows.map(|row| {
@@ -424,8 +427,9 @@ pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<V
         }
         let active = &inner.active;
         if config_version != active.version {
-            let previous: Option<String> = tx.query_row("SELECT config_json FROM srs_configs WHERE version=?", [&config_version], |r| r.get(0)).optional()?;
-            let rules: Value = previous.map(|t| serde_json::from_str(&t)).transpose()?.unwrap_or(Value::Null);
+            // Every issued version was saved to `srs_configs` when it became active.
+            let rules: String = tx.query_row("SELECT config_json FROM srs_configs WHERE version=?", [&config_version], |r| r.get(0))?;
+            let rules: Value = serde_json::from_str(&rules)?;
             if ["rating_version", "easy_seconds", "hard_seconds"].iter().any(|k| rules[k].as_f64() != active.snapshot[k].as_f64()) {
                 return Err(ApiError::conflict("评分配置已更新，请重新获取题目"));
             }
@@ -440,8 +444,8 @@ pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<V
             _ => return Err(ApiError::conflict("词条已更新或移出练习池，请重新获取")),
         };
         let row: Option<MemoryRow> = tx.query_row(
-            "SELECT id,card_json,due,state,version,config_version FROM word_memory WHERE word_key=?", [&word_key],
-            |r| Ok(MemoryRow { id: r.get(0)?, card_json: r.get(1)?, due: r.get(2)?, state: r.get(3)?, version: r.get(4)?, config_version: r.get(5)? }),
+            "SELECT card_json,due,state,version,config_version FROM word_memory WHERE word_key=?", [&word_key],
+            |r| Ok(MemoryRow { card_json: r.get(0)?, due: r.get(1)?, state: r.get(2)?, version: r.get(3)?, config_version: r.get(4)? }),
         ).optional()?;
         if row.as_ref().map_or(0, |r| r.version) != card_version {
             return Err(ApiError::conflict("这个词已在其他题目中完成复习，请继续下一题"));
@@ -456,15 +460,7 @@ pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<V
                     return Err(ApiError::conflict("这个词尚未到期，请重新获取题目"));
                 }
                 if row.config_version != active.version {
-                    let mut stmt = tx.prepare("SELECT reviewed_at,rating,attempt_id FROM word_reviews WHERE memory_id=? ORDER BY reviewed_at,id")?;
-                    let logs = stmt.query_map([row.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u8>(1)?, r.get::<_, String>(2)?)))?
-                        .map(|log| {
-                            let (at, rating, id) = log?;
-                            Ok((parse_time(&at).map_err(ApiError::Unavailable)?, Rating::try_from(rating).map_err(ApiError::Unavailable)?,
-                                Some(crate::srs::fuzz_sample(&id))))
-                        })
-                        .collect::<ApiResult<Vec<_>>>()?;
-                    card = active.srs.scheduler.reschedule(&card, &logs);
+                    card = active.srs.scheduler.reschedule(&card, &crate::sync::review_logs(&tx, &word_key)?);
                 }
                 let before = serde_json::to_string(&card)?;
                 (card, Some(before))
@@ -476,7 +472,7 @@ pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<V
             }
         };
         let correct = is_correct(word.text("word"), user_input);
-        let (updated, rating) = active.srs.review(&card, correct, elapsed, reviewed, attempt_id).map_err(ApiError::BadRequest)?;
+        let (updated, rating) = active.srs.review(&card, correct, elapsed, reviewed, attempt_id);
         let version = card_version + 1;
         let after_json = serde_json::to_string(&updated)?;
         tx.execute("UPDATE word_memory SET card_json=?,due=?,state=?,stability=?,last_review=?,version=?,config_version=? WHERE id=?",

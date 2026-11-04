@@ -96,7 +96,6 @@ class Ledger:
         self.lock = threading.Lock()
         self.db = sqlite3.connect(self.path, check_same_thread=False, timeout=5)
         self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA busy_timeout = 5000")
         self.db.executescript(SCHEMA)
         self.import_web_history()
 

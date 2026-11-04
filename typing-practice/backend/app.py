@@ -24,18 +24,14 @@ from anki import AnkiReader
 from auth import install_token_gate
 from config import Config, load_config
 from ledger import Ledger, time_text
-from sync import copy_collection_group, latest_collection, sync_configured, sync_target_path
+from sync import copy_collection_group, latest_collection
 
 LOG = logging.getLogger(__name__)
 VOCABULARY_FORMAT = 1
 
 
-def _env_seconds(name: str, default: float, minimum: float = 0) -> float:
-    try:
-        value = float(os.environ.get(name, str(default)))
-        return value if value >= minimum else default
-    except ValueError:
-        return default
+def _env_seconds(name: str, default: float) -> float:
+    return float(os.environ.get(name, "").strip() or default)
 
 
 class AppState:
@@ -44,27 +40,24 @@ class AppState:
         self.lock = threading.RLock()
         self.reader: AnkiReader | None = None
         self.ledger = Ledger(config.db_path)
-        self.closed = False
         self.open_reader()
 
     def open_reader(self) -> None:
+        """Opens the configured collection; when it is missing or unreadable `/api/vocab` returns 503."""
+        if not self.config.anki.db_path:
+            return
         try:
-            if self.config.anki.db_path:
-                self.reader = AnkiReader(self.config.anki.db_path, self.config.anki.deck_name, self.config.anki.deck_id)
-                LOG.info("Using Anki database: %s (deck=%s)", self.config.anki.db_path, self.config.anki.deck_name)
-        except Exception as exc:
-            self.reader = None
+            self.reader = AnkiReader(self.config.anki.db_path, self.config.anki.deck_name, self.config.anki.deck_id)
+            LOG.info("Using Anki database: %s (deck=%s)", self.config.anki.db_path, self.config.anki.deck_name)
+        except (OSError, sqlite3.Error) as exc:
             LOG.warning("Anki reader disabled: %s", exc)
 
     def close(self) -> None:
         with self.lock:
-            if self.closed:
-                return
             if self.reader:
                 self.reader.close()
                 self.reader = None
             self.ledger.close()
-            self.closed = True
 
     def vocabulary(self) -> dict[str, Any]:
         with self.lock:
@@ -74,21 +67,20 @@ class AppState:
         return {"format": VOCABULARY_FORMAT, "generated_at": time_text(datetime.now(timezone.utc)),
                 "deck_name": self.config.anki.deck_name, "words": words}
 
-    def refresh_collection(self) -> int:
+    def refresh_collection(self, source_dir: str, target: str) -> int:
         """Copies the newest collection from anki-sync-server and reopens the reader."""
-        source = latest_collection(os.environ.get("ANKI_SYNC_SOURCE_DIR", ""))
+        source = latest_collection(source_dir)
         with self.lock:
             if self.reader:
                 self.reader.close()
                 self.reader = None
             try:
-                copy_collection_group(source, sync_target_path(self.config.anki.db_path),
-                                      _env_seconds("ANKI_SYNC_STABLE_SECONDS", 2, 0))
+                copy_collection_group(source, target, _env_seconds("ANKI_SYNC_STABLE_SECONDS", 2))
             finally:
                 self.open_reader()
             if not self.reader:
                 raise RuntimeError("复制后的 Anki 数据库无法读取")
-            return self.reader.count_learned()
+            return sum(word["learned"] for word in self.reader.snapshot())
 
 
 def create_app(config: Config | None = None, *, start_background_tasks: bool = True) -> Flask:
@@ -133,20 +125,25 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
     def method_not_allowed(_error):
         return jsonify(success=False, error="method not allowed"), 405
 
-    if start_background_tasks and not app.testing and sync_configured():
-        start_collection_refresh(state)
+    source_dir = os.environ.get("ANKI_SYNC_SOURCE_DIR", "").strip()
+    target = os.environ.get("ANKI_SYNC_TARGET", "").strip()
+    if start_background_tasks and source_dir and target:
+        start_collection_refresh(state, source_dir, target)
     return app
 
 
-def start_collection_refresh(state: AppState) -> None:
+def start_collection_refresh(state: AppState, source_dir: str, target: str) -> None:
+    initial_wait = _env_seconds("ANKI_SYNC_INITIAL_WAIT_SECONDS", 60)
+    interval = _env_seconds("ANKI_SYNC_INTERVAL_SECONDS", 300)
+
     def run() -> None:
-        time.sleep(_env_seconds("ANKI_SYNC_INITIAL_WAIT_SECONDS", 60, 0))
+        time.sleep(initial_wait)
         while True:
             try:
-                LOG.info("Anki collection refreshed: %s learned words", state.refresh_collection())
-            except Exception as exc:
+                LOG.info("Anki collection refreshed: %s learned words", state.refresh_collection(source_dir, target))
+            except Exception as exc:  # keep the schedule alive; the next copy usually succeeds
                 LOG.warning("Scheduled Anki refresh skipped: %s", exc)
-            time.sleep(_env_seconds("ANKI_SYNC_INTERVAL_SECONDS", 300, 1))
+            time.sleep(interval)
 
     threading.Thread(target=run, name="anki-refresh", daemon=True).start()
 

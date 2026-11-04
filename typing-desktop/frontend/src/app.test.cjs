@@ -214,24 +214,6 @@ test('drafts retain every sense but restore the presentation in its default coll
     assert.equal(restored.otherSensesExpanded, false);
 });
 
-test('legacy drafts restore the primary meaning and remain submittable', async () => {
-    const h = harness();
-    h.app.currentWord.part_of_speech = 'n.';
-    h.app.saveDraftSession();
-    const restored = h.mount();
-    assert.equal(await restored.restoreDraftSession(), true);
-    assert.deepEqual(JSON.parse(JSON.stringify(restored.currentChineseSenses)), [
-        { part_of_speech: 'n.', chinese_meaning: '苹果' }
-    ]);
-    h.context.axios.post = async () => ({ data: { data: { attempt_id: 'attempt', is_correct: true } } });
-    await restored.submitInput('apple');
-    assert.equal(restored.stats.correct, 1);
-    restored.currentWord.chinese_senses = [];
-    restored.currentWord.part_of_speech = '';
-    assert.equal(restored.currentChineseSenses[0].part_of_speech, '');
-    assert.equal(restored.currentChineseSenses[0].chinese_meaning, '苹果');
-});
-
 test('all senses survive draft restoration and mistake practice without duplicate reviews', async () => {
     const h = harness();
     const senses = [{ part_of_speech: 'n.', chinese_meaning: '苹果' },
@@ -408,7 +390,7 @@ for (const count of [3, 25]) {
             assert.equal(h.app.progressTotal, count);
         }
         assert.equal(h.app.isFinished, true);
-        assert.equal(h.app.resultTotal, count);
+        assert.equal(h.app.attemptedTotal, count);
     });
 }
 
@@ -438,7 +420,7 @@ for (const count of [3, 20]) {
             await h.app.nextWord();
         }
         assert.equal(h.app.isFinished, true);
-        assert.equal(h.app.resultTotal, count);
+        assert.equal(h.app.attemptedTotal, count);
         assert.equal(h.requests.length, count);
         assert.equal(queueRequests, 1);
     });
@@ -457,37 +439,13 @@ test('a free practice conflict skips the stale word without fetching another bat
     await h.app.submitInput('apple');
     await h.app.continueAfterConflict();
     assert.equal(h.app.currentWord.word, 'book');
-    assert.equal(h.app.resultTotal, 0);
+    assert.equal(h.app.attemptedTotal, 0);
     assert.equal(queueRequests, 0);
     await h.app.submitInput('book');
     await h.app.continueAfterConflict();
     assert.equal(h.app.isFinished, true);
-    assert.equal(h.app.resultTotal, 0);
+    assert.equal(h.app.attemptedTotal, 0);
     assert.equal(queueRequests, 0);
-});
-
-test('an old unrecorded free draft starts a new round without replaying old counts', async () => {
-    const h = harness();
-    h.app.practiceMode = 'free';
-    h.app.words = Array.from({ length: 125 }, () => ({ word: 'apple', source_id: 'apple' }));
-    h.app.currentIndex = 5;
-    h.app.stats.correct = 5;
-    h.app.saveDraftSession();
-    h.context.axios.get = async (url, { params }) => {
-        assert.equal(params.mode, 'free');
-        assert.equal(params.limit, 20);
-        return { data: { data: {
-            items: Array.from({ length: 20 }, (_, index) => ({ word: 'apple', attempt_id: `new-${index}` })),
-            summary: { total: 125 }, server_time: new Date().toISOString()
-        } } };
-    };
-    const restored = h.mount();
-    assert.equal(await restored.restoreDraftSession(), true);
-    assert.equal(restored.practiceMode, 'free');
-    assert.equal(restored.progressTotal, 20);
-    assert.equal(restored.progressCurrent, 1);
-    assert.equal(restored.resultTotal, 0);
-    assert.equal(h.requests.length, 0);
 });
 
 test('a legacy draft at the old 20-word limit continues loading available words', async () => {

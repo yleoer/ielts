@@ -8,19 +8,16 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="/src/pronunciation.js?v=20261103-plain-audio" defer></script>
-    <script src="/src/app.js?v=20261103-sticky-header" defer></script>
+    <script src="/src/app.js?v=20261104-desktop-shell6" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
     <div id="app" v-cloak>
-      <div class="app-shell">
+      <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarRail }">
         {% set active_page = 'practice' %}
         {% include '_header.html' %}
-        <main :inert="workspaceModalOpen || null" id="main-content" class="practice-workspace">
-            <div v-if="!isFormalPractice" class="page-heading">
-                <span class="session-label">{{ isMistakePractice ? '错词重练 · 不计入记忆与统计' : '自由练习 · 最多 20 个 · 计入记忆与统计' }}</span>
-            </div>
-            <p v-if="summary && isFormalPractice" class="memory-summary">待复习 {{ summary.due_count }} 个 · 今日可学 {{ summary.new_available }} 个</p>
+        <main :inert="workspaceModalOpen || null" id="main-content" class="workspace-main practice-workspace">
+            <div class="practice-column">
             <p v-if="audioError" class="audio-error error-message" role="alert">{{ audioError }}</p>
             <div v-if="storageError" class="submission-status" role="alert">
                 <p class="error-message">{{ storageError }}</p>
@@ -29,14 +26,14 @@
             <template v-if="!isFinished">
                 <div class="session-progress">
                     <span class="progress-count">{{ progressCurrent }} <span class="muted">/ {{ progressTotal }}</span></span>
-                    <div class="progress-track" role="progressbar" :aria-label="t('练习进度', 'Session progress')" :aria-valuenow="progressCurrent" aria-valuemin="0" :aria-valuemax="progressTotal">
+                    <div class="progress-track" role="progressbar" aria-label="练习进度" :aria-valuenow="progressCurrent" aria-valuemin="0" :aria-valuemax="progressTotal">
                         <div :style="{ width: progressPercentage + '%' }"></div>
                     </div>
-                    <span class="progress-accuracy">{{ t('正确率', 'Accuracy') }} <strong>{{ accuracy }}%</strong></span>
+                    <span class="progress-accuracy">正确率 <strong>{{ accuracy }}%</strong></span>
                 </div>
-                <section class="practice-sheet" :class="cardClass" :aria-label="t('当前词条', 'Current entry')">
+                <section class="practice-sheet" :class="cardClass" aria-label="当前词条">
                     <div v-if="currentWord" class="entry-content">
-                        <img v-if="currentWord.illustration_url && !illustrationFailed" :key="currentWord.id" :src="currentWord.illustration_url" :alt="t('词义插图', 'Meaning illustration')" @error="illustrationFailed = true" width="200" height="200" class="practice-illustration">
+                        <img v-if="currentWord.illustration_url && !illustrationFailed" :key="currentWord.id" :src="currentWord.illustration_url" alt="词义插图" @error="illustrationFailed = true" width="200" height="200" class="practice-illustration">
                         <div id="practice-meanings" class="practice-meanings">
                             <p v-if="primaryChineseSense" class="practice-meaning">
                                 <span v-if="primaryChineseSense.part_of_speech" class="practice-part-of-speech">{{ primaryChineseSense.part_of_speech }}</span>
@@ -71,24 +68,24 @@
                         </div>
                         <div v-if="showAnswer && !isAdvancing" class="correction-area">
                             <p class="feedback-text">{{ feedbackMessage }}</p>
-                            <p class="answer-spelling"><button type="button" class="word-audio" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)"><span v-for="(segment, index) in answerDisplay.segments" :key="index" :class="segment.ok ? answerOkClass : answerMissClass">{{ segment.ch }}</span></button></p>
-                            <p v-if="answerDisplay.alternatives" class="muted">{{ t('也可以：', 'Also: ') }}<span class="mono"><button type="button" class="word-audio" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ answerDisplay.alternatives }}</button></span></p>
+                            <p class="answer-spelling"><button type="button" class="word-audio" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)"><span v-for="(segment, index) in answerDisplay.segments" :key="index" :class="segment.ok ? 'answer-letter' : 'answer-letter is-missed'">{{ segment.ch }}</span></button></p>
+                            <p v-if="answerDisplay.alternatives" class="muted">也可以：<span class="mono"><button type="button" class="word-audio" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ answerDisplay.alternatives }}</button></span></p>
                             <p v-if="currentWord.phonetic" class="phonetic">{{ currentWord.phonetic }}</p>
-                            <p v-if="wrongInput" class="muted">{{ t('你的输入：', 'You typed: ') }}<del class="mono">{{ wrongInput }}</del></p>
+                            <p v-if="lastWrongInput" class="muted">你的输入：<del class="mono">{{ lastWrongInput }}</del></p>
                             <div v-if="currentWord.example_en || currentWord.example_cn" class="example-area">
                                 <p v-if="currentWord.example_en">{{ currentWord.example_en }}</p>
                                 <p v-if="currentWord.example_cn" class="muted">{{ currentWord.example_cn }}</p>
                             </div>
-                            <button type="button" class="button button-secondary" :disabled="Boolean(pendingAttempt) || Boolean(storageError)" @click="nextWord">{{ t('下一题', 'Continue') }}<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button>
+                            <button type="button" class="button button-secondary" :disabled="Boolean(pendingAttempt) || Boolean(storageError)" @click="nextWord">下一题<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button>
                         </div>
                     </div>
                     <div v-else-if="isLoadingWords" class="empty-state" role="status">
                         <div class="loading-skeleton"><span></span><span></span><span></span></div>
-                        <p>{{ t('正在加载单词…', 'Loading entries…') }}</p>
+                        <p>正在加载单词…</p>
                     </div>
                     <div v-else-if="wordsError" class="empty-state" role="alert">
-                        <h2>{{ t('单词加载失败', 'Unable to load entries') }}</h2><p>{{ wordsError }}</p>
-                        <button type="button" class="button button-primary" @click="loadNextWord">{{ t('重试', 'Try again') }}</button>
+                        <h2>单词加载失败</h2><p>{{ wordsError }}</p>
+                        <button type="button" class="button button-primary" @click="loadNextWord">重试</button>
                     </div>
                     <div v-else class="empty-state">
                         <svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#document"/></svg>
@@ -103,10 +100,11 @@
             <section v-else class="results-sheet">
                 <div class="result-heading"><svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#check"/></svg><h2>{{ isPracticeAbandoned ? '已退出练习' : isMistakePractice ? '错词重练完成' : practiceMode === 'free' ? '自由练习完成' : '本轮练习完成' }}</h2></div>
                 <p v-if="!isMistakePractice" class="result-save-status">{{ attemptedTotal }} 次作答已保存<span v-if="nextDueText"> · 下次复习 {{ nextDueText }}</span></p>
-                <dl class="metrics-strip result-metrics"><div><dt>{{ t('总题数', 'Entries') }}</dt><dd>{{ resultTotal }}</dd></div><div><dt>{{ t('正确', 'Correct') }}</dt><dd>{{ stats.correct }}</dd></div><div><dt>{{ t('错误', 'To revise') }}</dt><dd>{{ stats.incorrect }}</dd></div><div><dt>{{ t('正确率', 'Accuracy') }}</dt><dd>{{ accuracy }}<small>%</small></dd></div></dl>
-                <div v-if="stats.errors.length" class="mistakes-section"><h3>{{ t('错题回顾', 'Revisions') }}</h3><ul class="entry-list"><li v-for="(error, index) in stats.errors" :key="index"><div><strong class="mono"><button type="button" class="word-audio" :disabled="!hasWordAudio(error.wordData)" @click="playWord(error.wordData)">{{ error.word }}</button></strong><p class="muted">{{ error.meaning }}</p></div><del class="mono muted">{{ error.user_input }}</del></li></ul></div>
+                <dl class="metrics-strip result-metrics"><div><dt>总题数</dt><dd>{{ attemptedTotal }}</dd></div><div><dt>正确</dt><dd>{{ stats.correct }}</dd></div><div><dt>错误</dt><dd>{{ stats.incorrect }}</dd></div><div><dt>正确率</dt><dd>{{ accuracy }}<small>%</small></dd></div></dl>
+                <div v-if="stats.errors.length" class="mistakes-section"><h3>错题回顾</h3><ul class="entry-list"><li v-for="(error, index) in stats.errors" :key="index"><div><strong class="mono"><button type="button" class="word-audio" :disabled="!hasWordAudio(error.wordData)" @click="playWord(error.wordData)">{{ error.word }}</button></strong><p class="muted">{{ error.meaning }}</p></div><del class="mono muted">{{ error.user_input }}</del></li></ul></div>
                 <div class="button-row"><button v-if="mistakePracticeWords.length" type="button" class="button button-secondary" @click="startMistakePractice">错词重练</button><button type="button" class="button button-secondary" @click="startFreePractice">自由练习</button><button type="button" class="button button-primary" @click="restartPractice">继续计划<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button></div>
             </section>
+            </div>
         </main>
         {% include '_workspace_dialogs.html' %}
       </div>

@@ -58,7 +58,7 @@ fn grading_matches_srs_py() {
     let data = fixture();
     let srs = srs();
     for case in data["grading"]["cases"].as_array().unwrap() {
-        let rating = srs.grade(case["correct"].as_bool().unwrap(), case["duration_ms"].as_f64().unwrap()).unwrap();
+        let rating = srs.grade(case["correct"].as_bool().unwrap(), case["duration_ms"].as_f64().unwrap());
         assert_eq!(rating as u64, case["rating"].as_u64().unwrap(), "{case}");
     }
 }

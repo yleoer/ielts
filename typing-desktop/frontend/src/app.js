@@ -18,7 +18,6 @@ const practiceApp = {
             pendingAttempt: null, submitError: '', submissionConflict: false,
             answerAccepted: false, storageError: '', draftSaveTimer: null,
             clockStartedAt: null, elapsedMs: 0, firstInputMs: null,
-            serverOffset: 0,
             nextQueue: null, nextQueueReceivedAt: 0, feedbackStartedAt: null,
             stats: { correct: 0, incorrect: 0, errors: [], attempts: [] },
             apiBaseUrl: `${window.location.origin}/api`
@@ -27,16 +26,17 @@ const practiceApp = {
     computed: {
         ...workspaceControls.computed,
         currentWord() { return this.words[this.currentIndex] || null; },
-        currentChineseSenses() {
-            if (!this.currentWord) return [];
-            if (this.currentWord.chinese_senses?.length) return this.currentWord.chinese_senses;
-            return [{ part_of_speech: this.currentWord.part_of_speech || '', chinese_meaning: this.currentWord.chinese_meaning || '' }];
-        },
+        currentChineseSenses() { return this.currentWord?.chinese_senses || []; },
         primaryChineseSense() { return this.currentChineseSenses[0] || null; },
         secondaryChineseSenses() { return this.currentChineseSenses.slice(1, 3); },
         remainingChineseSenses() { return this.currentChineseSenses.slice(3); },
         isMistakePractice() { return this.practiceMode === 'mistakes'; },
         isFormalPractice() { return this.practiceMode === 'normal'; },
+        titlebarNote() {
+            if (this.isMistakePractice) return '错词重练 · 不计入记忆与统计';
+            if (!this.isFormalPractice) return '自由练习 · 最多 20 个 · 计入记忆与统计';
+            return this.summary ? `待复习 ${this.summary.due_count} 个 · 今日可学 ${this.summary.new_available} 个` : '';
+        },
         progressTotal() {
             if (!this.isFormalPractice) return this.words.length;
             return Math.max(this.words.length, this.currentIndex + (this.summary?.due_count || 0) + (this.summary?.new_available || 0));
@@ -45,7 +45,6 @@ const practiceApp = {
         progressPercentage() { return this.progressTotal ? this.progressCurrent * 100 / this.progressTotal : 0; },
         attemptedTotal() { return this.stats.correct + this.stats.incorrect; },
         accuracy() { return this.attemptedTotal ? Math.round(this.stats.correct * 100 / this.attemptedTotal) : 0; },
-        resultTotal() { return this.attemptedTotal; },
         mistakePracticeWords() {
             return [...new Map(this.stats.errors.map(error => [error.wordData.source_id || error.word, error.wordData])).values()];
         },
@@ -53,9 +52,6 @@ const practiceApp = {
         inputClass() {
             return [this.isAdvancing || (this.pendingAttempt && this.isCorrect) ? 'is-correct' : this.showAnswer ? 'is-invalid' : 'is-pending', this.shake ? 'practice-shake' : ''];
         },
-        answerOkClass() { return 'answer-letter'; },
-        answerMissClass() { return 'answer-letter is-missed'; },
-        wrongInput() { return this.lastWrongInput; },
         nextDueText() { return this.summary?.next_due ? this.formatSyncTime(this.summary.next_due) : ''; },
         answerDisplay() {
             const candidates = String(this.currentWord?.word || '').split('/').map(value => value.trim()).filter(Boolean);
@@ -66,6 +62,10 @@ const practiceApp = {
     },
     watch: {
         currentWord() { this.stopWordAudio(); this.audioError = ''; this.illustrationFailed = false; this.otherSensesExpanded = false; },
+        // The answer panel grows below the input; keep it visible in short desktop windows.
+        showAnswer(shown) {
+            if (shown) this.$nextTick(() => document.querySelector?.('.correction-area')?.scrollIntoView({ block: 'nearest' }));
+        },
         userInput() {
             if (this.isRestoringDraft) return;
             if (this.showAnswer && !this.isAdvancing && !this.isComposing && this.isRetypeCorrect()) {
@@ -91,7 +91,6 @@ const practiceApp = {
             // Mouse users can resume typing; keyboard and touch retain native focus.
             if (returnToInput) this.$nextTick(() => this.$refs.inputField?.focus({ preventScroll: true }));
         },
-        generateSessionId() { return crypto.randomUUID ? crypto.randomUUID() : 's-' + Date.now() + '-' + Math.random().toString(36).slice(2); },
         cloneWord(word) { return JSON.parse(JSON.stringify(word)); },
         isRetypeCorrect() { return Boolean(this.userInput.trim()) && this.answerCandidates(this.currentWord?.word).includes(this.normalizeAnswer(this.userInput)); },
         async fetchWords({ mode = 'normal' } = {}) {
@@ -99,7 +98,7 @@ const practiceApp = {
             this.clearAdvanceTimer();
             this.pauseClock();
             this.clearDraftSession();
-            this.sessionId = this.generateSessionId();
+            this.sessionId = crypto.randomUUID();
             this.practiceMode = mode;
             this.words = [];
             this.nextQueue = null;
@@ -119,11 +118,10 @@ const practiceApp = {
                 const buffered = this.nextQueue;
                 this.nextQueue = null;
                 const fresh = buffered && Date.now() - this.nextQueueReceivedAt < 5000
-                    && (!buffered.summary?.next_due || Date.parse(buffered.summary.next_due) > Date.now() + this.serverOffset);
+                    && (!buffered.summary.next_due || Date.parse(buffered.summary.next_due) > Date.now());
                 const data = fresh ? buffered : (await axios.get(`${this.apiBaseUrl}/practice/queue`, {
                     params: { session_id: this.sessionId, limit: this.isFormalPractice ? 3 : 20, mode: this.isFormalPractice ? 'scheduled' : 'free' }, timeout: 15000
                 })).data.data;
-                this.serverOffset = Date.parse(data.server_time) - (fresh ? this.nextQueueReceivedAt : Date.now());
                 this.summary = data.summary;
                 this.preloadIllustrations(data.items);
                 if (!data.items.length) {
@@ -158,13 +156,12 @@ const practiceApp = {
             this.resumeClock();
         },
         preloadIllustrations(words) {
-            if (typeof Image === 'undefined') return;
             for (const word of words.slice(0, 3)) {
                 const url = word.illustration_url;
                 if (!url || illustrationPreloads.has(url)) continue;
                 const picture = new Image();
                 picture.decoding = 'async';
-                picture.onload = () => { picture.decode?.().catch(() => {}); };
+                picture.onload = () => picture.decode().catch(() => {});
                 picture.onerror = () => { illustrationPreloads.delete(url); };
                 illustrationPreloads.set(url, picture);
                 picture.src = url;
@@ -224,7 +221,7 @@ const practiceApp = {
             this.pendingAttempt = {
                 attempt_id: this.currentWord.attempt_id, session_id: this.sessionId,
                 user_input: input, duration_ms: this.elapsedMs, first_input_ms: this.firstInputMs,
-                reviewed_at: new Date(Date.now() + this.serverOffset).toISOString()
+                reviewed_at: new Date().toISOString()
             };
             this.submissionConflict = false;
             await this.retryPending();
@@ -376,7 +373,7 @@ const practiceApp = {
             const words = this.mistakePracticeWords.map(word => this.cloneWord(word));
             if (!words.length || this.pendingAttempt) return;
             this.clearDraftSession();
-            this.sessionId = this.generateSessionId();
+            this.sessionId = crypto.randomUUID();
             this.practiceMode = 'mistakes';
             this.words = words;
             this.currentIndex = 0;
@@ -398,12 +395,12 @@ const practiceApp = {
         saveDraftSession() {
             if (!this.sessionId || this.isRestoringDraft || this.isFinished) return false;
             const draft = {
-                version: 1, savedAt: new Date().toISOString(), sessionId: this.sessionId,
+                savedAt: new Date().toISOString(), sessionId: this.sessionId,
                 words: this.words, currentIndex: this.currentIndex,
                 userInput: this.userInput, showAnswer: this.showAnswer, answerAccepted: this.answerAccepted,
                 isCorrect: this.isCorrect, lastWrongInput: this.lastWrongInput, feedbackMessage: this.feedbackMessage,
                 practiceMode: this.practiceMode, stats: this.stats, elapsedMs: this.effectiveDuration(),
-                firstInputMs: this.firstInputMs, serverOffset: this.serverOffset, summary: this.summary,
+                firstInputMs: this.firstInputMs, summary: this.summary,
                 pendingAttempt: this.pendingAttempt
             };
             try {
@@ -422,36 +419,24 @@ const practiceApp = {
             if (this.draftSaveTimer) window.clearTimeout(this.draftSaveTimer);
             this.draftSaveTimer = null;
             if (this.pendingAttempt) return;
-            try {
-                if (this.sessionId) localStorage.removeItem(DRAFT_PREFIX + this.sessionId);
-                sessionStorage.removeItem(ACTIVE_KEY);
-            } catch (error) { /* Memory-only state still permits exiting. */ }
+            localStorage.removeItem(DRAFT_PREFIX + this.sessionId);
+            sessionStorage.removeItem(ACTIVE_KEY);
         },
         async restoreDraftSession() {
-            let draft;
-            try {
-                // Retire old sessions without ever replaying their batch statistics.
-                localStorage.removeItem('typingPracticeDraftSession:wordAtlas:v2');
-                const active = sessionStorage.getItem(ACTIVE_KEY);
-                const keys = Object.keys(localStorage);
-                const pending = keys.filter(key => key.startsWith(OUTBOX_PREFIX)).map(key => JSON.parse(localStorage.getItem(key))).sort((a, b) => a.savedAt.localeCompare(b.savedAt));
-                const drafts = keys.filter(key => key.startsWith(DRAFT_PREFIX)).map(key => JSON.parse(localStorage.getItem(key))).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
-                draft = pending.find(item => item.sessionId === active) || pending[0] || drafts.find(item => item.sessionId === active) || drafts[0];
-                if (!draft || draft.version !== 1 || !Array.isArray(draft.words) || !draft.sessionId) return false;
-                if (!draft.pendingAttempt && Date.now() - Date.parse(draft.savedAt) > 7 * 86400000) {
-                    localStorage.removeItem(DRAFT_PREFIX + draft.sessionId);
-                    return false;
-                }
-            } catch (error) { return false; }
-            if (draft.practiceMode === 'free' && !draft.pendingAttempt && draft.words.some(word => !word.attempt_id)) {
-                // Earlier free sessions had no server tickets; start a recorded round.
-                this.sessionId = draft.sessionId;
-                await this.fetchWords({ mode: 'free' });
-                return true;
+            const active = sessionStorage.getItem(ACTIVE_KEY);
+            const keys = Object.keys(localStorage);
+            const read = prefix => keys.filter(key => key.startsWith(prefix)).map(key => JSON.parse(localStorage.getItem(key)));
+            const pending = read(OUTBOX_PREFIX).sort((a, b) => a.savedAt.localeCompare(b.savedAt));
+            const drafts = read(DRAFT_PREFIX).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+            const draft = pending.find(item => item.sessionId === active) || pending[0] || drafts.find(item => item.sessionId === active) || drafts[0];
+            if (!draft) return false;
+            if (!draft.pendingAttempt && Date.now() - Date.parse(draft.savedAt) > 7 * 86400000) {
+                localStorage.removeItem(DRAFT_PREFIX + draft.sessionId);
+                return false;
             }
             this.isRestoringDraft = true;
-            for (const key of ['sessionId', 'words', 'currentIndex', 'userInput', 'showAnswer', 'answerAccepted', 'isCorrect', 'lastWrongInput', 'feedbackMessage', 'practiceMode', 'stats', 'elapsedMs', 'firstInputMs', 'serverOffset', 'summary', 'pendingAttempt']) {
-                if (key in draft) this[key] = draft[key];
+            for (const key of ['sessionId', 'words', 'currentIndex', 'userInput', 'showAnswer', 'answerAccepted', 'isCorrect', 'lastWrongInput', 'feedbackMessage', 'practiceMode', 'stats', 'elapsedMs', 'firstInputMs', 'summary', 'pendingAttempt']) {
+                this[key] = draft[key];
             }
             this.clockStartedAt = null;
             await this.$nextTick();
@@ -572,50 +557,39 @@ const practiceApp = {
         },
         // First launch: ask for the server before loading practice. Returns true when setup is needed.
         async checkServerSetup() {
-            try {
-                const settings = await this.loadServerSettings();
-                if (settings.configured) return false;
-                Object.assign(this.setup, { visible: true, required: true });
-                this.pauseClock();
-                await this.loadResourceStatus();
-                this.$nextTick(() => this.$refs.serverUrl?.focus());
-                return true;
-            } catch (error) {
-                console.error('Error loading server settings:', error);
-                return false;
-            }
+            const settings = await this.loadServerSettings();
+            if (settings.configured) return false;
+            Object.assign(this.setup, { visible: true, required: true });
+            this.pauseClock();
+            await this.loadResourceStatus();
+            this.$nextTick(() => this.$refs.serverUrl?.focus());
+            return true;
         },
 
         async afterSync() {
             this.nextQueue = null;
             await this.refreshSummary();
         },
-
-
     },
     async mounted() {
-        document.title = '词间 · 练习';
         this.initUpdates();
+        this.initDesktopShell();
         const needsSetup = await this.checkServerSetup();
         if (!needsSetup && !await this.restoreDraftSession()) await this.fetchWords();
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) { this.stopWordAudio(); this.pauseClock(); this.saveDraftSession(); }
             else this.resumeClock();
         });
-        window.addEventListener('online', () => this.retryPending());
         window.addEventListener('pagehide', this.stopWordAudio);
         window.addEventListener('beforeunload', event => {
             this.pauseClock(); this.saveDraftSession();
             if (this.pendingAttempt) { event.preventDefault(); event.returnValue = ''; }
         });
         window.addEventListener('keydown', event => {
-            if (event.key === 'Escape' && this.setup.visible) { this.closeServerSetup(); return; }
-            if (event.key === 'Escape' && this.syncModal.visible) { this.closeSyncModal(); return; }
-            if (event.target === document.body) {
-                if (event.code === 'Space') event.preventDefault();
-                if (event.key === 'Enter' && this.showAnswer) this.handleEnter(event);
-                if (/^[a-zA-Z]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey && !this.isFinished && !this.syncModal.visible && !this.setup.visible) this.focusInput();
-            }
+            if (event.target !== document.body || this.workspaceModalOpen) return;
+            if (event.code === 'Space') event.preventDefault();
+            if (event.key === 'Enter' && this.showAnswer) this.handleEnter(event);
+            if (/^[a-zA-Z]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey && !this.isFinished) this.focusInput();
         });
     }
 };

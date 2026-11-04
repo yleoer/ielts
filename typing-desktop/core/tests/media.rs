@@ -74,7 +74,7 @@ fn words(id: i64, source: &str) -> Vec<cijian_core::vocab::Word> {
     parse_snapshot(&json!({"format": 1, "words": [{"id": id, "source_id": source, "word": "library",
         "chinese_meaning": "图书馆", "part_of_speech": "n.", "category": "教育", "learned": true,
         "illustration_file": "unrelated_server_filename.webp", "illustration_url": "https://server/image",
-        "audio_url": "https://server/audio", "audio_urls": {"uk": "https://server/uk"}}]}).to_string()).unwrap()
+        "audio_url": "https://server/audio", "audio_urls": {"uk": "https://server/uk"}}]})).unwrap()
 }
 
 fn get(app: &App, path: &str) -> Response {

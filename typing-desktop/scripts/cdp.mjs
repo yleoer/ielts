@@ -1,7 +1,7 @@
 // Drive the running desktop WebView over CDP (WebView2 remote debugging).
 //   node typing-desktop/scripts/cdp.mjs eval "<js expression>"
 //   node typing-desktop/scripts/cdp.mjs shot out.png
-// Requires WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333.
+// Requires the app to be started with CIJIAN_DEVTOOLS_PORT=9333.
 import { writeFileSync } from 'node:fs';
 
 const port = process.env.CDP_PORT || 9333;

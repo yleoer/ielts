@@ -172,13 +172,14 @@ impl MediaManager {
     }
 
     fn install(&self, path: &Path, id: &str) -> ApiResult<()> {
-        // Close the candidate ZIP before renaming it on Windows.
-        drop(Media::load_package(path)?);
         let root = self.root.as_ref().unwrap();
         let name = format!("{id}.zip");
         let target = root.join(&name);
         std::fs::rename(path, &target).map_err(failure)?;
-        let media = Arc::new(Media::load_package(&target)?);
+        // An unreadable package is removed; the active one stays in place.
+        let media = Arc::new(Media::load_package(&target).inspect_err(|_| {
+            let _ = std::fs::remove_file(&target);
+        })?);
         let pointer = root.join("active.json");
         let temporary = root.join("active.json.tmp");
         std::fs::write(&temporary, serde_json::to_vec(&name).unwrap()).map_err(failure)?;

@@ -132,12 +132,19 @@ fn main() {
             app.manage(state);
             // Windows WebView2 maps custom schemes to http://<scheme>.localhost.
             let url = if cfg!(windows) { "http://cijian.localhost/" } else { "cijian://localhost/" };
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::CustomProtocol(url.parse()?))
+            let mut window = WebviewWindowBuilder::new(app, "main", WebviewUrl::CustomProtocol(url.parse()?))
                 .title("词间")
                 .decorations(false)
                 .inner_size(1100.0, 780.0)
-                .min_inner_size(420.0, 560.0)
-                .build()?;
+                .min_inner_size(760.0, 560.0);
+            // Tauri passes its own WebView2 arguments, which replace WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS;
+            // repeat Tauri's defaults and add the debugging port for scripts/cdp.mjs.
+            if let Some(port) = std::env::var("CIJIAN_DEVTOOLS_PORT").ok().filter(|v| v.parse::<u16>().is_ok()) {
+                window = window.additional_browser_args(&format!(
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --remote-debugging-port={port}"
+                ));
+            }
+            window.build()?;
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -9,7 +9,7 @@ function harness(get, globals = {}) {
         Vue: { createApp(value) { options = value; return { mount() {} }; } },
         window: { location: { origin: 'http://test' }, clearTimeout() {} },
         axios: { get },
-        console: { error() {} },
+        document: { activeElement: null },
         ...globals
     });
     vm.runInContext(fs.readFileSync(__dirname + '/workspace.js', 'utf8'), context);

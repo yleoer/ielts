@@ -171,16 +171,16 @@ impl App {
     /// Uses `config` for all later syncs; does not contact the server.
     pub fn set_server(&self, config: ServerConfig, source: ServerSource) {
         let remote = (self.connect)(&config);
-        *self.connection.write().unwrap_or_else(|p| p.into_inner()) = Some(Connection { config, source, remote });
+        *self.connection.write().unwrap() = Some(Connection { config, source, remote });
     }
 
     /// The configured sync server, if any.
     pub fn remote(&self) -> Option<Arc<dyn Remote>> {
-        self.connection.read().unwrap_or_else(|p| p.into_inner()).as_ref().map(|c| c.remote.clone())
+        self.connection.read().unwrap().as_ref().map(|c| c.remote.clone())
     }
 
     fn server_settings(&self) -> Value {
-        let connection = self.connection.read().unwrap_or_else(|p| p.into_inner());
+        let connection = self.connection.read().unwrap();
         match connection.as_ref() {
             Some(c) => json!({"configured": true, "url": c.config.url, "has_token": !c.config.token.is_empty(),
                               "editable": c.source == ServerSource::File,
@@ -192,7 +192,7 @@ impl App {
     /// Checks the address and token against the server, then saves and applies them.
     /// An empty token keeps the saved one, so the address can change alone.
     fn save_server_settings(&self, payload: &Value) -> ApiResult<Value> {
-        let current = self.connection.read().unwrap_or_else(|p| p.into_inner()).as_ref()
+        let current = self.connection.read().unwrap().as_ref()
             .map(|c| (c.config.clone(), c.source));
         if current.as_ref().is_some_and(|(_, source)| *source == ServerSource::Environment) {
             return Err(ApiError::bad("服务器由环境变量 CIJIAN_SERVER_URL 指定，请修改环境变量"));
@@ -287,23 +287,24 @@ impl App {
             return Ok(json!({"success": true, "data": data}));
         }
         let s = &self.store;
-        let config = s.memory_config();
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/api/health") => Ok(json!({"success": true, "status": "ok"})),
-            ("GET", "/api/config") => Ok(json!({
+            ("GET", "/api/config") => {
+                let config = s.memory_config();
+                Ok(json!({
                 "success": true, "anki_available": true,
                 "anki_path": self.remote().map(|r| r.label()),
                 "deck_name": "Word Atlas", "total_learned": s.learned_count(),
                 "default_limit": FREE_PRACTICE_LIMIT, "max_limit": MAX_LIMIT,
                 "easy_seconds": config.easy_seconds, "hard_seconds": config.hard_seconds,
-            })),
+                }))
+            }
             ("GET", "/api/memory/summary") => Ok(json!({"success": true, "data": s.summary()?})),
             ("GET", "/api/practice/queue") => {
                 let mode = request.query.get("mode").map_or("scheduled", String::as_str);
-                let default = if mode == "free" { FREE_PRACTICE_LIMIT } else { 1 };
-                let limit = request.int("limit", default).min(MAX_LIMIT);
-                let session = request.query.get("session_id").map_or("", String::as_str);
-                Ok(json!({"success": true, "data": s.queue(session, Some(limit), mode)?}))
+                // Missing or non-positive → the mode's default; the store caps it per mode.
+                let limit = request.query.get("limit").and_then(|v| v.parse::<usize>().ok()).filter(|v| *v > 0);
+                Ok(json!({"success": true, "data": s.queue(request.get("session_id"), limit, mode)?}))
             }
             ("POST", "/api/practice/attempts") => {
                 let next_limit = match request.query.get("next_limit").map(|v| v.parse::<usize>()) {
@@ -374,10 +375,9 @@ impl App {
         let remote = self.remote();
         status["sync_configured"] = remote.is_some().into();
         status["target_path"] = remote.map(|r| r.label()).into();
-        status["history"] = self.store.sync_history(50)?.into();
+        status["history"] = self.store.sync_history()?.into();
         if status.get("last_sync_at").is_none() {
-            let last = self.store.last_sync_at()?.map(Value::from);
-            status["last_sync_at"] = last.unwrap_or_else(|| status["history"].get(0).map_or(Value::Null, |h| h["synced_at"].clone()));
+            status["last_sync_at"] = self.store.last_sync_at()?.into();
         }
         Ok(status)
     }
