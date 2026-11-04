@@ -79,7 +79,7 @@ const workspaceControls = {
                 event.preventDefault();
                 this.openServerSetup();
             } else if (reload) {
-                this.openSyncModal().then(() => this.syncNow());
+                return this.refreshPageData();
             }
         },
         toggleSidebar() {

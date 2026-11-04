@@ -119,6 +119,10 @@ createApp({
     },
     methods: {
         ...workspaceControls.methods,
+        async refreshPageData() {
+            await this.loadAllData({ refresh: true });
+            if (this.optimization.status || this.optimization.error) await this.loadOptimization();
+        },
         async afterSync() { await this.loadAllData({ refresh: true }); },
         ...wordAudio,
         async loadAllData({ refresh = false } = {}) {

@@ -566,6 +566,23 @@ const practiceApp = {
             return true;
         },
 
+        async refreshPageData() {
+            if (this.isLoadingWords) return;
+            this.nextQueue = null;
+            // Keep pending answers, correction feedback and fixed practice batches intact.
+            if (this.pendingAttempt || this.isChecking || (this.answerAccepted && !this.isFinished) || !this.isFormalPractice) {
+                await this.refreshSummary();
+                return;
+            }
+            if (this.answerAccepted) this.currentIndex++;
+            this.resetInputState();
+            this.words.splice(this.currentIndex);
+            this.isFinished = false;
+            this.isPracticeAbandoned = false;
+            this.saveDraftSession();
+            await this.loadNextWord();
+        },
+
         async afterSync() {
             this.nextQueue = null;
             await this.refreshSummary();
