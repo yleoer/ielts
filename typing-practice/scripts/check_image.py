@@ -29,38 +29,48 @@ while True:
         with urlopen(base + "/api/health", timeout=2) as response:
             health = json.load(response)
         assert health.get("success") is True and health.get("status") == "ok", health
+        assert response.headers.get("Server") == "waitress", response.headers.get("Server")
         break
     except (URLError, TimeoutError):
         if time.monotonic() >= deadline:
             raise
         time.sleep(1)
-print("PASS /api/health", flush=True)
+print("PASS Waitress /api/health", flush=True)
 
-for path, content_type in (
-    ("/", "text/html"),
-    ("/stats.html", "text/html"),
-    ("/assets/style.css", "text/css"),
-    ("/src/app.js", "javascript"),
-    ("/src/stats.js", "javascript"),
-):
-    with urlopen(base + path, timeout=5) as response:
-        assert response.status == 200, (path, response.status)
-        assert content_type in response.headers.get("Content-Type", ""), path
-        assert response.read(), path
-    print("PASS " + path, flush=True)
+from urllib.error import HTTPError
+from urllib.request import Request
 
-for path in (
-    "/api/config",
-    "/api/stats/overview",
-    "/api/stats/recent-activity",
-    "/api/memory/optimization",
-):
-    with urlopen(base + path, timeout=5) as response:
-        payload = json.load(response)
-    assert payload.get("success") is True, (path, payload)
-    if path == "/api/config":
-        assert payload.get("anki_available") is False, payload
-    print("PASS " + path, flush=True)
+# Without an Anki database the vocabulary is unavailable, but the log works.
+try:
+    urlopen(base + "/api/vocab", timeout=5)
+    raise AssertionError("/api/vocab should be unavailable without Anki")
+except HTTPError as error:
+    assert error.code == 503, error.code
+print("PASS /api/vocab 503 without Anki", flush=True)
+
+attempt = {"attempt_id": "image-check", "word_key": "word-atlas:check", "word": "check", "chinese_meaning": "检查",
+           "category": "", "user_input": "check", "is_correct": True, "rating": 3,
+           "reviewed_at": "2026-01-01T00:00:00Z", "duration_ms": 7000, "first_input_ms": None}
+for expected in (1, 0):
+    body = json.dumps({"device_id": "image-check", "cursor": 0, "attempts": [attempt]}).encode()
+    request = Request(base + "/api/sync", data=body, headers={"Content-Type": "application/json"})
+    with urlopen(request, timeout=5) as response:
+        data = json.load(response)["data"]
+    assert data["accepted"] == expected and [row["attempt_id"] for row in data["attempts"]] == ["image-check"], data
+print("PASS /api/sync", flush=True)
+
+for path in ("/", "/stats.html", "/api/stats/overview"):
+    try:
+        urlopen(base + path, timeout=5)
+        raise AssertionError(path + " should be removed")
+    except HTTPError as error:
+        assert error.code == 404, (path, error.code)
+print("PASS retired pages and APIs return 404", flush=True)
+
+import importlib.util
+for module in ("fsrs", "torch"):
+    assert importlib.util.find_spec(module) is None, module + " should not be installed"
+print("PASS no fsrs / torch in the image", flush=True)
 """
 
 
@@ -95,11 +105,10 @@ def main() -> int:
             "run", "--detach", "--name", name, "--network", "none",
             "--pull", "never", *platform,
             "--env", "SERVER_HOST=127.0.0.1", "--env", "SERVER_PORT=8080",
-            "--env", "ACCESS_PASSWORD=",
+            "--env", "ACCESS_TOKEN=", "--env", "ACCESS_PASSWORD=",
             "--env", "ANKI_DB_PATH=/tmp/image-check/missing.anki2",
             "--env", "STATS_DB_PATH=/tmp/image-check/stats.db",
             "--env", "ANKI_SYNC_SOURCE_DIR=", "--env", "ANKI_SYNC_TARGET=",
-            "--env", "FSRS_AUTO_OPTIMIZE=false", "--env", "FSRS_PARAMETERS_PATH=",
             args.image,
         )
         docker("exec", name, "python", "-c", PROBE, str(args.timeout), timeout=args.timeout + 60)

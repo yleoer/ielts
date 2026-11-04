@@ -54,23 +54,25 @@ if ($LASTEXITCODE -ne 0) { throw '镜像验证失败，停止发布' }
 python3 check_image.py yleoer/ielts-typing-practice:提交SHA --pull
 ```
 
-未发布的修改应在连接检查通过后，把当前源码复制到 `typetest` 的独立临时目录，再按 [本地构建说明](LOCAL-BUILD.md) 构建并验证。只发送应用源码和构建文件，不发送 `.env`、`.venv`、Anki、统计数据库或媒体目录。使用唯一临时镜像标签，完成后清理此次创建的目录与镜像。
+未发布的修改应在连接检查通过后，把当前源码复制到 `typetest` 的独立临时目录，再按 [本地构建说明](LOCAL-BUILD.md) 构建并验证。只发送应用源码和构建文件，不发送 `.env`、`.venv`、Anki 或作答日志数据库。使用唯一临时镜像标签，完成后清理此次创建的目录与镜像。
 
 ## 检查范围与隔离
 
-脚本使用镜像原本的 CMD / ENTRYPOINT 启动应用，不额外挂载源码，能发现 `activity.py`、`vocabulary.py` 等文件漏打包的问题。两份 Dockerfile 都自动复制后端 `*.py`，通过 `.dockerignore` 排除 `test_*.py`，并在构建时执行 `import app` 提前发现导入错误。
+脚本使用镜像原本的 CMD / ENTRYPOINT 启动应用，不额外挂载源码，能发现 `ledger.py`、`auth.py` 等文件漏打包的问题。两份 Dockerfile 都自动复制后端 `*.py`，通过 `.dockerignore` 排除 `test_*.py`，并在构建时执行 `import app` 提前发现导入错误。
 
-每次检查创建随机命名的容器，使用 `--network none`，不映射端口、不挂载宿主目录。通过 `docker exec` 从容器内访问回环地址；统计库写入 `/tmp/image-check/stats.db`，Anki 路径指向不存在的临时文件，同步与自动优化关闭，不读取生产 `.env`。
+每次检查创建随机命名的容器，使用 `--network none`，不映射端口、不挂载宿主目录。通过 `docker exec` 从容器内访问回环地址；作答日志写入 `/tmp/image-check/stats.db`，Anki 路径指向不存在的临时文件，`ACCESS_TOKEN` / `ACCESS_PASSWORD` 为空，Anki 定时复制关闭，不读取生产 `.env`。
 
 检查项包括：
 
-- 默认 60 秒内 `/api/health` 返回 `success: true`、`status: ok`。
-- 练习页、统计页、CSS 与两个前端脚本可读取，响应类型正确。
-- 配置接口确认没有 Anki 数据库，统计概览、自然月统计、优化状态接口正常，验证临时 SQLite 初始化与读取。
+- 默认 60 秒内 `/api/health` 返回 `success: true`、`status: ok`，且 `Server` 响应头为 `waitress`，确认镜像默认入口使用生产服务器。
+- 没有 Anki 数据库时 `/api/vocab` 返回 503。
+- `/api/sync` 接受一条作答并在日志中返回，再次上传同一 `attempt_id` 记为重复，验证临时 SQLite 初始化与读写。
+- 已退役的 `/`、`/stats.html`、`/api/stats/overview` 返回 404。
+- 镜像中未安装 `fsrs` 与 `torch`。
 
 失败返回非零退出码并输出容器末尾日志。成功或失败都会尝试删除本次容器；清理失败也返回非零码并给出容器名。检查不会自动修改部署标签或重启已有服务。
 
-这套检查不验证真实 Word Atlas 牌组、媒体、反向代理或生产目录权限。需要验证这些内容时，在测试机使用脱敏数据和独立目录做集成检查，发布后继续按 [Docker 部署](DOCKER-DEPLOY.md) 检查词条与插图。
+这套检查不验证真实 Word Atlas 牌组、反向代理、令牌配置或生产目录权限。需要验证这些内容时，在测试机使用脱敏数据和独立目录做集成检查，发布后按 [Docker 部署](DOCKER-DEPLOY.md) 检查词库接口。
 
 ## 发布顺序
 

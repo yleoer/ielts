@@ -9,17 +9,14 @@ RUN apt-get update \
 WORKDIR /app/backend
 
 COPY backend/requirements.txt ./requirements.txt
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir --index-url "$TORCH_INDEX_URL" torch \
-    && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/*.py ./
 RUN python -c "import app"
 RUN mkdir -p config
 COPY backend/config/config.yaml ./config/config.yaml
-COPY frontend ../frontend
 
-RUN mkdir -p /app/data /app/stats /app/anki-cache \
+RUN mkdir -p /app/stats /app/anki-cache \
     && chown -R app:app /app
 
 USER app

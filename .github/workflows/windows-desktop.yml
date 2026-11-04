@@ -1,0 +1,80 @@
+name: Windows 桌面安装包
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["desktop-v*"]
+    paths:
+      - "typing-desktop/**"
+      - ".github/workflows/windows-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: typing-desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: typing-desktop -> target
+      - name: 安装构建依赖
+        working-directory: typing-desktop
+        run: |
+          python -m pip install Jinja2==3.1.6
+          npm ci
+      - name: 读取版本并核对发布标签
+        id: version
+        working-directory: typing-desktop
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:REF_TYPE -eq 'tag') {
+            $version = python scripts/version.py --tag $env:REF_NAME
+          } else {
+            $version = python scripts/version.py
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: 构建中文 NSIS 安装包及更新签名
+        id: build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: typing-desktop
+          args: --bundles nsis -- --locked
+          tagName: ${{ startsWith(github.ref, 'refs/tags/desktop-v') && github.ref_name || '' }}
+          releaseName: 词间 v${{ steps.version.outputs.version }}
+          releaseDraft: true
+          generateReleaseNotes: true
+          updaterJsonPreferNsis: true
+      - name: 保存安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cijian_${{ steps.version.outputs.version }}_windows-x64
+          path: |
+            typing-desktop/target/release/bundle/nsis/*.exe
+            typing-desktop/target/release/bundle/nsis/*.sig
+          if-no-files-found: error
+          retention-days: 14
+      - name: 发布完整 Release 并设为最新版本
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release edit $env:RELEASE_TAG --draft=false --latest

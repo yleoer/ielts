@@ -25,28 +25,20 @@ services:
     volumes:
       - ./data/anki-sync:/app/anki-sync:ro
       - ./data/anki-cache:/app/anki-cache
-      - ./data/anki-media:/app/anki-media:ro
       - ./data/stats:/app/stats
     environment:
       TZ: "${TZ:-Asia/Shanghai}"
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8080
+      # 桌面端访问令牌；未设置时沿用旧的 ACCESS_PASSWORD
+      ACCESS_TOKEN: "${ACCESS_TOKEN:-}"
       ACCESS_PASSWORD: "${ACCESS_PASSWORD:-}"
       ANKI_DB_PATH: /app/anki-cache/collection.anki2
-      ANKI_MEDIA_DIR: /app/anki-media
       ANKI_SYNC_SOURCE_DIR: /app/anki-sync
       ANKI_SYNC_TARGET: /app/anki-cache/collection.anki2
       ANKI_SYNC_INTERVAL_SECONDS: "${ANKI_SYNC_INTERVAL_SECONDS:-300}"
       ANKI_SYNC_INITIAL_WAIT_SECONDS: "${ANKI_SYNC_INITIAL_WAIT_SECONDS:-60}"
       STATS_DB_PATH: /app/stats/stats.db
-      FSRS_DESIRED_RETENTION: "${FSRS_DESIRED_RETENTION:-0.9}"
-      FSRS_EASY_SECONDS: "${FSRS_EASY_SECONDS:-6}"
-      FSRS_HARD_SECONDS: "${FSRS_HARD_SECONDS:-20}"
-      FSRS_PARAMETERS_PATH: "${FSRS_PARAMETERS_PATH:-}"
-      FSRS_AUTO_OPTIMIZE: "${FSRS_AUTO_OPTIMIZE:-true}"
-      FSRS_OPTIMIZER_CHECK_SECONDS: "${FSRS_OPTIMIZER_CHECK_SECONDS:-86400}"
-      FSRS_OPTIMIZER_MIN_NEW_REVIEWS: "${FSRS_OPTIMIZER_MIN_NEW_REVIEWS:-100}"
-      FSRS_OPTIMIZER_TIMEOUT_SECONDS: "${FSRS_OPTIMIZER_TIMEOUT_SECONDS:-3600}"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/health >/dev/null || exit 1"]
       interval: 30s

@@ -1,0 +1,15 @@
+[package]
+name = "cijian"
+edition.workspace = true
+version.workspace = true
+description = "词间桌面端"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+cijian-core = { path = "../core" }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2"

@@ -1,0 +1,20 @@
+[package]
+name = "cijian-core"
+edition.workspace = true
+version.workspace = true
+description = "词间桌面端核心：判题、FSRS 调度（与 py-fsrs 6.3.2 对齐）、本地存储与接口"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+fsrs = "6"
+rand = "0.9"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ureq = { version = "3", features = ["json"] }
+uuid = { version = "1", features = ["v4"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"

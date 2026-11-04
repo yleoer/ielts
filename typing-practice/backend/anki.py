@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-import json
 import re
 import sqlite3
 import threading
@@ -15,6 +14,7 @@ from urllib.parse import quote
 
 FIELD_SEPARATOR = "\x1f"
 HTML_TAG_PATTERN = re.compile(r"<[^>]*>")
+IMAGE_EXTENSIONS = {".webp", ".png", ".jpg", ".jpeg", ".gif", ".avif"}
 WORD_ATLAS_FIELDS = (
     "Word", "UK", "US", "PartOfSpeech", "MeaningZH", "MeaningEN", "MoreSenses",
     "ExampleEN", "ExampleZH", "IELTSExampleEN", "IELTSExampleZH", "Collocations",
@@ -30,8 +30,8 @@ class _IllustrationParser(HTMLParser):
         self.feed(markup)
 
     def handle_starttag(self, tag, attrs):
-        if tag.lower() == "img" and not self.filename:
-            self.filename = dict(attrs).get("src", "") or ""
+        if tag == "img" and not self.filename:
+            self.filename = dict(attrs).get("src") or ""
 
 
 class _ChineseSensesParser(HTMLParser):
@@ -42,7 +42,7 @@ class _ChineseSensesParser(HTMLParser):
         self.senses = []
         self._sense = None
         self._field = None
-        self.feed(markup or "")
+        self.feed(markup)
         self.close()
         self._finish_sense()
 
@@ -82,26 +82,22 @@ class _ChineseSensesParser(HTMLParser):
             self._sense[self._field].append(data)
 
 
-def media_filename(values: dict[str, str], kind: str) -> str:
-    if kind == "illustration":
-        filename = _IllustrationParser(values.get("Illustration", "")).filename
-        extensions = {".webp", ".png", ".jpg", ".jpeg", ".gif", ".avif"}
-    else:
-        return ""
+def illustration_filename(markup: str) -> str:
+    """The local image named by the Illustration field, or "" for paths, URLs and other types."""
+    filename = _IllustrationParser(markup).filename
     if not filename or filename.startswith(".") or any(char in filename for char in "/\\:\x00"):
         return ""
-    return filename if Path(filename).suffix.lower() in extensions else ""
+    return filename if Path(filename).suffix.lower() in IMAGE_EXTENSIONS else ""
 
 
 def clean_field(value: str) -> str:
-    value = value or ""
     value = re.sub(r"<br\s*/?>", "\n", value, flags=re.IGNORECASE)
     value = HTML_TAG_PATTERN.sub("", value)
     return html.unescape(value).strip()
 
 
 def parse_word(note_id: int, raw_fields: str) -> dict[str, Any] | None:
-    fields = (raw_fields or "").split(FIELD_SEPARATOR)
+    fields = raw_fields.split(FIELD_SEPARATOR)
     if len(fields) != len(WORD_ATLAS_FIELDS):
         return None
     values = dict(zip(WORD_ATLAS_FIELDS, fields))
@@ -116,7 +112,7 @@ def parse_word(note_id: int, raw_fields: str) -> dict[str, Any] | None:
         "example_cn": clean_field(values["ExampleZH"]),
         "category": clean_field(values["Topic"]),
         "cefr": clean_field(values["CEFR"]).upper(),
-        "illustration_url": f"/api/media/{note_id}/illustration" if media_filename(values, "illustration") else "",
+        "illustration_file": illustration_filename(values["Illustration"]),
     }
     if not word["word"] or not word["chinese_meaning"]:
         return None
@@ -129,156 +125,62 @@ def parse_word(note_id: int, raw_fields: str) -> dict[str, Any] | None:
 
 class AnkiReader:
     def __init__(self, db_path: str, deck_name: str, deck_id: int):
-        self.db_path = str(Path(db_path).expanduser())
-        self.deck_name = deck_name.strip()
-        self.deck_id = int(deck_id)
-        self.deck_ids: list[int] = []
-        self._lock = threading.RLock()
+        self.db_path = Path(db_path).expanduser()
+        self._lock = threading.Lock()
         self.db = self._open()
-        self._pool_version = None
-        self._pool_cache: dict[str, list[dict[str, Any]]] = {}
-        try:
-            self.deck_ids = self._resolve_deck_ids()
-            if self.deck_ids:
-                self.deck_id = self.deck_ids[0]
-        except sqlite3.Error:
-            self.deck_ids = [self.deck_id] if self.deck_id else []
+        self.deck_ids = self._resolve_deck_ids(deck_name.strip(), int(deck_id))
+        self._version = None
+        self._words: list[dict[str, Any]] = []
 
     def _open(self) -> sqlite3.Connection:
-        path = Path(self.db_path)
-        if not path.is_file():
-            raise FileNotFoundError(f"Anki database not found at {path}")
+        if not self.db_path.is_file():
+            raise FileNotFoundError(f"Anki database not found at {self.db_path}")
         # The first URI allows a live WAL to be read. Immutable mode is a
         # fallback for copied collections that do not expose a WAL file.
-        uri_path = quote(path.resolve().as_posix(), safe="/:\\")
-        errors: list[Exception] = []
-        for suffix in (
-            "?mode=ro&cache=shared&_busy_timeout=5000",
-            "?mode=ro&immutable=1&cache=shared&_busy_timeout=5000",
-        ):
+        uri_path = quote(self.db_path.resolve().as_posix(), safe="/:\\")
+        for suffix in ("?mode=ro", "?mode=ro&immutable=1"):
+            db = sqlite3.connect(f"file:{uri_path}{suffix}", uri=True, check_same_thread=False, timeout=5)
             try:
-                db = sqlite3.connect(
-                    f"file:{uri_path}{suffix}",
-                    uri=True,
-                    check_same_thread=False,
-                    timeout=5,
-                )
-                db.row_factory = sqlite3.Row
-                db.execute("PRAGMA busy_timeout = 5000")
-                db.execute("SELECT 1")
+                # Reading the schema is the first access that actually opens the file.
+                db.execute("SELECT 1 FROM sqlite_master LIMIT 1")
                 return db
-            except Exception as exc:  # pragma: no cover - depends on SQLite file state
-                errors.append(exc)
-        raise errors[-1]
+            except sqlite3.Error as exc:
+                db.close()
+                error = exc
+        raise error
 
     def close(self) -> None:
         with self._lock:
             self.db.close()
 
-    def _resolve_deck_ids(self) -> list[int]:
-        if self.deck_name:
-            try:
-                rows = self.db.execute("SELECT id, name FROM decks").fetchall()
-                exact = [int(row["id"]) for row in rows if row["name"] == self.deck_name]
-                children = [
-                    int(row["id"])
-                    for row in rows
-                    if isinstance(row["name"], str)
-                    and row["name"].startswith(self.deck_name + "::")
-                ]
-                if exact or children:
-                    return exact + children
-            except sqlite3.Error:
-                pass
-            try:
-                raw = self.db.execute("SELECT decks FROM col LIMIT 1").fetchone()
-                decks = json.loads(raw[0] or "{}") if raw else {}
-                exact: list[int] = []
-                children: list[int] = []
-                for key, deck in decks.items():
-                    name = deck.get("name", "")
-                    if name == self.deck_name:
-                        exact.append(int(key))
-                    elif name.startswith(self.deck_name + "::"):
-                        children.append(int(key))
-                if exact or children:
-                    return exact + children
-            except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
-                pass
-        return [self.deck_id] if self.deck_id else []
+    def _resolve_deck_ids(self, deck_name: str, deck_id: int) -> list[int]:
+        """The named deck and its children, or the configured id when the name is absent."""
+        rows = self.db.execute("SELECT id, name FROM decks").fetchall()
+        exact = [int(row_id) for row_id, name in rows if name == deck_name]
+        children = [int(row_id) for row_id, name in rows if name.startswith(deck_name + "::")]
+        return exact + children or [deck_id]
 
-    def _learned_deck_ids(self) -> list[int]:
-        return self.deck_ids or ([self.deck_id] if self.deck_id else [0])
+    def snapshot(self) -> list[dict[str, Any]]:
+        """Every deck word with `learned` and the illustration file name (vocabulary format 1).
 
-    def _deck_placeholders(self) -> str:
-        return ",".join("?" for _ in self._learned_deck_ids())
-
-    def _read_words(self, query: str, args: list[Any], category: str, limit: int | None = None) -> list[dict[str, Any]]:
-        with self._lock:
-            rows = self.db.execute(query, args).fetchall()
-        words: list[dict[str, Any]] = []
-        for row in rows:
-            word = parse_word(int(row["id"]), row["flds"])
-            if not word:
-                continue
-            if category != "all" and word["category"].lower() != category.lower():
-                continue
-            words.append(word)
-            if limit and len(words) >= limit:
-                break
-        return words
-
-    def get_learned_word_pool(self, category: str = "all") -> list[dict[str, Any]]:
-        category = category.strip() or "all"
-        query = f"""
-            SELECT n.id, n.flds
-            FROM notes n
-            WHERE n.id IN (
-                SELECT DISTINCT c.nid FROM cards c
-                WHERE c.did IN ({self._deck_placeholders()})
-                  AND (c.type >= 1 OR c.queue >= 2)
-            )
-            ORDER BY n.id
+        The parsed list is cached until the collection changes; callers must not mutate it.
         """
-        words = self._cached_pool("learned", query)
-        return [word for word in words if category.lower() == "all" or word["category"].lower() == category.lower()]
-
-    def _cached_pool(self, name: str, query: str) -> list[dict[str, Any]]:
+        placeholders = ",".join("?" * len(self.deck_ids))
         with self._lock:
             # data_version also notices commits still in a live collection's WAL.
             version = self.db.execute("PRAGMA data_version").fetchone()[0]
-            if version != self._pool_version:
-                self._pool_cache.clear()
-                self._pool_version = version
-            if name not in self._pool_cache:
-                self._pool_cache[name] = self._read_words(query, self._learned_deck_ids(), "all")
-            return [dict(word) for word in self._pool_cache[name]]
-
-    def get_word_pool(self) -> list[dict[str, Any]]:
-        """All vocabulary in the configured deck tree, regardless of learning state."""
-        query = f"""
-            SELECT n.id, n.flds FROM notes n
-            WHERE n.id IN (
-                SELECT c.nid FROM cards c WHERE c.did IN ({self._deck_placeholders()})
-            )
-            ORDER BY n.id
-        """
-        return self._cached_pool("all", query)
-
-    def get_media_filename(self, note_id: int, kind: str) -> str:
-        with self._lock:
-            row = self.db.execute("SELECT flds FROM notes WHERE id = ?", (note_id,)).fetchone()
-        fields = row["flds"].split(FIELD_SEPARATOR) if row else []
-        if len(fields) != len(WORD_ATLAS_FIELDS):
-            return ""
-        return media_filename(dict(zip(WORD_ATLAS_FIELDS, fields)), kind)
-
-    def count_learned(self) -> int:
-        query = f"""
-            SELECT COUNT(DISTINCT c.nid) FROM cards c
-            WHERE c.did IN ({self._deck_placeholders()})
-              AND (c.type >= 1 OR c.queue >= 2)
-        """
-        with self._lock:
-            return int(self.db.execute(query, self._learned_deck_ids()).fetchone()[0])
-
+            if version != self._version:
+                rows = self.db.execute(f"""
+                    SELECT n.id, n.flds, c.learned FROM notes n JOIN (
+                        SELECT nid, MAX(type >= 1 OR queue >= 2) AS learned FROM cards
+                        WHERE did IN ({placeholders}) GROUP BY nid
+                    ) c ON c.nid = n.id
+                    ORDER BY n.id
+                """, self.deck_ids).fetchall()
+                self._words = [
+                    {**word, "learned": bool(learned)}
+                    for note_id, fields, learned in rows
+                    if (word := parse_word(int(note_id), fields))
+                ]
+                self._version = version
+            return self._words
