@@ -8,6 +8,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod desktop;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -103,6 +105,8 @@ fn start_sync(app: Arc<App>) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![desktop::get_close_to_tray, desktop::set_close_to_tray])
+        .on_window_event(desktop::on_window_event)
         .register_uri_scheme_protocol(SCHEME, |ctx, request| {
             let handle = ctx.app_handle();
             let uri = request.uri().to_string();
@@ -127,6 +131,8 @@ fn main() {
         })
         .setup(|app| {
             let state = Arc::new(open_app(app.handle())?);
+            let settings_path = state.config.server_file.as_ref().unwrap().with_file_name("desktop.json");
+            app.manage(desktop::DesktopSettings::load(settings_path));
             start_optimizer(state.clone());
             start_sync(state.clone());
             app.manage(state);
@@ -145,6 +151,7 @@ fn main() {
                 ));
             }
             window.build()?;
+            desktop::setup(app.handle())?;
             Ok(())
         })
         .run(tauri::generate_context!())

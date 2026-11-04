@@ -4,7 +4,7 @@ members = ["core", "app"]
 
 [workspace.package]
 edition = "2021"
-version = "0.1.0"
+version = "0.2.0"
 
 # fsrs-rs training is slow unoptimized; keep debug builds of our crates fast to compile.
 [profile.dev.package.fsrs]

@@ -72,11 +72,6 @@
                             <p v-if="answerDisplay.alternatives" class="muted">也可以：<span class="mono"><button type="button" class="word-audio" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ answerDisplay.alternatives }}</button></span></p>
                             <p v-if="currentWord.phonetic" class="phonetic">{{ currentWord.phonetic }}</p>
                             <p v-if="lastWrongInput" class="muted">你的输入：<del class="mono">{{ lastWrongInput }}</del></p>
-                            <div v-if="currentWord.example_en || currentWord.example_cn" class="example-area">
-                                <p v-if="currentWord.example_en">{{ currentWord.example_en }}</p>
-                                <p v-if="currentWord.example_cn" class="muted">{{ currentWord.example_cn }}</p>
-                            </div>
-                            <button type="button" class="button button-secondary" :disabled="Boolean(pendingAttempt) || Boolean(storageError)" @click="nextWord">下一题<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button>
                         </div>
                     </div>
                     <div v-else-if="isLoadingWords" class="empty-state" role="status">
