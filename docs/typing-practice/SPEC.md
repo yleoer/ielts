@@ -31,6 +31,8 @@
 
 `GET /api/vocab` 返回 `{"format":1,"generated_at","deck_name","words":[...]}`。`words` 包含配置牌组及子牌组的全部有效词条，每项带 `learned`（Anki 中是否已学习）和 `illustration_file`（保留兼容的插图文件名）。桌面端按 `source_id` 查询自行导入的独立资源包清单读取插图和音频，不依赖服务端文件名，见 [独立媒体资源包](../typing-desktop/MEDIA.md)。词条字段沿用 Word Atlas 映射：`id`（Anki note_id）、`source_id`、`word`、`phonetic`、`part_of_speech`、`chinese_meaning`、`chinese_senses`、`example_en` / `example_cn`、`category`（Topic）、`cefr`。HTML 先去标签再解码实体，不返回音频。每次返回完整快照，没有增量游标。
 
+词库读取精确标签 `word_atlas::excluded`，将这些笔记从完整快照排除，包含已学和暂停的重复项；普通暂停或 leech 不改变原同步规则。若过滤项已学，`word_atlas::canonical::<SourceId>` 指定的保留项 `learned=true`，只继承进入练习池的资格，不改写 Anki 卡片状态，不合并既有作答或 FSRS 历史。词头修订沿用原 `source_id`，接口格式和字段保持不变。
+
 ### 作答日志
 
 请求体为 `{"device_id", "cursor", "attempts":[...]}`，每次最多上传 500 条。每条作答包含：

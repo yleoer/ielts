@@ -1,0 +1,418 @@
+{
+  "format": 1,
+  "excluded_tag": "word_atlas::excluded",
+  "canonical_tag_prefix": "word_atlas::canonical::",
+  "excluded": {
+    "aeroplane": {
+      "word": "aeroplane",
+      "canonical_id": "airplane"
+    },
+    "afterward": {
+      "word": "afterward",
+      "canonical_id": "afterwards"
+    },
+    "aluminium": {
+      "word": "aluminium",
+      "canonical_id": "aluminum"
+    },
+    "analyse": {
+      "word": "analyse",
+      "canonical_id": "analyze"
+    },
+    "apologise": {
+      "word": "apologise",
+      "canonical_id": "apologize"
+    },
+    "behaviour": {
+      "word": "behaviour",
+      "canonical_id": "behavior"
+    },
+    "bookshop": {
+      "word": "bookshop",
+      "canonical_id": "bookstore"
+    },
+    "despatch": {
+      "word": "despatch",
+      "canonical_id": "dispatch"
+    },
+    "encyclopaedia": {
+      "word": "encyclopaedia",
+      "canonical_id": "encyclopedia"
+    },
+    "endeavour": {
+      "word": "endeavour",
+      "canonical_id": "endeavor"
+    },
+    "enquiry": {
+      "word": "enquiry",
+      "canonical_id": "inquiry"
+    },
+    "favourite": {
+      "word": "favourite",
+      "canonical_id": "favorite"
+    },
+    "favour": {
+      "word": "favour",
+      "canonical_id": "favor"
+    },
+    "gaol": {
+      "word": "gaol",
+      "canonical_id": "jail"
+    },
+    "gramme": {
+      "word": "gramme",
+      "canonical_id": "gram"
+    },
+    "jeopardise": {
+      "word": "jeopardise",
+      "canonical_id": "jeopardize"
+    },
+    "jewellery": {
+      "word": "jewellery",
+      "canonical_id": "jewelry"
+    },
+    "marvellous": {
+      "word": "marvellous",
+      "canonical_id": "marvelous"
+    },
+    "organisation": {
+      "word": "organisation",
+      "canonical_id": "organization"
+    },
+    "organise": {
+      "word": "organise",
+      "canonical_id": "organize"
+    },
+    "paralyse": {
+      "word": "paralyse",
+      "canonical_id": "paralyze"
+    },
+    "petrol": {
+      "word": "petrol",
+      "canonical_id": "gasoline"
+    },
+    "realise": {
+      "word": "realise",
+      "canonical_id": "realize"
+    },
+    "recognise": {
+      "word": "recognise",
+      "canonical_id": "recognize"
+    },
+    "rubbish": {
+      "word": "rubbish",
+      "canonical_id": "garbage"
+    },
+    "toward": {
+      "word": "toward",
+      "canonical_id": "towards"
+    },
+    "utilise": {
+      "word": "utilise",
+      "canonical_id": "utilize"
+    },
+    "baby-sitter": {
+      "word": "baby-sitter",
+      "canonical_id": "babysitter"
+    },
+    "calory": {
+      "word": "calory",
+      "canonical_id": "calorie"
+    },
+    "loth": {
+      "word": "loth",
+      "canonical_id": "loath"
+    },
+    "mid-day": {
+      "word": "mid-day",
+      "canonical_id": "midday"
+    }
+  },
+  "rewrites": {
+    "centre": {
+      "from": "centre",
+      "word": "center",
+      "tip": "center 是美式拼写，英式为 centre；动词常接 on。"
+    },
+    "maths": {
+      "from": "maths",
+      "word": "math",
+      "tip": "美式简称 math，英式为 maths；学科名作主语时用单数动词。",
+      "uk": "/mæθ/",
+      "us": "/mæθ/",
+      "media": {
+        "uk": null,
+        "us": "media/maths_us.mp3",
+        "ex": "media/maths_ex.mp3",
+        "ex2": "media/maths_ex2.mp3"
+      }
+    },
+    "colour": {
+      "from": "colour",
+      "word": "color",
+      "tip": "美式拼写为 color，英式为 colour。"
+    },
+    "centimetre": {
+      "from": "centimetre",
+      "word": "centimeter",
+      "tip": "美式拼写 centimeter，英式为 centimetre；缩写 cm。"
+    },
+    "kilogramme": {
+      "from": "kilogramme",
+      "word": "kilogram",
+      "tip": "通常写作 kilogram，kilogramme 是较少用变体；符号 kg 不加 s。"
+    },
+    "neighbourhood": {
+      "from": "neighbourhood",
+      "word": "neighborhood",
+      "tip": "美式拼写 neighborhood，英式为 neighbourhood。"
+    },
+    "pyjamas": {
+      "from": "pyjamas",
+      "word": "pajamas",
+      "tip": "美式 pajamas，英式 pyjamas；用复数，一套用 a pair of。"
+    },
+    "coloured": {
+      "from": "coloured",
+      "word": "colored",
+      "tip": "美式 colored，英式 coloured；避免用于泛指族群。"
+    },
+    "cosy": {
+      "from": "cosy",
+      "word": "cozy",
+      "tip": "美式拼写 cozy，英式通常写 cosy。",
+      "forms": {
+        "cosily": "cozily",
+        "cosiness": "coziness"
+      }
+    },
+    "neighbour": {
+      "from": "neighbour",
+      "word": "neighbor",
+      "tip": "美式拼写 neighbor，英式为 neighbour。"
+    },
+    "colourful": {
+      "from": "colourful",
+      "word": "colorful",
+      "tip": "美式拼写 colorful，英式为 colourful。"
+    },
+    "travelling": {
+      "from": "travelling",
+      "word": "traveling",
+      "tip": "美式 traveling，英式 travelling；均为 travel 的 -ing 形式。"
+    },
+    "ladybird": {
+      "from": "ladybird",
+      "word": "ladybug",
+      "tip": "美式常用 ladybug，英式常用 ladybird。",
+      "uk": "/ˈleɪdibʌɡ/",
+      "us": "/ˈleɪdibʌɡ/",
+      "media": {
+        "uk": null,
+        "us": "media/ladybird_us.mp3",
+        "ex": "media/ladybird_ex.mp3",
+        "ex2": "media/ladybird_ex2.mp3"
+      }
+    },
+    "flavour": {
+      "from": "flavour",
+      "word": "flavor",
+      "tip": "美式拼写 flavor，英式为 flavour。"
+    },
+    "humour": {
+      "from": "humour",
+      "word": "humor",
+      "tip": "美式 humor，英式 humour；作动词表示迁就。"
+    },
+    "harbour": {
+      "from": "harbour",
+      "word": "harbor",
+      "tip": "美式拼写 harbor，英式为 harbour。"
+    },
+    "millimetre": {
+      "from": "millimetre",
+      "word": "millimeter",
+      "tip": "缩写为 mm；美式 millimeter，英式 millimetre；一厘米等于十毫米。"
+    },
+    "chilli": {
+      "from": "chilli",
+      "word": "chili",
+      "tip": "美式拼写 chili，英式通常写 chilli。"
+    },
+    "whisky": {
+      "from": "whisky",
+      "word": "whiskey",
+      "tip": "泛称可用 whiskey 或 whisky；苏格兰酒通常写 Scotch whisky。",
+      "forms": {
+        "whiskies": "whiskeys"
+      }
+    },
+    "armour": {
+      "from": "armour",
+      "word": "armor",
+      "tip": "美式拼写 armor，英式为 armour；通常不可数。"
+    },
+    "enquire": {
+      "from": "enquire",
+      "word": "inquire",
+      "tip": "美式常用 inquire，英式也常用 enquire；询问某事用 inquire about。"
+    },
+    "offence": {
+      "from": "offence",
+      "word": "offense",
+      "tip": "美式 offense，英式 offence；take offense 表示生气。"
+    },
+    "defence": {
+      "from": "defence",
+      "word": "defense",
+      "tip": "美式拼写 defense，英式为 defence。"
+    },
+    "specialised": {
+      "from": "specialised",
+      "word": "specialized",
+      "tip": "美式 specialized，英式 specialised。"
+    },
+    "judgement": {
+      "from": "judgement",
+      "word": "judgment",
+      "tip": "judgment 和 judgement 均正确；美式通常用 judgment。"
+    },
+    "odour": {
+      "from": "odour",
+      "word": "odor",
+      "tip": "美式 odor，英式 odour；常指难闻气味。"
+    },
+    "plough": {
+      "from": "plough",
+      "word": "plow",
+      "tip": "美式 plow，英式 plough；两种都读 /plaʊ/。"
+    },
+    "vapour": {
+      "from": "vapour",
+      "word": "vapor",
+      "tip": "美式 vapor，英式 vapour。"
+    },
+    "enrol": {
+      "from": "enrol",
+      "word": "enroll",
+      "tip": "美式 enroll，英式 enrol；过去式均为 enrolled。"
+    },
+    "fulfil": {
+      "from": "fulfil",
+      "word": "fulfill",
+      "tip": "美式 fulfill，英式 fulfil；过去式均为 fulfilled。"
+    },
+    "sulphur": {
+      "from": "sulphur",
+      "word": "sulfur",
+      "tip": "现代国际化学命名用 sulfur；传统英式拼写为 sulphur。"
+    },
+    "fibre": {
+      "from": "fibre",
+      "word": "fiber",
+      "tip": "美式拼写 fiber，英式为 fibre；膳食纤维义通常不可数。"
+    },
+    "dishonour": {
+      "from": "dishonour",
+      "word": "dishonor",
+      "tip": "美式拼写 dishonor，英式为 dishonour。"
+    },
+    "sceptical": {
+      "from": "sceptical",
+      "word": "skeptical",
+      "tip": "美式 skeptical，英式 sceptical；常接 about 或 of。"
+    },
+    "distil": {
+      "from": "distil",
+      "word": "distill",
+      "tip": "美式 distill，英式 distil；过去式均为 distilled。"
+    },
+    "tumour": {
+      "from": "tumour",
+      "word": "tumor",
+      "tip": "美式 tumor，英式 tumour；肿瘤不一定是癌。"
+    },
+    "fibreglass": {
+      "from": "fibreglass",
+      "word": "fiberglass",
+      "tip": "美式拼写 fiberglass，英式为 fibreglass。"
+    },
+    "acknowledgment": {
+      "from": "acknowledgment",
+      "word": "acknowledgement",
+      "tip": "acknowledgement 和 acknowledgment 均正确；各义常接 of。"
+    },
+    "salability": {
+      "from": "salability",
+      "word": "saleability",
+      "tip": "saleability 也写作 salability，表示适销性。",
+      "forms": {
+        "salable": "saleable"
+      }
+    },
+    "propellent": {
+      "from": "propellent",
+      "word": "propellant",
+      "tip": "通常写作 propellant；propellent 是较少见拼写。"
+    },
+    "sulphide": {
+      "from": "sulphide",
+      "word": "sulfide",
+      "tip": "美式及国际化学命名用 sulfide；勿混同硫酸盐。"
+    },
+    "dining-room": {
+      "from": "dining-room",
+      "word": "dining room",
+      "tip": "名词通常写作 dining room，指用餐房间。"
+    },
+    "baby-sit": {
+      "from": "baby-sit",
+      "word": "babysit",
+      "tip": "通常写作 babysit；过去式和过去分词为 babysat。",
+      "forms": {
+        "baby-sat": "babysat"
+      }
+    },
+    "tape-recorder": {
+      "from": "tape-recorder",
+      "word": "tape recorder",
+      "tip": "名词通常写作 tape recorder，不加连字符。"
+    },
+    "anticlockwise": {
+      "from": "anticlockwise",
+      "word": "counterclockwise",
+      "tip": "美式常用 counterclockwise，英式常用 anticlockwise。",
+      "uk": "/ˌkaʊntəˈklɒkwaɪz/",
+      "us": "/ˌkaʊntərˈklɑːkwaɪz/",
+      "media": {
+        "uk": null,
+        "us": "media/anticlockwise_us.mp3",
+        "ex": "media/anticlockwise_ex.mp3",
+        "ex2": "media/anticlockwise_ex2.mp3"
+      }
+    },
+    "windscreen": {
+      "from": "windscreen",
+      "word": "windshield",
+      "tip": "美式常用 windshield，英式常用 windscreen。",
+      "uk": "/ˈwɪndʃiːld/",
+      "us": "/ˈwɪndʃiːld/",
+      "media": {
+        "uk": null,
+        "us": "media/windscreen_us.mp3",
+        "ex": "media/windscreen_ex.mp3",
+        "ex2": "media/windscreen_ex2.mp3"
+      }
+    },
+    "moustache": {
+      "from": "moustache",
+      "word": "mustache",
+      "tip": "美式常写 mustache，英式常写 moustache；beard 指下巴等处的胡须。"
+    },
+    "analogue": {
+      "from": "analogue",
+      "word": "analog",
+      "tip": "analog 也写作 analogue；名词指对应物，形容词指模拟式。"
+    }
+  }
+}

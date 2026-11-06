@@ -11,6 +11,7 @@
 - [生成器概览](apkg-generator/README.zh-CN.md)
 - [Anki 卡片设计说明](apkg-generator/anki-card-template.md)
 - [Word Atlas 完整牌组](apkg-generator/word-atlas.md)
+- [Word Atlas 英美与拼写变体核对清单](apkg-generator/word-atlas-variant-audit.md)
 
 ## 同步服务（typing-practice）
 

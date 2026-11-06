@@ -14,7 +14,9 @@
 
 默认只生成 `typing-desktop/media/cijian-media.zip`，可用 `--output` 指定目录。源项目需要 `data/word-atlas.json`、`dist/atlas/index.json`、`dist/atlas/img/`、`dist/atlas/audio/{uk,us}/` 和 `CONTENT_LICENSE.md`。导出复用 Anki 生成器的选择与命名规则，不需要 genanki 或生成 APKG。
 
-完整数据包含 7,298 个 SourceId、21,894 个媒体：插图、英音、美音各 7,298 个。不打包日常或雅思例句朗读；Anki APKG 保留原有全部音频。缺少某类媒体时省略该项。ZIP 使用固定时间戳与排序，临时文件组装完成后替换成品；再次导出直接重建，不做哈希缓存，不生成 `.sha256` 文件。
+完整数据保留 7,298 个 SourceId，应用 [本地修订表](../../apkg-generator/data/word-atlas-revisions/README.md) 后包含 21,890 个媒体：插图 7,298、美音 7,298、英音 7,294。4 个词头改写影响读音，使用新的美音并省略旧英音；其他拼写变体复用原读音，所有资源继续按原 SourceId 定位。不打包日常或雅思例句朗读。缺少某类媒体时省略该项。ZIP 使用固定时间戳与排序，临时文件组装完成后替换成品；再次导出直接重建，不做哈希缓存，不生成 `.sha256` 文件。
+
+已有桌面端在“设置”中重新导入新版 `cijian-media.zip`，无需升级客户端或重置数据库。替代音频采用新的 `_revised.mp3` 文件名；服务器更新词头不会自动更新本地资源包。
 
 ## 清单与授权
 
