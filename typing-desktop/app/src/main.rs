@@ -8,6 +8,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
 mod desktop;
 mod tray_indicator;
 
@@ -107,7 +108,10 @@ fn start_sync(app: Arc<App>, handle: tauri::AppHandle) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![desktop::get_close_to_tray, desktop::set_close_to_tray])
+        .invoke_handler(tauri::generate_handler![
+            desktop::get_close_to_tray, desktop::set_close_to_tray,
+            desktop::get_autostart, desktop::set_autostart,
+        ])
         .on_window_event(desktop::on_window_event)
         .register_uri_scheme_protocol(SCHEME, |ctx, request| {
             let handle = ctx.app_handle();

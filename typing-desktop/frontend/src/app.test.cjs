@@ -117,6 +117,65 @@ test('combined settings load server and resources and pause practice until close
     assert.equal(h.app.clockStartedAt, 6000);
 });
 
+test('autostart reads system state and saves each toggle independently of the server', async () => {
+    const h = harness();
+    let systemEnabled = true;
+    const calls = [];
+    h.context.window.__TAURI__ = { core: { invoke: async (command, args) => {
+        calls.push(command);
+        if (command === 'get_autostart') return systemEnabled;
+        assert.equal(command, 'set_autostart');
+        systemEnabled = args.enabled;
+    } } };
+    await h.app.loadAutostartSettings();
+    assert.equal(h.app.autostartSettings.enabled, true);
+    h.app.autostartSettings.enabled = false;
+    await h.app.saveAutostartSettings();
+    assert.equal(systemEnabled, false);
+    h.app.autostartSettings.enabled = true;
+    await h.app.saveAutostartSettings();
+    assert.equal(systemEnabled, true);
+    // Changes outside the app are read again when settings are reopened.
+    systemEnabled = false;
+    await h.app.loadAutostartSettings();
+    assert.equal(h.app.autostartSettings.enabled, false);
+    assert.equal(h.app.autostartSettings.savedEnabled, false);
+    assert.equal(h.requests.length, 0);
+    assert.deepEqual(calls, ['get_autostart', 'set_autostart', 'set_autostart', 'get_autostart']);
+});
+
+test('autostart errors support retry and preserve the saved value while blocking duplicate saves', async () => {
+    const h = harness();
+    h.context.window.__TAURI__ = { core: { invoke: async () => { throw new Error('unavailable'); } } };
+    await h.app.loadAutostartSettings();
+    assert.equal(h.app.autostartSettings.loaded, false);
+    assert.match(h.app.autostartSettings.error, /重试/);
+    assert.equal(h.app.desktopSettings.error, '');
+    h.context.window.__TAURI__.core.invoke = async () => false;
+    await h.app.loadAutostartSettings();
+    assert.equal(h.app.autostartSettings.error, '');
+    let rejectSave, saves = 0;
+    h.context.window.__TAURI__.core.invoke = () => {
+        saves++;
+        return new Promise((resolve, reject) => { rejectSave = reject; });
+    };
+    h.app.setup.visible = true;
+    h.app.autostartSettings.enabled = true;
+    const saving = h.app.saveAutostartSettings();
+    assert.equal(h.app.autostartSettings.saving, true);
+    h.app.closeServerSetup();
+    assert.equal(h.app.setup.visible, true);
+    await h.app.saveAutostartSettings();
+    assert.equal(saves, 1);
+    rejectSave(new Error('access denied'));
+    await saving;
+    assert.equal(h.app.autostartSettings.enabled, false);
+    assert.equal(h.app.autostartSettings.saving, false);
+    assert.match(h.app.autostartSettings.error, /重试/);
+    h.app.closeServerSetup();
+    assert.equal(h.app.setup.visible, false);
+});
+
 test('an interrupted local import can be cancelled', async () => {
     const h = harness();
     const calls = [];

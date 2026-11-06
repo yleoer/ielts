@@ -13,6 +13,7 @@
 
 ## 桌面端
 
+- **开机自启动**：`app/src/autostart.rs` 通过 `winreg` 管理当前用户的 Windows 登录启动项（`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`），名称固定为 `Cijian`，命令指向当前程序；默认不注册，开启后按正常方式打开主窗口。`desktop.rs` 的 `get_autostart` / `set_autostart` 供共享设置页即时读取及切换，不在本地 JSON 复制系统状态、不参与同步，不需要管理员权限。命令完整引用程序路径以支持空格；读取任务管理器的 `StartupApproved\Run` 禁用状态，重新开启时清除此禁用覆盖。正式安装后开启可保证路径稳定；注册表单元测试使用独立临时键，真实窗口测试使用临时数据并备份、恢复原启动项。
 - **窗口**：隐藏系统标题栏，两页共用左侧边栏（练习、统计、同步、设置）与 48px 标题栏（页面名、状态、贴边窗口按钮），只有内容区滚动；标题栏空白可拖动，双击最大化／还原；窄窗口侧栏收成图标栏。Ctrl+1／Ctrl+2、Ctrl+,、F5 等桌面快捷键由 workspace.js 统一处理。开发时 CIJIAN_DEVTOOLS_PORT 开启 WebView2 远程调试。Tauri 开启全局窗口 API，`app/capabilities/main-window.json` 授权主窗口的控制与状态监听；`frontend/src/window-controls.js` 为两页共用逻辑，两页使用共享 `frontend/src/workspace.js` 与 `_workspace_dialogs.html` 提供设置、资源导入和同步弹窗，统计页同步后在原页刷新数据并复用图表容器，避免整体重新挂载导致图表空白。视觉规范见仓库根目录 `DESIGN.md`。
 - **前端**：`typing-desktop/frontend`（由网页版迁入，删除登录页）。`scripts/build_frontend.py` 用 Jinja 模板渲染到 `dist/`，CDN 脚本替换为 `vendor/` 中的固定版本，编译时内嵌。
 - **Windows 安装包**：NSIS 安装器与卸载器固定使用简体中文，图标与程序共用 `app/icons/icon.ico`。`app/tauri.conf.json` 的 `productName` 为英文 `Cijian`，安装包名为 `Cijian_<版本>_x64-setup.exe`，当前用户默认安装目录为 `%LOCALAPPDATA%\Cijian`；窗口与页面品牌继续为“词间”，应用标识仍为 `com.yleoer.cijian`。

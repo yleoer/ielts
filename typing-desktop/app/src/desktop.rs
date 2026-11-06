@@ -76,6 +76,16 @@ pub fn set_close_to_tray(
     settings.save(enabled)
 }
 
+#[tauri::command]
+pub fn get_autostart() -> Result<bool, String> {
+    crate::autostart::is_enabled().map_err(|error| format!("无法读取开机自启动：{error}"))
+}
+
+#[tauri::command]
+pub fn set_autostart(enabled: bool) -> Result<(), String> {
+    crate::autostart::set_enabled(enabled).map_err(|error| format!("无法修改开机自启动：{error}"))
+}
+
 pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
     if let WindowEvent::CloseRequested { api, .. } = event {
         if window.label() == "main"
