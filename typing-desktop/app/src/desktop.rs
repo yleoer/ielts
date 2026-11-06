@@ -2,10 +2,12 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use chrono::{TimeDelta, Utc};
 use serde_json::{json, Value};
+use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
@@ -14,6 +16,14 @@ use cijian_core::api::App;
 use cijian_core::time::{parse_time, Time};
 
 const TRAY_ID: &str = "main";
+
+struct TrayState {
+    original: Image<'static>,
+    summary: Option<Value>,
+    last_read: Instant,
+    level: Option<u16>,
+    tooltip: String,
+}
 
 pub struct DesktopSettings {
     path: PathBuf,
@@ -137,38 +147,85 @@ fn tooltip(summary: &Value, now: Time) -> Result<String, String> {
     Ok(format!("词间\n{message}"))
 }
 
-fn refresh_tooltip(handle: &AppHandle) {
-    let app = handle.state::<Arc<App>>();
-    let text = match app
-        .store
-        .summary()
-        .map_err(|e| e.to_string())
-        .and_then(|s| tooltip(&s, Utc::now()))
-    {
-        Ok(text) => text,
-        Err(error) => {
-            eprintln!("cijian: could not read tray review time: {error}");
-            "词间\n暂时无法读取复习时间".into()
-        }
+// Serialize cache updates and native setters on the main thread. In particular,
+// never hold this mutex on a worker while waiting for a native tray operation.
+fn update_tray(handle: &AppHandle, reload: bool) {
+    let state = handle.state::<Mutex<TrayState>>();
+    let mut state = state.lock().unwrap();
+    if reload || state.last_read.elapsed() >= Duration::from_secs(30) {
+        state.summary = match handle.state::<Arc<App>>().store.summary() {
+            Ok(summary) => Some(summary),
+            Err(error) => {
+                eprintln!("cijian: could not read tray review time: {error}");
+                None
+            }
+        };
+        state.last_read = Instant::now();
+    }
+    let now = Utc::now();
+    let presentation = state.summary.as_ref().map(|summary| {
+        tooltip(summary, now)
+            .and_then(|text| crate::tray_indicator::level(summary, now).map(|level| (text, level)))
+    });
+    let (text, level) = match presentation {
+        Some(Ok(value)) => value,
+        _ => ("词间\n暂时无法读取复习时间".into(), 0),
     };
     if let Some(tray) = handle.tray_by_id(TRAY_ID) {
-        if let Err(error) = tray.set_tooltip(Some(text)) {
-            eprintln!("cijian: could not update tray tooltip: {error}");
+        if state.level != Some(level) {
+            let original = &state.original;
+            let icon = Image::new_owned(
+                crate::tray_indicator::render(
+                    original.rgba(),
+                    original.width(),
+                    original.height(),
+                    level,
+                ),
+                original.width(),
+                original.height(),
+            );
+            match tray.set_icon(Some(icon)) {
+                Ok(()) => state.level = Some(level),
+                Err(error) => eprintln!("cijian: could not update tray icon: {error}"),
+            }
+        }
+        if state.tooltip != text {
+            match tray.set_tooltip(Some(&text)) {
+                Ok(()) => state.tooltip = text,
+                Err(error) => eprintln!("cijian: could not update tray tooltip: {error}"),
+            }
         }
     }
 }
 
+pub fn refresh(handle: &AppHandle) {
+    schedule_update(handle, true);
+}
+
+fn schedule_update(handle: &AppHandle, reload: bool) {
+    let owned = handle.clone();
+    if let Err(error) = handle.run_on_main_thread(move || update_tray(&owned, reload)) {
+        eprintln!("cijian: could not schedule tray update: {error}");
+    }
+}
+
 pub fn setup(handle: &AppHandle) -> tauri::Result<()> {
+    let icon = handle
+        .default_window_icon()
+        .expect("bundled application icon");
+    let original = Image::new_owned(icon.rgba().to_vec(), icon.width(), icon.height());
+    handle.manage(Mutex::new(TrayState {
+        original: original.clone(),
+        summary: None,
+        last_read: Instant::now(),
+        level: None,
+        tooltip: String::new(),
+    }));
     let open = MenuItem::with_id(handle, "open", "打开词间", true, None::<&str>)?;
     let quit = MenuItem::with_id(handle, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(handle, &[&open, &quit])?;
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(
-            handle
-                .default_window_icon()
-                .expect("bundled application icon")
-                .clone(),
-        )
+        .icon(original)
         .tooltip("词间")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -183,17 +240,17 @@ pub fn setup(handle: &AppHandle) -> tauri::Result<()> {
                 button_state: MouseButtonState::Up,
                 ..
             } => show_window(tray.app_handle()),
-            TrayIconEvent::Enter { .. } => refresh_tooltip(tray.app_handle()),
+            TrayIconEvent::Enter { .. } => refresh(tray.app_handle()),
             _ => {}
         })
         .build(handle)?;
-    refresh_tooltip(handle);
+    update_tray(handle, true);
     let handle = handle.clone();
     std::thread::Builder::new()
         .name("tray-review-time".into())
         .spawn(move || loop {
-            std::thread::sleep(std::time::Duration::from_secs(30));
-            refresh_tooltip(&handle);
+            std::thread::sleep(Duration::from_secs(1));
+            schedule_update(&handle, false);
         })?;
     Ok(())
 }

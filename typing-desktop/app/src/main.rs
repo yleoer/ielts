@@ -9,6 +9,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod desktop;
+mod tray_indicator;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -86,7 +87,7 @@ fn start_optimizer(app: Arc<App>) {
 
 /// Syncs at startup and then every `CIJIAN_SYNC_MINUTES` (default 10) while a server
 /// is configured. Failures, e.g. while offline, are only logged; practice keeps working.
-fn start_sync(app: Arc<App>) {
+fn start_sync(app: Arc<App>, handle: tauri::AppHandle) {
     let minutes = std::env::var("CIJIAN_SYNC_MINUTES").ok().and_then(|v| v.parse::<u64>().ok()).filter(|m| *m > 0).unwrap_or(10);
     let spawned = std::thread::Builder::new().name("log-sync".into()).spawn(move || loop {
         if let Some(remote) = app.remote() {
@@ -94,6 +95,7 @@ fn start_sync(app: Arc<App>) {
                 Ok(status) => eprintln!("cijian: {}", status["message"].as_str().unwrap_or_default()),
                 Err(error) => eprintln!("cijian: sync skipped: {error}"),
             }
+            desktop::refresh(&handle);
         }
         std::thread::sleep(std::time::Duration::from_secs(minutes * 60));
     });
@@ -114,6 +116,11 @@ fn main() {
             let (status, content_type, body) = if req.path.starts_with("/api/") {
                 let app = handle.state::<Arc<App>>();
                 let r = app.handle(&req);
+                if r.status < 300 && matches!(req.path.as_str(),
+                    "/api/practice/attempts" | "/api/sync/now" | "/api/settings/server" |
+                    "/api/memory/summary" | "/api/practice/queue") {
+                    desktop::refresh(handle);
+                }
                 (r.status, r.content_type, r.body)
             } else {
                 // Static pages are embedded; unknown pages fall back to the practice page.
@@ -133,9 +140,8 @@ fn main() {
             let state = Arc::new(open_app(app.handle())?);
             let settings_path = state.config.server_file.as_ref().unwrap().with_file_name("desktop.json");
             app.manage(desktop::DesktopSettings::load(settings_path));
-            start_optimizer(state.clone());
-            start_sync(state.clone());
-            app.manage(state);
+            app.manage(state.clone());
+            desktop::setup(app.handle())?;
             // Windows WebView2 maps custom schemes to http://<scheme>.localhost.
             let url = if cfg!(windows) { "http://cijian.localhost/" } else { "cijian://localhost/" };
             let mut window = WebviewWindowBuilder::new(app, "main", WebviewUrl::CustomProtocol(url.parse()?))
@@ -151,7 +157,8 @@ fn main() {
                 ));
             }
             window.build()?;
-            desktop::setup(app.handle())?;
+            start_optimizer(state.clone());
+            start_sync(state, app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())
