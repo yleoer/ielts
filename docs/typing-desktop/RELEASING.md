@@ -9,17 +9,18 @@
 在仓库根目录更新版本：
 
 ```powershell
-.\.venv\Scripts\python.exe typing-desktop\scripts\version.py --set 0.2.0
+.\.venv\Scripts\python.exe typing-desktop\scripts\version.py --set 0.3.0
 ```
 
 脚本同时通过 `cargo update --workspace --offline` 刷新 `Cargo.lock` 的本地包版本，不升级第三方依赖。需已安装 Rust 并下载过当前依赖。只读取版本可省略 `--set`。
 
-当前准备发布的版本为 `0.2.0`，主题是桌面体验优化：
+当前发布版本为 `0.3.0`，主题是复习提醒与词库体验改进：
 
-- 新增关闭收进托盘或直接退出的本地设置，托盘支持恢复窗口、退出及悬停查看下次复习时间；隐藏窗口时保存草稿并暂停练习计时。
-- `F5` / `Ctrl+R` 刷新当前页数据：练习页检查到期队列，统计页重新获取统计数据。
-- 答错后移除例句和“下一题”按钮，订正正确后按 Enter 切题。
-- 固定统计单词明细弹窗尺寸，切换记忆状态时只更新正文，长列表在内部滚动。
+- 新增 Windows 开机自启动开关，位于“设置 → 启动与窗口”，默认关闭，开启／关闭即时生效。
+- 复习到期前 10 分钟，托盘图标从上到下逐渐变为赭橙色；到期或仍有待复习词时全橙，完成复习后按下一次到期时间恢复。
+- 完整核对 Word Atlas 7298 条词汇，暂停并过滤 31 条整词等价的重复词，将 48 条词面改为更常见写法，保留 SourceId 和复习历史；Anki 英文字体改为 Comic Sans MS。
+
+安装包不包含 Anki 牌组修订或独立媒体资源包；已有牌组通过词库修订脚本处理，媒体包仍需单独导入。同步服务需运行包含词形过滤逻辑的版本，客户端升级本身不会更新服务端。
 
 ## GitHub Actions
 
@@ -38,9 +39,9 @@
 ```powershell
 git add <本次相关文件>
 git commit -m "发布桌面新版"
-git tag desktop-v0.2.0
+git tag desktop-v0.3.0
 git push origin HEAD
-git push origin desktop-v0.2.0
+git push origin desktop-v0.3.0
 ```
 
 首个已发布版本为 `0.1.0`，标签为 `desktop-v0.1.0`。之后每次发布递增版本；不要重新打包覆盖已经公开的同版本安装包。工作流需在标签指向的提交中存在；Actions 页面手动运行还需工作流已进入默认分支。
