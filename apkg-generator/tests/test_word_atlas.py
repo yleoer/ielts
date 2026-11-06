@@ -34,6 +34,31 @@ def entry():
 
 
 class ContentTests(unittest.TestCase):
+    def test_revisions_keep_ids_and_inflections_and_preserve_regional_names(self):
+        rules = atlas.revision_rules()
+        sample = entry()
+        sample.update(id="fulfil", w="fulfil", ex=[{"en": "She fulfilled her promise and fulfils a role.", "zh": "译文"}],
+                      fam=["fulfilment (n.)", "fulfilling (adj.)"])
+        updated = atlas.revise_entry(sample, rules)
+        self.assertEqual((updated["id"], updated["w"]), ("fulfil", "fulfill"))
+        self.assertEqual(updated["ex"][0]["en"], "She fulfilled her promise and fulfills a role.")
+        self.assertEqual(updated["fam"], ["fulfillment (n.)", "fulfilling (adj.)"])
+        self.assertEqual(sample["w"], "fulfil")
+        sample.update(id="whisky", w="whisky", col=["Scotch whisky｜苏格兰酒", "whiskies｜威士忌酒"])
+        updated = atlas.revise_entry(sample, rules)
+        self.assertEqual(updated["col"], ["Scotch whisky｜苏格兰酒", "whiskeys｜威士忌酒"])
+
+    def test_changed_pronunciations_use_corrected_audio_and_omit_old_uk_recordings(self):
+        sample = entry()
+        sample.update(id="windscreen", w="windscreen")
+        updated = atlas.revise_entry(sample, atlas.revision_rules())
+        report = atlas.media_report(updated, 15, Path("unused"))
+        by_kind = {item["kind"]: item for item in report}
+        self.assertFalse(by_kind["uk"]["available"])
+        self.assertTrue(by_kind["us"]["available"])
+        self.assertIn("word-atlas-revisions", by_kind["us"]["source"])
+        self.assertNotEqual(updated["uk"], "/ˈwɪndskriːn/")
+
     def test_study_plan_uses_fsrs_friendly_steps_and_suspends_leeches(self):
         default = {
             "1": {
@@ -117,6 +142,34 @@ class ContentTests(unittest.TestCase):
                      and Path("D:/me/genanki/genanki/__init__.py").is_file(),
                      "需要本地 Word Atlas 和 genanki 源仓库")
 class PackageTests(unittest.TestCase):
+    def test_revised_package_preserves_guids_and_suspends_excluded_cards(self):
+        ids = ["aeroplane", "airplane", "colour", "windscreen"]
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            report = atlas.generate(Path("D:/me/word-atlas-main"), Path("D:/me/genanki"), output, ids)
+            self.assertEqual(report["excluded_cards"], 1)
+            with zipfile.ZipFile(report["package"]) as package:
+                package.extract("collection.anki2", output)
+                media = json.loads(package.read("media"))
+                with closing(sqlite3.connect(output / "collection.anki2")) as db:
+                    genanki, _ = atlas.load_genanki(Path("D:/me/genanki"))
+                    notes = db.execute("SELECT guid,flds,tags,queue FROM notes JOIN cards ON notes.id=cards.nid ORDER BY notes.id").fetchall()
+                    for source_id, (guid, raw, tags, queue) in zip(ids, notes):
+                        fields = dict(zip(atlas.FIELDS, raw.split("\x1f")))
+                        self.assertEqual(fields["SourceId"], source_id)
+                        self.assertEqual(guid, genanki.guid_for("word-atlas:v1", source_id))
+                        self.assertEqual(queue, -1 if source_id == "aeroplane" else 0)
+                        if source_id == "aeroplane":
+                            self.assertIn("word_atlas::excluded", tags.split())
+                            self.assertIn("word_atlas::canonical::airplane", tags.split())
+                        if source_id == "colour":
+                            self.assertEqual(fields["Word"], "color")
+                        if source_id == "windscreen":
+                            self.assertEqual(fields["Word"], "windshield")
+                            self.assertEqual(fields["AudioUK"], "")
+                            self.assertIn("wa_windscreen_us", fields["AudioUS"])
+                self.assertFalse(any(name.startswith("wa_windscreen_uk") for name in media.values()))
+
     def test_study_plan_upgrade_preserves_cards_notes_and_media(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)

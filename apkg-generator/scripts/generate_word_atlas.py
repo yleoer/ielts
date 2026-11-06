@@ -49,6 +49,55 @@ MEDIA_SPECS = (
     # ex2 is present in this build, but absent from docs/dataset.md.
     ("AudioIELTS", "audio/ex2", ".mp3", None, "ex2"),
 )
+REVISIONS = ROOT / "data/word-atlas-revisions/revisions.json"
+
+
+def revision_rules() -> dict:
+    return json.loads(REVISIONS.read_text(encoding="utf-8"))
+
+
+def revise_entry(entry: dict, rules: dict) -> dict:
+    """Apply personal spelling choices without changing the upstream stable id."""
+    result = copy.deepcopy(entry)
+    source_id = entry["id"]
+    if excluded := rules["excluded"].get(source_id):
+        result["_excluded_for"] = excluded["canonical_id"]
+    if not (rule := rules["rewrites"].get(source_id)):
+        return result
+    if entry.get("w") != rule["from"]:
+        raise ValueError(f"{source_id} 的源词头已变化，请重新核对修订表。")
+    old, new = rule["from"], rule["word"]
+    forms = {old: new, **rule.get("forms", {})}
+    # Keep already-correct doubled-l inflections: enrol -> enroll, enrolled -> enrolled.
+    if new == old + "l":
+        forms.update({old + suffix: new + suffix for suffix in ("s", "ment", "ments")})
+        pattern = re.compile(r"(?<![A-Za-z])(?:" + "|".join(map(re.escape, sorted(forms, key=len, reverse=True))) + r")(?![A-Za-z])", re.I)
+    else:
+        pattern = re.compile(r"(?<![A-Za-z])(?:" + "|".join(map(re.escape, sorted(forms, key=len, reverse=True))) + r")[A-Za-z]*", re.I)
+
+    def replace_text(text: str) -> str:
+        def replace(match):
+            token = match.group()
+            if old == "whisky" and re.search(r"Scotch\s+$", text[:match.start()], re.I):
+                return token
+            key = next(key for key in sorted(forms, key=len, reverse=True) if token.lower().startswith(key.lower()))
+            replacement = forms[key] + token[len(key):]
+            return replacement.upper() if token.isupper() else replacement.capitalize() if token[0].isupper() else replacement
+        return pattern.sub(replace, text)
+
+    for sense in result.get("senses", []):
+        sense["en"] = replace_text(sense["en"])
+    for example in result.get("ex", []):
+        example["en"] = replace_text(example["en"])
+    for key in ("col", "fam", "syn", "ant"):
+        result[key] = [replace_text(value) for value in result.get(key, [])]
+    result.update(w=new, tip=rule["tip"])
+    for key in ("uk", "us"):
+        if key in rule:
+            result[key] = rule[key]
+    result["_media_overrides"] = {kind: str(REVISIONS.parent / path) if path else None
+                                  for kind, path in rule.get("media", {}).items()}
+    return result
 
 
 def study_plan_summary(deck_name: str) -> dict:
@@ -106,7 +155,8 @@ def load_source(source: Path) -> tuple[list[dict], dict]:
         raise ValueError("词库 id 不唯一，无法生成稳定的 Anki 笔记。")
     if any(not re.fullmatch(r"[A-Za-z0-9_-]+", item) for item in ids):
         raise ValueError("词条 id 含不支持的媒体文件名字符。")
-    return entries, index
+    rules = revision_rules()
+    return [revise_entry(entry, rules) for entry in entries], index
 
 
 def select_entries(entries: list[dict], ids: list[str]) -> list[dict]:
@@ -126,7 +176,16 @@ def media_report(entry: dict, flags: int, atlas: Path) -> list[dict]:
         original = atlas / folder / (entry["id"] + extension)
         declared = bool(flags & bit) if bit is not None else None
         available = original.is_file() and (declared is not False)
-        filename = f"wa_{entry['id']}_{kind}{extension}"
+        revised = kind in entry.get("_media_overrides", {})
+        if revised:
+            override = entry["_media_overrides"][kind]
+            available = override is not None
+            if available:
+                original = Path(override)
+                if not original.is_file():
+                    raise FileNotFoundError(f"缺少修订录音：{original}")
+                extension = original.suffix
+        filename = f"wa_{entry['id']}_{kind}{'_revised' if revised else ''}{extension}"
         report.append({"kind": kind, "declared": declared, "available": available,
                        "source": original.as_posix(), "filename": filename if available else None})
     return report
@@ -269,16 +328,24 @@ def generate(source: Path, genanki_source: Path, output: Path, ids: list[str] | 
     # Include the licence both inside the package and beside the exported file.
     shutil.copy2(source / "CONTENT_LICENSE.md", output / "_wa_content_license.txt")
     flags_by_id = {row[0]: row[-1] for row in index["words"]}
+    rules = revision_rules()
     notes, media_report = [], []
     package_media = [output / "_wa_fraunces.woff2", output / "_wa_font_license.txt", output / "_wa_content_license.txt"]
     for position, entry in enumerate(entries, 1):
         media, report = copy_media(entry, flags_by_id.get(entry["id"], 0), source / "dist/atlas", output)
         fields = build_fields(entry, media)
         package_media.extend(output / item["filename"] for item in report if item["available"])
-        notes.append(genanki.Note(model=model, fields=[fields[name] for name in FIELDS],
+        tags = ["word_atlas", f"topic::{entry['topic']}", f"cefr::{entry['cefr']}"]
+        if entry.get("_excluded_for"):
+            tags += [rules["excluded_tag"], rules["canonical_tag_prefix"] + entry["_excluded_for"]]
+        note = genanki.Note(model=model, fields=[fields[name] for name in FIELDS],
                                   due=position,
                                   guid=genanki.guid_for("word-atlas:v1", entry["id"]),
-                                  tags=["word_atlas", f"topic::{entry['topic']}", f"cefr::{entry['cefr']}"]))
+                                  tags=tags)
+        if entry.get("_excluded_for"):
+            for card in note.cards:
+                card.suspend = True
+        notes.append(note)
         media_report.append({"id": entry["id"], "media": report})
         if position % 500 == 0 or position == len(entries):
             print(f"整理词条与媒体：{position:,}/{len(entries):,}", flush=True)
@@ -291,11 +358,12 @@ def generate(source: Path, genanki_source: Path, output: Path, ids: list[str] | 
               "deck_name": deck_name, "entry_ids": ids,
               "cefr_counts": dict(Counter(e["cefr"] for e in all_entries)),
               "notes": len(notes), "cards": len(notes),
+              "excluded_cards": sum(bool(entry.get("_excluded_for")) for entry in entries),
               "media_count": len(package_media), "genanki_source": str(Path(genanki.__file__).parent),
               "package": str(output / package_name), "media": media_report,
               "media_counts_by_kind": dict(Counter(item["kind"] for row in media_report for item in row["media"] if item["available"])),
               "package_bytes": (output / package_name).stat().st_size,
-              "content_changes": "Original text and media preserved; HTML formatting and exact-headword emphasis added."}
+              "content_changes": "Personal spelling revisions; excluded variants tagged and suspended; four word pronunciations and their examples replaced with en-US speech."}
     report["study_plan"] = study_plan_summary(deck_name)
     (output / "build-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return report

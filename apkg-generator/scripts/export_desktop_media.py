@@ -40,7 +40,8 @@ def export(source: Path, output: Path) -> dict:
             "CONTENT_LICENSE.md": (source / "CONTENT_LICENSE.md").read_bytes(),
             "ATTRIBUTION.txt": ("Word Atlas contributors — CC BY 4.0\n"
                                 "https://creativecommons.org/licenses/by/4.0/\n"
-                                "Illustrations and recordings copied without modification; filenames changed.\n").encode("utf-8"),
+                                "Original illustrations and most recordings preserved; personal spelling revisions applied.\n"
+                                "Four revised words use Microsoft Zira Desktop en-US speech; their obsolete UK clips are omitted.\n").encode("utf-8"),
         }
         archive = staging / "cijian-media.zip"
         print(f"压缩 {len(sources):,} 个媒体文件……", flush=True)

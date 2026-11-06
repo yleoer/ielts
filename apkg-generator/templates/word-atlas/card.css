@@ -1,10 +1,5 @@
-@font-face {
-  font-family: "Atlas Fraunces";
-  src: url("_wa_fraunces.woff2") format("woff2");
-  font-weight: 100 900;
-  font-display: swap;
-}
 .card {
+  --atlas-english-font: "Comic Sans MS", "Segoe UI", Arial, sans-serif;
   --atlas-paper: #fbf8f0;
   --atlas-ink: #253d34;
   --atlas-secondary: #58675c;
@@ -23,17 +18,18 @@
 .card *, .card *::before, .card *::after { box-sizing: border-box; }
 .card ::selection { background: #dccca8; color: #253d34; }
 .card a { color: inherit; text-underline-offset: 3px; }
+.card [lang="en"] { font-family: var(--atlas-english-font); }
 .card :focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 4px; }
 .atlas-card { max-width: 960px; margin: 0 auto; padding: 26px 38px 18px; background: var(--atlas-paper); border-radius: 5px; box-shadow: 0 8px 30px #213a3010; }
 .atlas-card p, .atlas-card h1, .atlas-card h2, .atlas-card figure { margin: 0; }
 .atlas-meta { display: inline-flex; align-items: center; flex-shrink: 0; gap: 10px; color: var(--atlas-secondary); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
 .atlas-level { display: inline-block; padding: 1px 7px; background: var(--atlas-soft); color: var(--atlas-ink); font-size: 11px; letter-spacing: .02em; }
 .atlas-word-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; column-gap: 18px; row-gap: 10px; }
-.atlas-word { font-family: "Atlas Fraunces", Georgia, serif; font-weight: 500; font-size: clamp(34px, 5.8vw, 60px); line-height: 1.12; letter-spacing: -.035em; overflow-wrap: anywhere; }
+.atlas-word { font-family: var(--atlas-english-font); font-weight: 400; font-size: clamp(34px, 5.8vw, 60px); line-height: 1.2; letter-spacing: 0; overflow-wrap: anywhere; }
 .atlas-pronunciations { display: flex; flex-wrap: wrap; column-gap: 22px; row-gap: 5px; margin-top: 15px; }
 .atlas-pronunciation { display: inline-flex; align-items: center; gap: 7px; color: var(--atlas-secondary); font-size: 14px; }
 .atlas-pronunciation small { color: var(--atlas-accent); font-size: 10px; font-weight: 700; letter-spacing: .06em; }
-.atlas-pronunciation > span { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+.atlas-pronunciation > span { font-family: var(--atlas-english-font); }
 .atlas-recall { display: flex; min-height: 350px; flex-direction: column; align-items: center; justify-content: center; padding: 48px 0; text-align: center; }
 .atlas-recall .atlas-word { font-size: clamp(38px, 7.4vw, 76px); }
 .atlas-recall .atlas-pronunciations { justify-content: center; }
@@ -47,7 +43,7 @@
 .atlas-illustration { display: flex; justify-content: center; }
 .atlas-illustration img { display: block; width: 100%; max-width: 230px; height: auto; border-radius: 3px; }
 .atlas-meaning { display: flex; align-items: baseline; gap: 10px; margin-top: 20px; }
-.atlas-pos { color: var(--atlas-accent); font-family: Georgia, serif; font-size: 16px; font-style: italic; }
+.atlas-pos { color: var(--atlas-accent); font-family: var(--atlas-english-font); font-size: 16px; font-style: normal; }
 .atlas-meaning h2 { font-size: 21px; font-weight: 600; line-height: 1.55; }
 .atlas-english-definition { margin-top: 8px !important; color: var(--atlas-secondary); font-size: 14px; line-height: 1.6; }
 .atlas-more-senses { margin-top: 6px; font-size: 13px; }
@@ -57,7 +53,7 @@
 .atlas-section-heading { margin-bottom: 13px !important; font-size: 13px; font-weight: 700; letter-spacing: .04em; }
 .atlas-example + .atlas-example { margin-top: 24px; }
 .atlas-example-label { display: flex; align-items: center; gap: 8px; min-height: 28px; margin-bottom: 6px; color: var(--atlas-accent); font-size: 11px; font-weight: 600; }
-.atlas-sentence { font-family: Georgia, "Microsoft YaHei", serif; font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; }
+.atlas-sentence { font-family: var(--atlas-english-font); font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; }
 .atlas-sentence mark { background: none; color: var(--atlas-ink); font-weight: 700; text-decoration: underline; text-decoration-color: #b7c4a3; text-decoration-thickness: 2px; text-underline-offset: 4px; }
 .atlas-translation { margin-top: 7px; color: var(--atlas-secondary); font-size: 12px; line-height: 1.8; }
 .atlas-translation summary { display: inline-flex; min-height: 28px; align-items: center; gap: 8px; color: var(--atlas-secondary); font-size: 11px; font-weight: 400; cursor: pointer; list-style: none; user-select: none; }
@@ -70,7 +66,7 @@
 .atlas-translation p { margin-top: 2px !important; color: var(--atlas-secondary); }
 .atlas-collocations { list-style: none; padding: 0; margin: 0; }
 .atlas-collocations li + li { margin-top: 10px; }
-.atlas-collocations span { display: block; font-size: 13px; font-weight: 600; }
+.atlas-collocations span { display: block; font-family: var(--atlas-english-font); font-size: 13px; font-weight: 600; }
 .atlas-collocations small { display: block; color: var(--atlas-secondary); font-size: 11px; }
 .atlas-tip { margin-top: 25px; }
 .atlas-tip p { color: var(--atlas-secondary); font-size: 12px; line-height: 1.9; overflow-wrap: anywhere; }

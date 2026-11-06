@@ -26,7 +26,7 @@ web
 
 ## Brand Commitments
 
-参考 Word Atlas 的现有插画、Fraunces 字体和纸色基础，按用户指定的 Impeccable 规范设计 Anki 前端。
+保留 Word Atlas 的现有插画与纸色基础；英文使用圆润、清晰的 Comic Sans MS 手写风格字体，优先服务字母辨认和记忆卡片阅读，按用户指定的 Impeccable 规范设计 Anki 前端。
 
 ## Evidence on Hand
 
