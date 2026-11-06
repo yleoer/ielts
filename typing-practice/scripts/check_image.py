@@ -48,6 +48,28 @@ except HTTPError as error:
     assert error.code == 503, error.code
 print("PASS /api/vocab 503 without Anki", flush=True)
 
+# Verify the packaged reader against an isolated modern Anki schema.
+import sqlite3
+from pathlib import Path
+from anki import AnkiReader, WORD_ATLAS_FIELDS
+collection = Path("/tmp/image-check/variants.anki2")
+with sqlite3.connect(collection) as db:
+    db.executescript("CREATE TABLE decks(id INTEGER PRIMARY KEY,name TEXT);"
+                     "CREATE TABLE notes(id INTEGER PRIMARY KEY,flds TEXT,tags TEXT);"
+                     "CREATE TABLE cards(id INTEGER PRIMARY KEY,nid INTEGER,did INTEGER,type INTEGER,queue INTEGER);"
+                     "INSERT INTO decks VALUES(1,'Word Atlas');"
+                     "INSERT INTO cards VALUES(1,101,1,2,-1),(2,102,1,0,0);")
+    for note_id, word, tags in ((101, "aeroplane", " word_atlas::excluded word_atlas::canonical::airplane "),
+                                (102, "airplane", "")):
+        fields = {"Word": word, "SourceId": word, "MeaningZH": "飞机"}
+        db.execute("INSERT INTO notes VALUES(?,?,?)", (note_id, "\x1f".join(fields.get(k, "") for k in WORD_ATLAS_FIELDS), tags))
+reader = AnkiReader(str(collection), "Word Atlas", 1)
+try:
+    assert [(w["source_id"], w["learned"]) for w in reader.snapshot()] == [("airplane", True)]
+finally:
+    reader.close()
+print("PASS excluded Anki variants and canonical learned state", flush=True)
+
 attempt = {"attempt_id": "image-check", "word_key": "word-atlas:check", "word": "check", "chinese_meaning": "检查",
            "category": "", "user_input": "check", "is_correct": True, "rating": 3,
            "reviewed_at": "2026-01-01T00:00:00Z", "duration_ms": 7000, "first_input_ms": None}

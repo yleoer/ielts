@@ -2,6 +2,8 @@
 
 桌面端正式练习通过本地路由 `GET /api/practice/queue?session_id=...&limit=1` 每次获取一道题，选词在 `typing-desktop/core/src/store.rs` 中执行。Anki 继续提供已学习的 Word Atlas 词池（来自同步服务器的词库快照），稳定标识为 `word-atlas:SourceId`；重新导入导致 `note_id` 改变时保留记忆。缺少或重复 SourceId 会报错。
 
+服务器在快照中排除 `word_atlas::excluded` 标记的重复词，这些卡片在 Anki 也暂停。若被过滤项已学，服务器按其 canonical 标签让保留项获得练习资格；只继承资格，不合并两个 SourceId 的 FSRS 或作答日志。词头改写仍沿用原 SourceId，无需清空桌面数据库。详见 [词库修订与已有 Anki 更新](../../apkg-generator/data/word-atlas-revisions/README.md)。
+
 ## 顺序与数量
 
 1. 已到期的学习和重学词。

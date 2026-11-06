@@ -22,7 +22,7 @@ def make_anki_db(path: Path, word_count: int = 1) -> None:
     db.executescript(
         """
         CREATE TABLE decks(id INTEGER PRIMARY KEY, name TEXT);
-        CREATE TABLE notes(id INTEGER PRIMARY KEY, flds TEXT);
+        CREATE TABLE notes(id INTEGER PRIMARY KEY, flds TEXT, tags TEXT NOT NULL DEFAULT '');
         CREATE TABLE cards(id INTEGER PRIMARY KEY, nid INTEGER, did INTEGER, type INTEGER, queue INTEGER);
         INSERT INTO decks(id,name) VALUES(1,'Word Atlas');
         INSERT INTO cards(id,nid,did,type,queue) VALUES(201,101,1,1,1);
@@ -39,7 +39,7 @@ def make_anki_db(path: Path, word_count: int = 1) -> None:
     for index in range(1, word_count):
         spelling = f"word-{chr(97 + index // 26)}{chr(97 + index % 26)}"
         fields.update(Word=spelling, SourceId=spelling)
-        db.execute("INSERT INTO notes VALUES(?,?)", (101 + index, FIELD_SEPARATOR.join(fields[name] for name in WORD_ATLAS_FIELDS)))
+        db.execute("INSERT INTO notes(id,flds) VALUES(?,?)", (101 + index, FIELD_SEPARATOR.join(fields[name] for name in WORD_ATLAS_FIELDS)))
         db.execute("INSERT INTO cards VALUES(?,?,1,1,1)", (201 + index, 101 + index))
     db.commit()
     db.close()
@@ -95,6 +95,18 @@ class ServerTest(unittest.TestCase):
         self.state.reader.close()
         self.state.reader = None
         self.assertEqual(self.client.get("/api/vocab").status_code, 503)
+
+    def test_vocabulary_filters_only_tagged_words_and_keeps_their_answer_history(self):
+        self.sync(attempts=[attempt(1)])
+        with closing(sqlite3.connect(self.collection)) as db:
+            db.execute("UPDATE notes SET tags=' word_atlas::excluded word_atlas::canonical::word-ac ' WHERE id=101")
+            db.execute("UPDATE cards SET queue=-1 WHERE nid=101")
+            db.commit()
+        data = self.client.get("/api/vocab").json["data"]
+        self.assertEqual(data["format"], 1)
+        self.assertEqual([(w["source_id"], w["learned"]) for w in data["words"]],
+                         [("word-ab", True), ("word-ac", True)])
+        self.assertEqual(self.sync()["attempts"][0]["word_key"], "word-atlas:abandon")
 
     def test_sync_deduplicates_and_pages_by_cursor(self):
         first = self.sync(attempts=[attempt(1), attempt(2)])

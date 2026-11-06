@@ -20,17 +20,17 @@ colors:
   night-background: '#17251e'
 typography:
   display:
-    fontFamily: '"Atlas Fraunces", Georgia, serif'
+    fontFamily: '"Comic Sans MS", "Segoe UI", Arial, sans-serif'
     fontSize: clamp(34px, 5.8vw, 60px)
-    fontWeight: 500
-    lineHeight: 1.12
-    letterSpacing: -.035em
+    fontWeight: 400
+    lineHeight: 1.2
+    letterSpacing: 0
   recall:
-    fontFamily: '"Atlas Fraunces", Georgia, serif'
+    fontFamily: '"Comic Sans MS", "Segoe UI", Arial, sans-serif'
     fontSize: clamp(38px, 7.4vw, 76px)
-    fontWeight: 500
-    lineHeight: 1.12
-    letterSpacing: -.035em
+    fontWeight: 400
+    lineHeight: 1.2
+    letterSpacing: 0
   chinese-prompt:
     fontFamily: '"Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif'
     fontSize: clamp(27px, 4vw, 38px)
@@ -47,7 +47,7 @@ typography:
     fontWeight: 400
     lineHeight: 1.65
   sentence:
-    fontFamily: Georgia, "Microsoft YaHei", serif
+    fontFamily: '"Comic Sans MS", "Segoe UI", Arial, sans-serif'
     fontSize: 16px
     fontWeight: 400
     lineHeight: 1.65
@@ -102,7 +102,7 @@ components:
 
 ## 颜色与字体
 
-纸色卡面、墨绿正文与赭红强调，颜色及字体层级见上方 token。离线字体 `_wa_fraunces.woff2` 用于英文词头，中文与正文使用 Segoe UI、Microsoft YaHei、PingFang SC 和 sans-serif；例句使用 Georgia 配 Microsoft YaHei。卡片不依赖网络字体。
+纸色卡面、墨绿正文与赭红强调，颜色及字体层级见上方 token。英文词头、释义、例句、搭配、词性和音标统一优先使用 Comic Sans MS，回退 Segoe UI、Arial 和系统无衬线字体；中文保留 Microsoft YaHei、PingFang SC 等系统回退。词头采用正常字重、自然字距和 1.2 行高，便于辨认字母和回忆拼写。卡片不依赖网络字体，也不加载旧版装饰字体。
 
 深色模式使用 `night-*` 对应值，CSS 识别 Anki 的 `nightMode` 与 `night_mode` 类。正文与辅助文字保留清晰层级；词性、读音标签和语境名称使用强调色。
 

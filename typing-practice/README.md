@@ -25,6 +25,8 @@ $env:ACCESS_TOKEN = '自己的令牌'
 
 `app.py` 使用纯 Python 的 Waitress WSGI 服务器启动，本地与 Docker 共用此入口，默认监听 <http://127.0.0.1:8080>。`SERVER_HOST` / `SERVER_PORT` 控制监听地址；不使用 Flask 开发服务器。默认读取 `Word Atlas` 牌组（生成时 ID `1958430017`），优先按名称解析实际导入后的牌组和子牌组；只支持 Word Atlas 的 22 字段结构。`ANKI_DECK_NAME` / `ANKI_DECK_ID` 可覆盖。
 
+词库排除带精确标签 `word_atlas::excluded` 的笔记，包括已学且暂停的重复项；普通暂停、leech 不因此被排除。被排除项若已学，按其 `word_atlas::canonical::<SourceId>` 标签让保留项进入练习池。该规则只继承练习资格，不合并或改写 Anki 调度及 typing 作答历史；`/api/vocab` 仍为 format 1。31 条过滤和 48 条改写统一来自 [本地修订表](../apkg-generator/data/word-atlas-revisions/README.md)，服务器读取同步后的 Anki 字段和标签，不另存一份改写词表。
+
 配置来自 `backend/config/config.yaml`、`typing-practice/.env` 和进程环境变量，环境变量优先：
 
 | 变量 | 说明 |

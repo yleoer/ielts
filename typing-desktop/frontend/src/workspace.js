@@ -9,6 +9,7 @@ const workspaceControls = {
             resources: { loading: false, transferring: false, status: null, error: '', appliedId: '' },
             updates: { current: '', available: null, phase: 'idle', downloaded: 0, total: 0, error: '' },
             desktopSettings: { loaded: false, saving: false, closeToTray: true, savedCloseToTray: true, error: '' },
+            autostartSettings: { loaded: false, saving: false, enabled: false, savedEnabled: false, error: '' },
             // Sync server settings; `required` blocks the page until a first server is saved.
             setup: { visible: false, required: false, url: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
         };
@@ -230,6 +231,34 @@ const workspaceControls = {
             }
         },
 
+        async loadAutostartSettings() {
+            const settings = this.autostartSettings;
+            settings.loaded = false;
+            settings.error = '';
+            try {
+                const enabled = await window.__TAURI__.core.invoke('get_autostart');
+                Object.assign(settings, { enabled, savedEnabled: enabled, loaded: true });
+            } catch (error) {
+                settings.error = '无法读取开机自启动状态，请重试。';
+            }
+        },
+
+        async saveAutostartSettings() {
+            const settings = this.autostartSettings;
+            if (!settings.loaded || settings.saving) return;
+            settings.saving = true;
+            settings.error = '';
+            try {
+                await window.__TAURI__.core.invoke('set_autostart', { enabled: settings.enabled });
+                settings.savedEnabled = settings.enabled;
+            } catch (error) {
+                settings.enabled = settings.savedEnabled;
+                settings.error = '无法修改开机自启动，请重新选择后重试。';
+            } finally {
+                settings.saving = false;
+            }
+        },
+
         async loadServerSettings() {
             const settings = (await axios.get(`${this.apiBaseUrl}/settings/server`)).data.data;
             Object.assign(this.setup, { url: settings.url || '', token: '', hasToken: settings.has_token, editable: settings.editable, error: '' });
@@ -241,7 +270,7 @@ const workspaceControls = {
             this.syncModal.visible = false;
             this.pauseClock?.();
             Object.assign(this.setup, { visible: true, required: false, error: '' });
-            await this.loadDesktopSettings();
+            await Promise.all([this.loadDesktopSettings(), this.loadAutostartSettings()]);
             try {
                 await this.loadServerSettings();
                 await this.loadResourceStatus();
@@ -252,14 +281,14 @@ const workspaceControls = {
         },
 
         closeServerSetup() {
-            if (this.setup.required || this.setup.saving || this.desktopSettings.saving || this.resources.transferring || this.updateInstalling) return;
+            if (this.setup.required || this.setup.saving || this.desktopSettings.saving || this.autostartSettings.saving || this.resources.transferring || this.updateInstalling) return;
             this.setup.visible = false;
             this.resumeClock?.();
             this.$nextTick(() => this.setupOpener?.focus());
         },
 
         async saveServerSetup() {
-            if (this.setup.saving || this.resourceBusy || this.updateInstalling) return;
+            if (this.setup.saving || this.autostartSettings.saving || this.resourceBusy || this.updateInstalling) return;
             if (!this.setup.editable) { this.closeServerSetup(); return; }
             this.setup.saving = true;
             this.setup.error = '';

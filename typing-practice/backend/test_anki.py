@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -107,6 +108,36 @@ class WordAtlasFieldTest(unittest.TestCase):
 
 
 class WordAtlasReaderTest(unittest.TestCase):
+    def test_excluded_suspended_alias_is_removed_and_unlocks_its_canonical_word(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "collection.anki2"
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("""
+                    CREATE TABLE decks(id INTEGER PRIMARY KEY,name TEXT);
+                    CREATE TABLE notes(id INTEGER PRIMARY KEY,flds TEXT,tags TEXT);
+                    CREATE TABLE cards(id INTEGER PRIMARY KEY,nid INTEGER,did INTEGER,type INTEGER,queue INTEGER);
+                    INSERT INTO decks VALUES(1,'Word Atlas');
+                    INSERT INTO cards VALUES(1,101,1,2,-1),(2,102,1,0,0),(3,103,1,2,-1),(4,104,1,2,-1);
+                """)
+                db.executemany("INSERT INTO notes VALUES(?,?,?)", [
+                    (101, atlas_fields(Word="aeroplane", SourceId="aeroplane"),
+                     " word_atlas::excluded word_atlas::canonical::airplane "),
+                    (102, atlas_fields(Word="airplane", SourceId="airplane"), ""),
+                    (103, atlas_fields(Word="leech", SourceId="leech"), " leech "),
+                    (104, atlas_fields(Word="similar-tag", SourceId="similar-tag"), " word_atlas::excluded-extra "),
+                ])
+                db.commit()
+                reader = AnkiReader(str(path), "Word Atlas", 1)
+                try:
+                    self.assertEqual([(w["word"], w["learned"]) for w in reader.snapshot()],
+                                     [("airplane", True), ("leech", True), ("similar-tag", True)])
+                    db.execute("UPDATE notes SET tags='' WHERE id=101")
+                    db.commit()
+                    self.assertEqual([(w["word"], w["learned"]) for w in reader.snapshot()],
+                                     [("aeroplane", True), ("airplane", False), ("leech", True), ("similar-tag", True)])
+                finally:
+                    reader.close()
+
     def test_snapshot_cache_refreshes_external_commits_including_wal(self):
         for journal in ("DELETE", "WAL"):
             with self.subTest(journal=journal), tempfile.TemporaryDirectory() as temporary:
@@ -116,10 +147,10 @@ class WordAtlasReaderTest(unittest.TestCase):
                     writer.executescript("""
                         CREATE TABLE decks(id INTEGER PRIMARY KEY, name TEXT);
                         CREATE TABLE cards(id INTEGER PRIMARY KEY,nid INTEGER,did INTEGER,type INTEGER,queue INTEGER);
-                        CREATE TABLE notes(id INTEGER PRIMARY KEY,flds TEXT);
+                        CREATE TABLE notes(id INTEGER PRIMARY KEY,flds TEXT,tags TEXT NOT NULL DEFAULT '');
                         INSERT INTO cards VALUES(1,101,1,1,1),(2,102,1,0,0);
                     """)
-                    writer.executemany("INSERT INTO notes VALUES(?,?)", [(101, atlas_fields()), (102, atlas_fields(Word="new"))])
+                    writer.executemany("INSERT INTO notes(id,flds) VALUES(?,?)", [(101, atlas_fields()), (102, atlas_fields(Word="new"))])
                     writer.commit()
                     reader = AnkiReader(str(path), "Word Atlas", 1)
                     try:
@@ -145,13 +176,13 @@ class WordAtlasReaderTest(unittest.TestCase):
             with closing(sqlite3.connect(path)) as db:
                 db.executescript("""
                     CREATE TABLE decks(id INTEGER PRIMARY KEY, name TEXT);
-                    CREATE TABLE notes(id INTEGER PRIMARY KEY, flds TEXT);
+                    CREATE TABLE notes(id INTEGER PRIMARY KEY, flds TEXT, tags TEXT NOT NULL DEFAULT '');
                     CREATE TABLE cards(id INTEGER PRIMARY KEY,nid INTEGER,did INTEGER,type INTEGER,queue INTEGER);
                     INSERT INTO decks VALUES(1,'Word Atlas'),(2,'Word Atlas::工作'),(3,'Other');
                     INSERT INTO cards VALUES(201,101,1,1,1),(202,101,1,2,2),(203,102,1,0,0),
                                             (204,103,2,2,2),(205,104,3,2,2);
                 """)
-                db.executemany("INSERT INTO notes VALUES(?,?)", [
+                db.executemany("INSERT INTO notes(id,flds) VALUES(?,?)", [
                     (101, atlas_fields()),
                     (102, atlas_fields(Word="unlearned")),
                     (103, atlas_fields(Word="commute", PartOfSpeech="v.", MeaningZH="通勤", Topic="工作")),
@@ -177,6 +208,11 @@ class WordAtlasReaderTest(unittest.TestCase):
                 path.write_bytes(source.read("collection.anki2"))
             # Mark two cards learned only in this disposable copy, never in Anki or the APKG.
             with closing(sqlite3.connect(path)) as db:
+                # genanki exports the legacy APKG schema; Anki import creates this
+                # modern table before the sync server ever reads a collection.
+                db.execute("CREATE TABLE decks(id INTEGER PRIMARY KEY,name TEXT)")
+                decks = json.loads(db.execute("SELECT decks FROM col").fetchone()[0])
+                db.executemany("INSERT INTO decks VALUES(?,?)", [(int(key), value["name"]) for key, value in decks.items()])
                 db.execute("UPDATE cards SET type=1,queue=1 WHERE ord=0 AND nid IN (SELECT id FROM notes ORDER BY id LIMIT 2)")
                 db.commit()
             reader = AnkiReader(str(path), DEFAULT_DECK_NAME, DEFAULT_DECK_ID)
@@ -184,7 +220,7 @@ class WordAtlasReaderTest(unittest.TestCase):
                 snapshot = reader.snapshot()
                 words = [word for word in snapshot if word["learned"]]
                 self.assertEqual(len(words), 2)
-                self.assertEqual(len(snapshot), 7298)
+                self.assertEqual(len(snapshot), 7267)
                 self.assertEqual(words[0]["cefr"], "A1")
                 self.assertEqual(words[0]["word"], "library")
                 self.assertEqual(words[0]["part_of_speech"], "n.")

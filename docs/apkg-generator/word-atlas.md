@@ -6,9 +6,9 @@
 
 文件：`apkg-generator/anki_export/word-atlas/Word Atlas.apkg`。
 
-- 7,298 个词条、7,298 张卡片，每词仅一张英→汉卡。
-- 7,298 幅插画；英音、美音和日常例句朗读各 7,298 条；雅思例句朗读 1,011 条。
-- 字体、完整授权随包提供，共 30,206 个媒体/授权文件。
+- 7,298 条笔记、7,298 张英→汉卡，其中 31 张重复词卡带过滤标签并暂停，保留 7,267 个可学词条。
+- 7,298 幅插画；英音 7,294 条，美音和日常例句朗读各 7,298 条，第二例句朗读 1,014 条。
+- 字体、完整授权随包提供，共 30,205 个媒体/授权文件；4 个改变读音的词使用新的美音与例句录音，不再引用旧英音。
 - 文件大小以 `build-report.json` 中的 `package_bytes` 为准，约 565 MiB。
 - 牌组目录另保留 SHA-256 文件、`build-report.json` 和 `CONTENT_LICENSE.md`。
 
@@ -17,6 +17,8 @@
 ## 数据与卡片
 
 源数据为 `data/word-atlas.json`，格式参考源仓库 `docs/dataset.md`；媒体位于 `dist/atlas/`。`audio/ex2/` 实际有 1,011 条第二例句音频，源格式文档尚未描述，生成器按文件存在性处理。
+
+7,298 条词库的筛选依据见 [变体核对清单](word-atlas-variant-audit.md)。实际生成共同应用 [本地修订表与更新说明](../../apkg-generator/data/word-atlas-revisions/README.md)：原词库不改动，31 条重复项标记并暂停，48 条改写词头、英文语境及提示，SourceId、模型 ID、GUID 保持不变。服务器识别 `word_atlas::excluded` 标签，从统计词库和练习池同时排除；暂停的非过滤词（例如 leech）仍按原有规则同步。
 
 | 词库字段 | 卡片表现 |
 | --- | --- |
@@ -30,7 +32,7 @@
 
 仅生成英→汉卡：正面显示词头、英美音标与播放按钮，回忆中文释义。背面保留插画、全部义项、双语例句、搭配与用法提醒；“在语境里记住”先显示英文例句，中文译文默认折叠，可通过“查看中文”逐条展开。卡面移除品牌标题、引导语、页脚及“再多学一点”。
 
-卡片采用离线 Fraunces 字体和响应式 HTML/CSS；中文译文使用原生 `details` / `summary` 折叠，不依赖 JavaScript 或联网字体。媒体按 `wa_<id>_uk.mp3`、`wa_<id>_us.mp3`、`wa_<id>_ex.mp3`、`wa_<id>_ex2.mp3`、`wa_<id>_img.webp` 扁平命名，避免 Anki 中相同 basename 覆盖。已文档化媒体同时校验索引位与文件；缺失媒体省略。
+英文词头、释义、例句、搭配、词性和音标统一使用 Comic Sans MS，缺少时回退 Segoe UI、Arial 和系统无衬线字体。词头采用正常字重、自然字距，便于辨认拼写。卡片采用响应式 HTML/CSS；中文译文使用原生 `details` / `summary` 折叠，不依赖 JavaScript 或联网字体。媒体按 `wa_<id>_uk.mp3`、`wa_<id>_us.mp3`、`wa_<id>_ex.mp3`、`wa_<id>_ex2.mp3`、`wa_<id>_img.webp` 扁平命名，避免 Anki 中相同 basename 覆盖。已文档化媒体同时校验索引位与文件；缺失媒体省略。
 
 ## 重新生成
 
@@ -45,6 +47,8 @@ python -m venv .venv
 ```
 
 默认即生成完整牌组。`--all` 保留为兼容参数；可通过 `--source`、`--genanki-source`、`--output` 和 `--deck-name` 覆盖输入路径、输出目录和牌组名称。生成不调用 AI，也不修改源仓库。
+
+新导入的 31 张过滤卡默认暂停。已有 Anki 必须通过上述更新器标记并暂停旧卡，同时更新 48 条词头及配套内容；仅重新导入 APKG 不保证旧卡的暂停状态改变。更新器先备份，并保留笔记、卡片和复习历史。
 
 已有完整文件只更新学习计划、名称和描述时，使用：
 
@@ -100,10 +104,10 @@ FSRS 开关、目标保留率和优化参数属于客户端个人调度设置，
 
 测试覆盖内容转义、例句译文折叠结构、缺失媒体、文件名冲突、完整模式名称及源顺序、两套生成器每词唯一英→汉卡片及模型模板、实际 APKG/SQLite/媒体引用，以及从旧学习配置升级时保留笔记、卡片数据和全部媒体。旧词表生成器的测试需要 `requests`，依赖安装见 [生成器说明](README.zh-CN.md)；Word Atlas 包级测试需要本机两个源仓库，缺失时明确 skip。本流程不修改 `typing-practice/`，Python 测试不需要 gcc。
 
-完整成品重新生成为 7,298 条笔记、7,298 张英→汉卡。ZIP CRC 与 SQLite 完整性、笔记顺序、GUID、卡片方向和新卡位置均通过检查；30,203 个内容媒体全部被引用，缺失引用为 0。选项组名为 Word Atlas、牌组描述为空、学习步骤和排序正确。SHA-256 随成品更新；新版导入及旧反向模板移除需在 Anki 客户端完成。
+完整成品为 7,298 条笔记、7,298 张英→汉卡，其中 31 张过滤卡暂停。ZIP CRC 与 SQLite 完整性、笔记顺序、GUID、卡片方向和新卡位置由包级测试验证；30,202 个内容媒体全部被引用，另含三个字体/授权文件。选项组名为 Word Atlas、牌组描述为空、学习步骤和排序保留。已有集合的标签、暂停及词头通过官方集合 API 更新，本轮实际更新前保留备份，并核对原有卡片调度与复习日志不变。
 
 ## 授权与设计
 
-词库、插画与录音：**Word Atlas contributors — [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**。原文和媒体未改写，增加 HTML 排版及目标词强调；源项目说明内容由 AI 生成、未经逐条人工审校。Fraunces 使用 SIL OFL 1.1，完整许可随包提供。
+原始词库、插画与录音：**Word Atlas contributors — [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**。导出中应用本地词形与用法修订，增加 HTML 排版及目标词强调；4 个改词头的词另外提供 Microsoft Zira Desktop 合成美音与例句录音，来源见修订目录。源项目说明内容由 AI 生成、未经逐条人工审校。Fraunces 使用 SIL OFL 1.1，完整许可随包提供。
 
 前端参考 [Impeccable](https://github.com/pbakaus/impeccable) 的设计规范。卡片设计约定见 [word-atlas-surface.md](word-atlas-surface.md)，实现说明见 [DESIGN.md](../../apkg-generator/templates/word-atlas/DESIGN.md)。

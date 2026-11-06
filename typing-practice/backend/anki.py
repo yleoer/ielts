@@ -13,6 +13,8 @@ from urllib.parse import quote
 
 
 FIELD_SEPARATOR = "\x1f"
+EXCLUDED_TAG = "word_atlas::excluded"
+CANONICAL_TAG_PREFIX = "word_atlas::canonical::"
 HTML_TAG_PATTERN = re.compile(r"<[^>]*>")
 IMAGE_EXTENSIONS = {".webp", ".png", ".jpg", ".jpeg", ".gif", ".avif"}
 WORD_ATLAS_FIELDS = (
@@ -161,7 +163,7 @@ class AnkiReader:
         return exact + children or [deck_id]
 
     def snapshot(self) -> list[dict[str, Any]]:
-        """Every deck word with `learned` and the illustration file name (vocabulary format 1).
+        """Non-excluded deck words with `learned` and illustration names (format 1).
 
         The parsed list is cached until the collection changes; callers must not mutate it.
         """
@@ -171,16 +173,25 @@ class AnkiReader:
             version = self.db.execute("PRAGMA data_version").fetchone()[0]
             if version != self._version:
                 rows = self.db.execute(f"""
-                    SELECT n.id, n.flds, c.learned FROM notes n JOIN (
+                    SELECT n.id, n.flds, n.tags, c.learned FROM notes n JOIN (
                         SELECT nid, MAX(type >= 1 OR queue >= 2) AS learned FROM cards
                         WHERE did IN ({placeholders}) GROUP BY nid
                     ) c ON c.nid = n.id
                     ORDER BY n.id
                 """, self.deck_ids).fetchall()
-                self._words = [
-                    {**word, "learned": bool(learned)}
-                    for note_id, fields, learned in rows
-                    if (word := parse_word(int(note_id), fields))
-                ]
+                words, learned_aliases = [], set()
+                for note_id, fields, raw_tags, learned in rows:
+                    tags = set(raw_tags.split())
+                    if EXCLUDED_TAG in tags:
+                        if learned:
+                            learned_aliases.update(tag[len(CANONICAL_TAG_PREFIX):] for tag in tags
+                                                   if tag.startswith(CANONICAL_TAG_PREFIX))
+                        continue
+                    if word := parse_word(int(note_id), fields):
+                        words.append({**word, "learned": bool(learned)})
+                for word in words:
+                    if word["source_id"] in learned_aliases:
+                        word["learned"] = True
+                self._words = words
                 self._version = version
             return self._words
