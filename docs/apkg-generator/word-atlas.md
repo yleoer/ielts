@@ -32,7 +32,7 @@
 
 仅生成英→汉卡：正面显示词头、英美音标与播放按钮，回忆中文释义。背面保留插画、全部义项、双语例句、搭配与用法提醒；“在语境里记住”先显示英文例句，中文译文默认折叠，可通过“查看中文”逐条展开。卡面移除品牌标题、引导语、页脚及“再多学一点”。
 
-卡片采用离线 Fraunces 字体和响应式 HTML/CSS；中文译文使用原生 `details` / `summary` 折叠，不依赖 JavaScript 或联网字体。媒体按 `wa_<id>_uk.mp3`、`wa_<id>_us.mp3`、`wa_<id>_ex.mp3`、`wa_<id>_ex2.mp3`、`wa_<id>_img.webp` 扁平命名，避免 Anki 中相同 basename 覆盖。已文档化媒体同时校验索引位与文件；缺失媒体省略。
+英文词头、释义、例句、搭配、词性和音标统一使用 Comic Sans MS，缺少时回退 Segoe UI、Arial 和系统无衬线字体。词头采用正常字重、自然字距，便于辨认拼写。卡片采用响应式 HTML/CSS；中文译文使用原生 `details` / `summary` 折叠，不依赖 JavaScript 或联网字体。媒体按 `wa_<id>_uk.mp3`、`wa_<id>_us.mp3`、`wa_<id>_ex.mp3`、`wa_<id>_ex2.mp3`、`wa_<id>_img.webp` 扁平命名，避免 Anki 中相同 basename 覆盖。已文档化媒体同时校验索引位与文件；缺失媒体省略。
 
 ## 重新生成
 
