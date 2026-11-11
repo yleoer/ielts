@@ -108,6 +108,7 @@ ul { margin: 0; padding: 0; list-style: none; }
 .progress-track > div { height: 100%; background: var(--accent); transition: width 180ms ease-out; }
 .progress-accuracy { color: var(--secondary); white-space: nowrap; }
 .progress-accuracy strong { margin-left: 8px; font-variant-numeric: tabular-nums; font-weight: 500; color: var(--ink); }
+.practice-exit { flex-shrink: 0; }
 .practice-sheet, .results-sheet, .panel, .report-stack > .report-section, .report-stack > .optimization-history { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); }
 .practice-sheet { padding: 36px 56px 30px; transition: border-color 180ms ease-out; }
 .practice-sheet.is-correction { border-color: #b7bdc6; }

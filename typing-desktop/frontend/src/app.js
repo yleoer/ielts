@@ -355,6 +355,7 @@ const practiceApp = {
         finishPractice({ abandoned = false } = {}) {
             if (this.pendingAttempt) return;
             this.clearAdvanceTimer();
+            this.stopWordAudio();
             this.pauseClock();
             this.isFinished = true;
             this.isPracticeAbandoned = abandoned;

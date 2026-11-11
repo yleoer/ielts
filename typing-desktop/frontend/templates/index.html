@@ -30,6 +30,7 @@
                         <div :style="{ width: progressPercentage + '%' }"></div>
                     </div>
                     <span class="progress-accuracy">正确率 <strong>{{ accuracy }}%</strong></span>
+                    <button v-if="currentWord" type="button" class="button button-secondary practice-exit" @click="quitPractice" :disabled="isChecking || isLoadingWords">退出练习</button>
                 </div>
                 <section class="practice-sheet" :class="cardClass" aria-label="当前词条">
                     <div v-if="currentWord" class="entry-content">

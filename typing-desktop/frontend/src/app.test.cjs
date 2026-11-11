@@ -212,6 +212,61 @@ test('first-run local import preserves the server form and uploads in chunks', a
     ]);
 });
 
+for (const mode of ['normal', 'free', 'mistakes']) {
+    test(`exiting ${mode} practice preserves saved answers without submitting the unfinished word`, () => {
+        const h = harness();
+        h.context.confirm = () => true;
+        h.app.practiceMode = mode;
+        h.app.words.push({ word: 'book', source_id: 'book', attempt_id: 'unfinished' });
+        h.app.currentIndex = 1;
+        h.app.stats.correct = 1;
+        h.app.stats.attempts.push({ attempt_id: 'saved' });
+        h.app.userInput = 'bo';
+        h.app.beginCurrentWord();
+        h.tick(500);
+        h.app.saveDraftSession();
+        let stopped = 0;
+        h.app.stopWordAudio = () => { stopped++; };
+        h.app.quitPractice();
+        assert.equal(h.app.isFinished, true);
+        assert.equal(h.app.isPracticeAbandoned, true);
+        assert.equal(h.app.attemptedTotal, 1);
+        assert.equal(h.app.stats.incorrect, 0);
+        assert.equal(h.requests.length, 0);
+        assert.equal(h.app.clockStartedAt, null);
+        assert.equal(stopped, 1);
+        assert.equal(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'), null);
+    });
+}
+
+test('cancelling exit keeps the current answer and saved draft available', () => {
+    const h = harness();
+    h.context.confirm = () => false;
+    h.app.userInput = 'app';
+    h.app.beginCurrentWord();
+    h.app.saveDraftSession();
+    h.app.quitPractice();
+    assert.equal(h.app.isFinished, false);
+    assert.equal(h.app.userInput, 'app');
+    assert.equal(h.app.currentWord.attempt_id, 'attempt');
+    assert.ok(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'));
+    assert.equal(h.requests.length, 0);
+});
+
+test('a failed answer must be saved or resolved before exiting practice', async () => {
+    const h = harness();
+    h.app.practiceMode = 'free';
+    await h.app.submitInput('apple');
+    h.context.confirm = () => { throw new Error('cannot confirm exit before saving'); };
+    h.app.quitPractice();
+    assert.equal(h.app.isFinished, false);
+    assert.equal(h.app.pendingAttempt.attempt_id, 'attempt');
+    assert.match(h.app.submitError, /先重试保存/);
+    assert.ok(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'));
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.app.attemptedTotal, 0);
+});
+
 test('an empty queue has no Chinese senses', () => {
     const h = harness();
     h.app.words = [];
