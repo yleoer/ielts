@@ -36,7 +36,7 @@ services:
       ANKI_DB_PATH: /app/anki-cache/collection.anki2
       ANKI_SYNC_SOURCE_DIR: /app/anki-sync
       ANKI_SYNC_TARGET: /app/anki-cache/collection.anki2
-      ANKI_SYNC_INTERVAL_SECONDS: "${ANKI_SYNC_INTERVAL_SECONDS:-300}"
+      ANKI_SYNC_INTERVAL_SECONDS: "${ANKI_SYNC_INTERVAL_SECONDS:-3600}"
       ANKI_SYNC_INITIAL_WAIT_SECONDS: "${ANKI_SYNC_INITIAL_WAIT_SECONDS:-60}"
       STATS_DB_PATH: /app/stats/stats.db
     healthcheck:

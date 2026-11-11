@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
 from app import create_app
 from anki import FIELD_SEPARATOR, WORD_ATLAS_FIELDS
@@ -87,6 +88,8 @@ class ServerTest(unittest.TestCase):
         data = self.client.get("/api/vocab").json["data"]
         self.assertEqual((data["format"], data["deck_name"]), (1, "Word Atlas"))
         self.assertTrue(data["generated_at"].endswith("Z"))
+        self.assertEqual(data["last_anki_sync_at"], data["generated_at"])
+        self.assertEqual(data["sync_history"], [], "the initial pool is a baseline")
         words = {word["source_id"]: word for word in data["words"]}
         self.assertEqual(list(words), ["abandon", "word-ab", "word-ac"])
         self.assertEqual([word["learned"] for word in words.values()], [True, True, False])
@@ -94,7 +97,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(words["abandon"]["chinese_senses"][0]["chinese_meaning"], "放弃")
         self.state.reader.close()
         self.state.reader = None
-        self.assertEqual(self.client.get("/api/vocab").status_code, 503)
+        self.assertEqual(self.client.get("/api/vocab").json["data"], data, "the last successful scan remains available")
 
     def test_vocabulary_filters_only_tagged_words_and_keeps_their_answer_history(self):
         self.sync(attempts=[attempt(1)])
@@ -102,11 +105,61 @@ class ServerTest(unittest.TestCase):
             db.execute("UPDATE notes SET tags=' word_atlas::excluded word_atlas::canonical::word-ac ' WHERE id=101")
             db.execute("UPDATE cards SET queue=-1 WHERE nid=101")
             db.commit()
+        self.state.scan_vocabulary()
         data = self.client.get("/api/vocab").json["data"]
         self.assertEqual(data["format"], 1)
         self.assertEqual([(w["source_id"], w["learned"]) for w in data["words"]],
                          [("word-ab", True), ("word-ac", True)])
         self.assertEqual(self.sync()["attempts"][0]["word_key"], "word-atlas:abandon")
+
+    def test_api_reads_do_not_discover_words_and_devices_receive_the_same_history(self):
+        before = self.client.get("/api/vocab").json["data"]
+        with closing(sqlite3.connect(self.collection)) as db:
+            db.execute("UPDATE cards SET type=1,queue=1 WHERE nid=103")
+            db.commit()
+        self.assertEqual(self.client.get("/api/vocab").json["data"], before)
+        self.state.scan_vocabulary()
+        first = self.client.get("/api/vocab").json["data"]
+        other = self.app.test_client().get("/api/vocab").json["data"]
+        self.assertEqual(first, other)
+        self.assertEqual(len(first["sync_history"]), 1)
+        batch = first["sync_history"][0]
+        self.assertEqual((batch["before_words"], batch["after_words"], batch["added_words"]), (2, 3, 1))
+        self.assertEqual(batch["added_word_list"][0]["source_id"], "word-ac")
+        self.state.scan_vocabulary()
+        self.assertEqual(self.client.get("/api/vocab").json["data"]["sync_history"], first["sync_history"])
+
+    def test_failed_scan_keeps_snapshot_and_retry_records_the_new_word(self):
+        before = self.state.vocabulary()
+        with closing(sqlite3.connect(self.collection)) as db:
+            db.execute("ALTER TABLE notes RENAME TO unavailable_notes")
+            db.commit()
+        with self.assertRaises(sqlite3.Error):
+            self.state.scan_vocabulary()
+        self.assertEqual(self.state.vocabulary(), before)
+        with closing(sqlite3.connect(self.collection)) as db:
+            db.execute("ALTER TABLE unavailable_notes RENAME TO notes")
+            db.execute("UPDATE cards SET type=1,queue=1 WHERE nid=103")
+            db.commit()
+        self.state.scan_vocabulary()
+        self.assertEqual(self.state.vocabulary()["sync_history"][0]["added_words"], 1)
+
+    def test_scheduled_copy_scans_the_copied_collection(self):
+        source_dir = self.root / "source"
+        source_dir.mkdir()
+        source = source_dir / "collection.anki2"
+        make_anki_db(source, word_count=3)
+        with patch.dict("os.environ", {"ANKI_SYNC_STABLE_SECONDS": "0"}):
+            self.assertEqual(self.state.refresh_collection(str(source_dir), str(self.collection)), 3)
+        self.assertEqual(self.state.vocabulary()["sync_history"][0]["added_words"], 1)
+
+    def test_restart_without_anki_keeps_the_published_snapshot(self):
+        before = self.state.vocabulary()
+        self.state.close()
+        self.collection.unlink()
+        restarted = create_app(make_config(self.root, str(self.collection)), start_background_tasks=False)
+        self.addCleanup(restarted.extensions["cijian_state"].close)
+        self.assertEqual(restarted.test_client().get("/api/vocab").json["data"], before)
 
     def test_sync_deduplicates_and_pages_by_cursor(self):
         first = self.sync(attempts=[attempt(1), attempt(2)])

@@ -18,7 +18,7 @@
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#sync"/></svg>
             <span class="nav-text"><span>同步</span><small>{{ syncSummaryText }}</small></span>
         </button>
-        <button ref="settingsButton" type="button" class="nav-link settings-button" @click="openServerSetup" :aria-label="updates.available ? '设置，有可用更新' : '设置'">
+        <button ref="settingsButton" type="button" class="nav-link settings-button" @click="openSettings" :aria-label="updates.available ? '设置，有可用更新' : '设置'">
             <svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#settings"/></svg>
             <span class="nav-text">设置</span>
             <span v-if="updates.available" class="update-dot" aria-hidden="true"></span>

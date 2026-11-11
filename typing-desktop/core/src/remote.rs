@@ -10,7 +10,6 @@ use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 use crate::store::Store;
-use crate::vocab::parse_snapshot;
 
 /// Answers per upload request; the server accepts at most 500.
 pub const UPLOAD_BATCH: usize = 500;
@@ -133,7 +132,7 @@ pub fn sync_all(store: &Store, remote: &dyn Remote) -> ApiResult<Value> {
     // Manual and background syncs must not interleave their cursor updates.
     let _running = store.sync_running.try_lock().map_err(|_| failed("正在同步，请稍候".into()))?;
     let snapshot = remote.vocab().map_err(failed)?;
-    let mut status = store.import_vocabulary(parse_snapshot(&snapshot)?)?;
+    store.import_server_vocabulary(&snapshot)?;
     let device_id = store.device_id()?;
     let mut cursor = store.sync_cursor()?;
     let (mut uploaded, mut merged) = (0, 0);
@@ -152,8 +151,6 @@ pub fn sync_all(store: &Store, remote: &dyn Remote) -> ApiResult<Value> {
         }
     }
     let message = format!("词库已更新；上传 {uploaded} 条作答，合并其他设备 {merged} 条");
-    status["message"] = message.into();
-    status["uploaded_attempts"] = uploaded.into();
-    status["merged_attempts"] = merged.into();
-    Ok(status)
+    Ok(json!({"success": true, "message": message,
+              "uploaded_attempts": uploaded, "merged_attempts": merged}))
 }

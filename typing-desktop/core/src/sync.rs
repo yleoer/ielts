@@ -102,6 +102,10 @@ impl Store {
         state(&self.lock().db, "last_sync_at")
     }
 
+    pub fn last_anki_sync_at(&self) -> ApiResult<Option<String>> {
+        state(&self.lock().db, "last_anki_sync_at")
+    }
+
     pub fn sync_cursor(&self) -> ApiResult<i64> {
         Ok(state(&self.lock().db, "cursor")?.and_then(|v| v.parse().ok()).unwrap_or(0))
     }

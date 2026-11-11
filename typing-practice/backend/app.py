@@ -3,7 +3,7 @@
 Only three jobs remain on the server:
 - read the Anki collection and serve the vocabulary snapshot (`GET /api/vocab`);
 - keep the append-only answer log that clients merge (`POST /api/sync`);
-- copy the collection from anki-sync-server on a schedule.
+- scan Anki hourly and publish vocabulary snapshots with shared addition history.
 Scheduling, statistics, pages and media all live in the desktop client.
 """
 
@@ -13,8 +13,6 @@ import logging
 import os
 import sqlite3
 import threading
-import time
-from datetime import datetime, timezone
 from typing import Any
 
 from flask import Flask, jsonify, request
@@ -23,8 +21,9 @@ from waitress import serve
 from anki import AnkiReader
 from auth import install_token_gate
 from config import Config, load_config
-from ledger import Ledger, time_text
+from ledger import Ledger
 from sync import copy_collection_group, latest_collection
+from vocabulary import VocabularyStore
 
 LOG = logging.getLogger(__name__)
 VOCABULARY_FORMAT = 1
@@ -40,10 +39,16 @@ class AppState:
         self.lock = threading.RLock()
         self.reader: AnkiReader | None = None
         self.ledger = Ledger(config.db_path)
+        self.vocab_store = VocabularyStore(config.db_path)
+        self.stop = threading.Event()
         self.open_reader()
+        try:
+            self.scan_vocabulary()
+        except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
+            LOG.warning("Initial Anki scan skipped: %s", exc)
 
     def open_reader(self) -> None:
-        """Opens the configured collection; when it is missing or unreadable `/api/vocab` returns 503."""
+        """Open Anki for scanning; a failed open leaves the published snapshot intact."""
         if not self.config.anki.db_path:
             return
         try:
@@ -53,19 +58,26 @@ class AppState:
             LOG.warning("Anki reader disabled: %s", exc)
 
     def close(self) -> None:
+        self.stop.set()
         with self.lock:
             if self.reader:
                 self.reader.close()
                 self.reader = None
             self.ledger.close()
+            self.vocab_store.close()
 
     def vocabulary(self) -> dict[str, Any]:
+        return {"format": VOCABULARY_FORMAT, "deck_name": self.config.anki.deck_name,
+                **self.vocab_store.snapshot()}
+
+    def scan_vocabulary(self) -> int:
+        """Only startup and the scheduled job discover changes; API reads are passive."""
         with self.lock:
             if not self.reader:
+                self.open_reader()
+            if not self.reader:
                 raise RuntimeError("Anki 数据库不可用")
-            words = self.reader.snapshot()
-        return {"format": VOCABULARY_FORMAT, "generated_at": time_text(datetime.now(timezone.utc)),
-                "deck_name": self.config.anki.deck_name, "words": words}
+            return self.vocab_store.refresh(self.reader.snapshot())
 
     def refresh_collection(self, source_dir: str, target: str) -> int:
         """Copies the newest collection from anki-sync-server and reopens the reader."""
@@ -80,7 +92,7 @@ class AppState:
                 self.open_reader()
             if not self.reader:
                 raise RuntimeError("复制后的 Anki 数据库无法读取")
-            return sum(word["learned"] for word in self.reader.snapshot())
+            return self.scan_vocabulary()
 
 
 def create_app(config: Config | None = None, *, start_background_tasks: bool = True) -> Flask:
@@ -127,23 +139,27 @@ def create_app(config: Config | None = None, *, start_background_tasks: bool = T
 
     source_dir = os.environ.get("ANKI_SYNC_SOURCE_DIR", "").strip()
     target = os.environ.get("ANKI_SYNC_TARGET", "").strip()
-    if start_background_tasks and source_dir and target:
+    if start_background_tasks:
         start_collection_refresh(state, source_dir, target)
     return app
 
 
 def start_collection_refresh(state: AppState, source_dir: str, target: str) -> None:
     initial_wait = _env_seconds("ANKI_SYNC_INITIAL_WAIT_SECONDS", 60)
-    interval = _env_seconds("ANKI_SYNC_INTERVAL_SECONDS", 300)
+    interval = _env_seconds("ANKI_SYNC_INTERVAL_SECONDS", 3600)
 
     def run() -> None:
-        time.sleep(initial_wait)
-        while True:
+        if state.stop.wait(initial_wait):
+            return
+        while not state.stop.is_set():
             try:
-                LOG.info("Anki collection refreshed: %s learned words", state.refresh_collection(source_dir, target))
+                count = (state.refresh_collection(source_dir, target) if source_dir and target
+                         else state.scan_vocabulary())
+                LOG.info("Anki vocabulary refreshed: %s learned words", count)
             except Exception as exc:  # keep the schedule alive; the next copy usually succeeds
                 LOG.warning("Scheduled Anki refresh skipped: %s", exc)
-            time.sleep(interval)
+            if state.stop.wait(interval):
+                return
 
     threading.Thread(target=run, name="anki-refresh", daemon=True).start()
 

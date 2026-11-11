@@ -4,7 +4,7 @@
 
 - 只读读取 Anki `collection.anki2`，通过 `GET /api/vocab` 提供 Word Atlas 词库快照；
 - 通过 `POST /api/sync` 保存各设备上传的作答，并按游标返回完整作答日志；
-- 定时从 anki-sync-server 的数据目录复制最新 `collection.anki2`。
+- 默认每小时从 anki-sync-server 复制并检查 `collection.anki2`，记录新发现的已学词历史。
 
 练习页、统计页、插图、FSRS 调度与参数优化都在桌面端运行，服务端不再提供页面、媒体或统计接口。接口与数据见 [服务概览](../docs/typing-practice/SPEC.md)。
 
@@ -27,6 +27,8 @@ $env:ACCESS_TOKEN = '自己的令牌'
 
 词库排除带精确标签 `word_atlas::excluded` 的笔记，包括已学且暂停的重复项；普通暂停、leech 不因此被排除。被排除项若已学，按其 `word_atlas::canonical::<SourceId>` 标签让保留项进入练习池。该规则只继承练习资格，不合并或改写 Anki 调度及 typing 作答历史；`/api/vocab` 仍为 format 1。31 条过滤和 48 条改写统一来自 [本地修订表](../apkg-generator/data/word-atlas-revisions/README.md)，服务器读取同步后的 Anki 字段和标签，不另存一份改写词表。
 
+服务器在启动时检查已有 Anki 数据库，此后默认每小时检查一次；配置同步源目录时先复制再检查，直接设置 `ANKI_DB_PATH` 时直接检查。首次成功检查仅建立已有已学词基线，之后按稳定的 `SourceId` 记录首次发现的新增词。接口只读取已保存的完整快照、最近 50 批历史和 `last_anki_sync_at`，桌面端首次下载不会产生新增历史。时间是服务器发现时间，不是 Anki 的首次学习时间；读取失败保留上次成功结果，尚无快照时返回 503。
+
 配置来自 `backend/config/config.yaml`、`typing-practice/.env` 和进程环境变量，环境变量优先：
 
 | 变量 | 说明 |
@@ -34,10 +36,10 @@ $env:ACCESS_TOKEN = '自己的令牌'
 | `SERVER_HOST` / `SERVER_PORT` | 监听地址，默认 `localhost:8080` |
 | `ANKI_DB_PATH` | 读取的 `collection.anki2`；留空时查找 `%APPDATA%\Anki2` 下的配置文件 |
 | `ANKI_DECK_NAME` / `ANKI_DECK_ID` | 词库牌组 |
-| `STATS_DB_PATH` | 作答日志数据库，沿用旧统计库路径，默认 `data/stats.db` |
+| `STATS_DB_PATH` | 作答日志、词库快照及新增历史数据库，沿用旧统计库路径，默认 `data/stats.db` |
 | `ACCESS_TOKEN` | 访问令牌；留空时沿用旧的 `ACCESS_PASSWORD`，两者都为空则不校验 |
 | `ANKI_SYNC_SOURCE_DIR` / `ANKI_SYNC_TARGET` | 同时设置才启用定时复制 Anki 数据库 |
-| `ANKI_SYNC_INTERVAL_SECONDS` / `ANKI_SYNC_INITIAL_WAIT_SECONDS` / `ANKI_SYNC_STABLE_SECONDS` | 复制间隔（默认 300）、首次等待（默认 60）、源文件稳定等待（默认 2） |
+| `ANKI_SYNC_INTERVAL_SECONDS` / `ANKI_SYNC_INITIAL_WAIT_SECONDS` / `ANKI_SYNC_STABLE_SECONDS` | 检查间隔（默认 3600，即 1 小时）、后台首次等待（默认 60）、复制前源文件稳定等待（默认 2） |
 
 ## 访问令牌
 
@@ -71,7 +73,7 @@ $headers = @{ Authorization = "Bearer $env:ACCESS_TOKEN" }
 (Invoke-RestMethod http://127.0.0.1:8080/api/vocab -Headers $headers).data.words.Count
 ```
 
-`/api/health` 应返回 `status: ok`。`/api/vocab` 返回 503 表示 Anki 数据库不可读；词数为 0 时检查 `ANKI_DECK_NAME`、`ANKI_DECK_ID` 是否与数据库中的牌组一致。
+`/api/health` 应返回 `status: ok`。`/api/vocab` 返回 503 表示尚无成功检查的 Anki 快照；有缓存时检查 `last_anki_sync_at` 确认新鲜度。词数为 0 时检查 `ANKI_DECK_NAME`、`ANKI_DECK_ID` 是否与数据库中的牌组一致。
 
 ## 网页版历史
 

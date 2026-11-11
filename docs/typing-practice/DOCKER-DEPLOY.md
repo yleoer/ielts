@@ -20,7 +20,9 @@
 ## 运行模型
 
 - Anki 数据先进入同步服务。
-- 后台任务在 `ANKI_SYNC_INITIAL_WAIT_SECONDS`（默认 60）后，每 `ANKI_SYNC_INTERVAL_SECONDS`（默认 300）秒把最新 `collection.anki2` 复制到缓存并重新读取。
+- 启动时检查已有缓存；后台任务在 `ANKI_SYNC_INITIAL_WAIT_SECONDS`（默认 60）后，每 `ANKI_SYNC_INTERVAL_SECONDS`（默认 3600，即 1 小时）秒把最新 `collection.anki2` 复制到缓存，检查新增已学词并保存历史。首次成功检查建立基线，不把累计已学词记成当天新增。
+
+升级此流程时先升级同步服务器，再升级桌面端。已有 `.env` 若显式设置 `ANKI_SYNC_INTERVAL_SECONDS=300`，需改为 `3600` 才会使用小时周期；部署目录的 Compose 默认值也应同步更新。自动部署不复制 Compose 或 `.env`。服务器新增历史从建立基线后开始，不从旧桌面记录回填；`data/stats/` 继续保留作答、词库快照和服务器新增历史。Anki 检查失败时保留最近成功快照，接口的 `last_anki_sync_at` 可用于判断是否滞后。
 - `/api/vocab` 返回缓存中 Word Atlas 的完整词库快照；`/api/sync` 读写 `stats.db` 中的只追加作答日志，容器重启后不丢失。
 - 不提供页面、插图、FSRS 或统计；这些在桌面端运行。
 - 除 `/api/health` 外需要 `Authorization: Bearer <ACCESS_TOKEN>`。
