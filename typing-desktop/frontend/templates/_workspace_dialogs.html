@@ -3,33 +3,28 @@
                 <header class="dialog-header"><h2 id="sync-title">同步</h2><button v-if="!serverSettings.required" ref="syncClose" type="button" class="icon-button" @click="closeSyncModal" :disabled="serverSettings.saving || syncModal.syncing" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
                 <div v-if="syncModal.loading" class="dialog-body muted" role="status">加载中…</div>
                 <div v-else class="dialog-body">
-                    <dl v-if="serverSettings.loaded && !serverSettings.required" class="sync-metrics"><div><dt>服务器同步</dt><dd>{{ formatSyncTime(syncModal.status && syncModal.status.last_anki_sync_at) }}</dd></div><div><dt>最近一批新增</dt><dd>{{ (syncModal.status && syncModal.status.added_words) || 0 }}</dd></div><div><dt>单词总数</dt><dd>{{ (syncModal.status && syncModal.status.after_words) || 0 }}</dd></div></dl>
-                    <div v-if="serverSettings.loading" class="sync-server-state muted" role="status">正在读取服务器设置…</div>
-                    <div v-else-if="!serverSettings.loaded" class="sync-server-state">
-                        <p class="error-message" role="alert">{{ serverSettings.error }}</p>
-                        <button type="button" class="button button-secondary" @click="loadServerSettings">重试读取</button>
-                    </div>
-                    <div v-else-if="!serverSettings.editing" class="sync-server-summary">
+                    <dl v-if="!serverSettings.required" class="sync-metrics"><div><dt>服务器同步</dt><dd>{{ formatSyncTime(syncModal.status && syncModal.status.last_anki_sync_at) }}</dd></div><div><dt>最近一批新增</dt><dd>{{ (syncModal.status && syncModal.status.added_words) || 0 }}</dd></div><div><dt>单词总数</dt><dd>{{ (syncModal.status && syncModal.status.after_words) || 0 }}</dd></div></dl>
+                    <div v-if="!serverSettings.editing" class="sync-server-summary">
                         <div><span class="field-label">服务器地址</span><p class="mono">{{ serverSettings.savedUrl }}</p></div>
                         <button v-if="serverSettings.editable" ref="serverEdit" type="button" class="button button-secondary" aria-label="修改服务器" @click="editServerSettings" :disabled="serverSettings.saving || syncModal.syncing">修改</button>
                     </div>
                     <form v-else class="sync-server-form" @submit.prevent="saveServerSettings">
                         <p v-if="serverSettings.required" class="muted">填写服务器地址和访问令牌，开始同步词库与作答记录。</p>
                         <label class="field-label" for="server-url">服务器地址</label>
-                        <input ref="serverUrl" id="server-url" v-model="serverSettings.url" class="text-input mono" type="url" placeholder="https://example.com" autocomplete="url" spellcheck="false" required :disabled="!serverSettings.loaded || !serverSettings.editable || serverSettings.saving || syncModal.syncing">
+                        <input ref="serverUrl" id="server-url" v-model="serverSettings.url" class="text-input mono" type="url" placeholder="https://example.com" autocomplete="url" spellcheck="false" required :disabled="serverSettings.saving || syncModal.syncing">
                         <label class="field-label" for="server-token">访问令牌</label>
-                        <input id="server-token" v-model="serverSettings.token" class="text-input mono" type="password" :placeholder="serverSettings.hasToken ? serverSettings.editable ? '留空则保持不变' : '已配置' : ''" autocomplete="off" spellcheck="false" :required="!serverSettings.hasToken" :disabled="!serverSettings.loaded || !serverSettings.editable || serverSettings.saving || syncModal.syncing" :aria-invalid="serverSettings.error ? 'true' : null" aria-describedby="server-error">
+                        <input id="server-token" v-model="serverSettings.token" class="text-input mono" type="password" :placeholder="serverSettings.hasToken ? '留空则保持不变' : ''" autocomplete="off" spellcheck="false" :required="!serverSettings.hasToken" :disabled="serverSettings.saving || syncModal.syncing" :aria-invalid="serverSettings.error ? 'true' : null" aria-describedby="server-error">
                         <p v-if="serverSettings.error" id="server-error" class="error-message" role="alert">{{ serverSettings.error }}</p>
                         <div class="server-edit-actions">
                             <button type="submit" class="button button-primary" :class="serverSettings.required ? 'full-width' : ''" :disabled="serverSettings.saving || syncModal.syncing">{{ serverSettings.saving ? '正在连接…' : serverSettings.required ? '连接并同步' : '保存并同步' }}</button>
                             <button v-if="!serverSettings.required" type="button" class="button button-secondary" @click="cancelServerEdit" :disabled="serverSettings.saving || syncModal.syncing">取消</button>
                         </div>
                     </form>
-                    <div v-if="serverSettings.loaded && !serverSettings.required" class="sync-history"><h3>同步历史<span class="muted">{{ syncHistory().length }}</span></h3><div v-if="syncHistory().length" class="scroll-list"><article v-for="item in syncHistory()" :key="item.id" class="history-row"><div class="row-between"><strong>{{ formatSyncTime(item.synced_at) }}</strong><span>+{{ item.added_words || 0 }}</span></div><p v-if="item.added_word_list && item.added_word_list.length" class="muted">{{ item.added_word_list.map(word => word.chinese_meaning || word.word).join(' · ') }}</p><p v-else class="muted">无新增单词</p></article></div><p v-else class="muted">暂无新增记录；首次检查仅建立已有已学词基线。</p></div>
+                    <div v-if="!serverSettings.required" class="sync-history"><h3>同步历史<span class="muted">{{ syncHistory().length }}</span></h3><div v-if="syncHistory().length" class="scroll-list"><article v-for="item in syncHistory()" :key="item.id" class="history-row"><div class="row-between"><strong>{{ formatSyncTime(item.synced_at) }}</strong><span>+{{ item.added_words || 0 }}</span></div><p v-if="item.added_word_list && item.added_word_list.length" class="muted">{{ item.added_word_list.map(word => word.chinese_meaning || word.word).join(' · ') }}</p><p v-else class="muted">无新增单词</p></article></div><p v-else class="muted">暂无新增记录；首次检查仅建立已有已学词基线。</p></div>
                     <p v-if="syncModal.status && syncModal.status.success && syncModal.status.message" class="muted" role="status">{{ syncModal.status.message }}</p>
                     <p v-if="syncModal.error" class="error-message" role="alert">{{ syncModal.error }}</p>
                 </div>
-                <footer v-if="!syncModal.loading && serverSettings.loaded && !serverSettings.required && !serverSettings.editing" class="sync-footer">
+                <footer v-if="!syncModal.loading && !serverSettings.required && !serverSettings.editing" class="sync-footer">
                     <button type="button" class="button button-primary full-width" @click="syncNow" :disabled="syncModal.syncing || serverSettings.saving">{{ syncModal.syncing ? '同步中…' : '立即同步' }}</button>
                 </footer>
             </section>

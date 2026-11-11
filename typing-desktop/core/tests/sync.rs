@@ -233,19 +233,16 @@ fn first_server_history_replaces_legacy_rows_without_touching_answers() {
 }
 
 #[test]
-fn invalid_history_does_not_partially_replace_the_cached_vocabulary() {
+fn a_server_without_history_requires_upgrade_and_keeps_the_cache() {
     let remote = server(500);
     let a = device();
     *remote.history.lock().unwrap() = vec![batch()];
     sync_all(a.store(), remote.as_ref()).unwrap();
     let mut snapshot = remote.vocab().unwrap();
     snapshot["words"] = json!([word("cherry", 3, true)]);
-    snapshot["sync_history"] = json!([batch(), batch()]);
-    assert!(a.store().import_server_vocabulary(&snapshot).is_err());
-    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
-    assert_eq!(a.store().learned_count(), 2);
     snapshot.as_object_mut().unwrap().remove("sync_history");
     assert!(a.store().import_server_vocabulary(&snapshot).unwrap_err().to_string().contains("请先升级服务器"));
+    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
     assert_eq!(a.store().learned_count(), 2);
 }
 

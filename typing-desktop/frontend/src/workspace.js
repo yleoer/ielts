@@ -12,7 +12,7 @@ const workspaceControls = {
             autostartSettings: { loaded: false, saving: false, enabled: false, savedEnabled: false, error: '' },
             setup: { visible: false },
             // The sync panel owns the server form, including first-run connection.
-            serverSettings: { loaded: false, loading: false, required: false, editing: false, url: '', savedUrl: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
+            serverSettings: { loaded: false, required: false, editing: false, url: '', savedUrl: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
         };
     },
     computed: {
@@ -261,19 +261,11 @@ const workspaceControls = {
         },
 
         async loadServerSettings() {
-            const server = this.serverSettings;
-            Object.assign(server, { loading: true, loaded: false, error: '' });
-            try {
-                const settings = (await axios.get(`${this.apiBaseUrl}/settings/server`)).data.data;
-                Object.assign(server, { url: settings.url || '', savedUrl: settings.url || '', token: '', hasToken: settings.has_token,
-                    editable: settings.editable, required: !settings.configured, editing: !settings.configured, loaded: true });
-                return settings;
-            } catch (error) {
-                server.error = '无法读取服务器设置，请重试。';
-                return null;
-            } finally {
-                server.loading = false;
-            }
+            // This reads the desktop core's in-memory configuration, not the remote server.
+            const settings = (await axios.get(`${this.apiBaseUrl}/settings/server`)).data.data;
+            Object.assign(this.serverSettings, { url: settings.url || '', savedUrl: settings.url || '', token: '', hasToken: settings.has_token,
+                editable: settings.editable, required: !settings.configured, editing: !settings.configured, loaded: true });
+            return settings;
         },
 
         async openSettings() {
@@ -293,21 +285,21 @@ const workspaceControls = {
 
         editServerSettings() {
             const server = this.serverSettings;
-            if (!server.loaded || !server.editable || server.saving || this.syncModal.syncing) return;
+            if (server.saving || this.syncModal.syncing) return;
             Object.assign(server, { editing: true, url: server.savedUrl, token: '', error: '' });
             this.$nextTick(() => this.$refs.serverUrl?.focus());
         },
 
         cancelServerEdit() {
             const server = this.serverSettings;
-            if (server.required || server.saving || this.syncModal.syncing) return;
+            if (server.saving || this.syncModal.syncing) return;
             Object.assign(server, { editing: false, url: server.savedUrl, token: '', error: '' });
             this.$nextTick(() => this.$refs.serverEdit?.focus());
         },
 
         async saveServerSettings() {
             const server = this.serverSettings;
-            if (!server.loaded || !server.editable || !server.editing || server.saving || this.syncModal.syncing) return;
+            if (server.saving || this.syncModal.syncing) return;
             const firstRun = server.required;
             server.saving = true;
             server.error = '';
@@ -325,11 +317,12 @@ const workspaceControls = {
             if (!server.editing) this.$nextTick(() => this.$refs.serverEdit?.focus());
         },
 
-        async openSyncModal({ reloadServer = true } = {}) {
+        async openSyncModal() {
             this.syncOpener = document.activeElement;
             this.pauseClock?.();
+            if (!this.serverSettings.loaded) await this.loadServerSettings();
             this.syncModal.visible = true;
-            await Promise.all([this.loadSyncStatus(), ...(reloadServer ? [this.loadServerSettings()] : [])]);
+            await this.loadSyncStatus();
             this.$nextTick(() => (this.serverSettings.required ? this.$refs.serverUrl : this.$refs.syncClose)?.focus());
         },
 
@@ -356,7 +349,7 @@ const workspaceControls = {
         },
 
         async syncNow() {
-            if (this.syncModal.syncing || this.serverSettings.required || !this.serverSettings.loaded) return;
+            if (this.syncModal.syncing) return;
             this.syncModal.syncing = true;
             this.syncModal.error = '';
             try {

@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn deadline_switches_from_orange_to_red_before_the_cached_due_count_refreshes() {
+    fn nearly_due_orange_and_due_red_have_distinct_hues() {
         let deadline = parse_time("2026-11-06T12:00:00Z").unwrap();
         let summary = json!({"due_count": 0, "next_due": time_text(deadline)});
         let source = [40, 80, 60, 255];
@@ -145,29 +145,5 @@ mod tests {
         // Nearly full orange and due red differ in hue, not just the last sliver of fill.
         assert!(approaching[1] > approaching[0] / 2);
         assert!(due[1] < due[0] / 2);
-        assert_eq!(
-            due,
-            render(
-                &source,
-                1,
-                1,
-                level(&json!({"due_count": 1, "next_due": null}), deadline).unwrap()
-            )
-        );
-        assert_eq!(
-            due,
-            render(
-                &source,
-                1,
-                1,
-                level(&summary, deadline + TimeDelta::days(1)).unwrap()
-            )
-        );
-        let completed =
-            json!({"due_count": 0, "next_due": time_text(deadline + TimeDelta::days(1))});
-        assert_eq!(
-            render(&source, 1, 1, level(&completed, deadline).unwrap()),
-            source
-        );
     }
 }

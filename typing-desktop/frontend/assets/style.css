@@ -322,8 +322,8 @@ ul { margin: 0; padding: 0; list-style: none; }
 .history-row { padding: 12px 0; border-top: 1px solid var(--rule); }
 .history-row p { margin-top: 8px; font-size: 13px; }
 .scroll-list { max-height: 250px; overflow-y: auto; }
-.sync-server-form, .sync-server-summary, .sync-server-state { margin-top: 24px; }
-.sync-server-form:first-child, .sync-server-state:first-child { margin-top: 0; }
+.sync-server-form, .sync-server-summary { margin-top: 24px; }
+.sync-server-form:first-child { margin-top: 0; }
 .sync-server-form > p { margin-bottom: 16px; font-size: 13px; }
 .sync-server-summary { display: flex; align-items: center; gap: 16px; }
 .sync-server-summary > div { flex: 1; min-width: 0; }

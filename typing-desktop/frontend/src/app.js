@@ -558,9 +558,8 @@ const practiceApp = {
         // First launch: ask for the server before loading practice. Returns true when setup is needed.
         async checkServerSetup() {
             const settings = await this.loadServerSettings();
-            if (settings?.configured) return false;
-            this.serverSettings.required = true;
-            await this.openSyncModal({ reloadServer: false });
+            if (settings.configured) return false;
+            await this.openSyncModal();
             return true;
         },
 

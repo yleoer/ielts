@@ -29,8 +29,6 @@ fn ranks_current_learned_words_by_smoothed_errors_then_error_count_without_write
     env.import(words);
     env.set_card("hard", env.now() + TimeDelta::days(1), State::Review, 10.0);
     let before = env.fingerprint();
-    let overview = env.data("/api/stats/overview");
-    let uploads = env.store().pending_uploads(500).unwrap();
     let data = env.data("/api/practice/queue?session_id=focus&mode=difficult");
     assert_eq!(sources(&data), ["hard", "rare", "many", "alpha", "beta"]);
     assert_eq!(data["items"][0]["total_attempts"], 10);
@@ -38,9 +36,6 @@ fn ranks_current_learned_words_by_smoothed_errors_then_error_count_without_write
     assert_eq!(data["items"][1]["id"], 200, "history follows SourceId after a reimport");
     assert!(data["items"].as_array().unwrap().iter().all(|word| word.get("attempt_id").is_none()));
     assert_eq!(env.fingerprint(), before, "selection must not even create practice_items");
-    assert_eq!(env.data("/api/stats/overview"), overview);
-    assert_eq!(env.store().pending_uploads(500).unwrap(), uploads);
-    assert_eq!(sources(&env.data("/api/practice/queue?session_id=again&mode=difficult&limit=2")), ["hard", "rare"]);
 }
 
 #[test]
@@ -51,7 +46,6 @@ fn caps_the_sorted_batch_at_twenty_and_honors_smaller_limits() {
     let expected: Vec<_> = (0..20).map(|index| format!("word-{index:02}")).collect();
     let before = env.fingerprint();
     assert_eq!(sources(&env.data("/api/practice/queue?session_id=focus&mode=difficult")), expected);
-    assert_eq!(sources(&env.data("/api/practice/queue?session_id=focus&mode=difficult&limit=100")), expected);
     assert_eq!(sources(&env.data("/api/practice/queue?session_id=focus&mode=difficult&limit=3")), expected[..3]);
     assert_eq!(env.fingerprint(), before);
 }

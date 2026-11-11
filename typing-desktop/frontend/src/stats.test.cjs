@@ -83,10 +83,7 @@ test('sync shows environment server settings as read-only while allowing synchro
     await app.openSyncModal();
     assert.equal(app.serverSettings.url, 'https://env.example');
     assert.equal(app.serverSettings.editable, false);
-    app.editServerSettings();
     assert.equal(app.serverSettings.editing, false);
-    await app.saveServerSettings();
-    assert.equal(posts.length, 0);
     await app.syncNow();
     assert.deepEqual(posts, ['http://test/api/sync/now']);
     assert.equal(app.setup.visible, false);

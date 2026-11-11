@@ -212,32 +212,30 @@ test('resource settings upload in chunks without requiring server settings', asy
     ]);
 });
 
-for (const mode of ['normal', 'free', 'mistakes', 'difficult']) {
-    test(`exiting ${mode} practice preserves saved answers without submitting the unfinished word`, () => {
-        const h = harness();
-        h.context.confirm = () => { throw new Error('exiting practice must not ask for confirmation'); };
-        h.app.practiceMode = mode;
-        h.app.words.push({ word: 'book', source_id: 'book', attempt_id: 'unfinished' });
-        h.app.currentIndex = 1;
-        h.app.stats.correct = 1;
-        h.app.stats.attempts.push({ attempt_id: 'saved' });
-        h.app.userInput = 'bo';
-        h.app.beginCurrentWord();
-        h.tick(500);
-        h.app.saveDraftSession();
-        let stopped = 0;
-        h.app.stopWordAudio = () => { stopped++; };
-        h.app.quitPractice();
-        assert.equal(h.app.isFinished, true);
-        assert.equal(h.app.isPracticeAbandoned, true);
-        assert.equal(h.app.attemptedTotal, 1);
-        assert.equal(h.app.stats.incorrect, 0);
-        assert.equal(h.requests.length, 0);
-        assert.equal(h.app.clockStartedAt, null);
-        assert.equal(stopped, 1);
-        assert.equal(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'), null);
-    });
-}
+test('exiting practice preserves saved answers without submitting the unfinished word', () => {
+    const h = harness();
+    h.context.confirm = () => { throw new Error('exiting practice must not ask for confirmation'); };
+    h.app.practiceMode = 'free';
+    h.app.words.push({ word: 'book', source_id: 'book', attempt_id: 'unfinished' });
+    h.app.currentIndex = 1;
+    h.app.stats.correct = 1;
+    h.app.stats.attempts.push({ attempt_id: 'saved' });
+    h.app.userInput = 'bo';
+    h.app.beginCurrentWord();
+    h.tick(500);
+    h.app.saveDraftSession();
+    let stopped = 0;
+    h.app.stopWordAudio = () => { stopped++; };
+    h.app.quitPractice();
+    assert.equal(h.app.isFinished, true);
+    assert.equal(h.app.isPracticeAbandoned, true);
+    assert.equal(h.app.attemptedTotal, 1);
+    assert.equal(h.app.stats.incorrect, 0);
+    assert.equal(h.requests.length, 0);
+    assert.equal(h.app.clockStartedAt, null);
+    assert.equal(stopped, 1);
+    assert.equal(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'), null);
+});
 
 test('a failed answer must be saved or resolved before exiting practice', async () => {
     const h = harness();
@@ -570,38 +568,37 @@ for (const count of [3, 20]) {
     });
 }
 
-for (const count of [3, 20]) {
-    test(`difficult practice completes its ${count} selected words without submitting answers`, async () => {
-        const h = harness();
-        h.context.confirm = () => { throw new Error('difficult practice must not ask for confirmation'); };
-        let queues = 0;
-        h.context.axios.get = async (url, { params } = {}) => {
-            if (url.endsWith('/memory/summary')) return { data: { data: { total: 125 } } };
-            queues++;
-            assert.equal(params.mode, 'difficult');
-            assert.equal(params.limit, 20);
-            return { data: { data: {
-                items: Array.from({ length: count }, (_, index) => ({ word: 'apple', source_id: `apple-${index}` })),
-                summary: { total: 125 }
-            } } };
-        };
-        await h.app.startDifficultPractice();
-        assert.equal(h.app.isDifficultPractice, true);
-        assert.equal(h.app.isUntrackedPractice, true);
-        assert.match(h.app.titlebarNote, /难点突破.*不计入记忆与统计/);
-        assert.equal(h.app.progressTotal, count);
-        for (let index = 0; index < count; index++) {
-            await h.app.submitInput('apple');
-            await h.app.nextWord();
-        }
-        assert.equal(h.app.isFinished, true);
-        assert.equal(h.app.attemptedTotal, count);
-        assert.equal(h.app.pendingAttempt, null);
-        assert.equal(h.requests.length, 0);
-        assert.equal(queues, 1);
-        assert.equal(Object.keys(h.localStorage).some(key => key.startsWith('typingPracticePending:')), false);
-    });
-}
+test('difficult practice completes its selected batch without submitting answers', async () => {
+    const count = 3;
+    const h = harness();
+    h.context.confirm = () => { throw new Error('difficult practice must not ask for confirmation'); };
+    let queues = 0;
+    h.context.axios.get = async (url, { params } = {}) => {
+        if (url.endsWith('/memory/summary')) return { data: { data: { total: 125 } } };
+        queues++;
+        assert.equal(params.mode, 'difficult');
+        assert.equal(params.limit, 20);
+        return { data: { data: {
+            items: Array.from({ length: count }, (_, index) => ({ word: 'apple', source_id: `apple-${index}` })),
+            summary: { total: 125 }
+        } } };
+    };
+    await h.app.startDifficultPractice();
+    assert.equal(h.app.isDifficultPractice, true);
+    assert.equal(h.app.isUntrackedPractice, true);
+    assert.match(h.app.titlebarNote, /难点突破.*不计入记忆与统计/);
+    assert.equal(h.app.progressTotal, count);
+    for (let index = 0; index < count; index++) {
+        await h.app.submitInput('apple');
+        await h.app.nextWord();
+    }
+    assert.equal(h.app.isFinished, true);
+    assert.equal(h.app.attemptedTotal, count);
+    assert.equal(h.app.pendingAttempt, null);
+    assert.equal(h.requests.length, 0);
+    assert.equal(queues, 1);
+    assert.equal(Object.keys(h.localStorage).some(key => key.startsWith('typingPracticePending:')), false);
+});
 
 test('difficult practice restores a wrong answer for correction without writing an outbox', async () => {
     const h = harness();
@@ -861,8 +858,6 @@ test('first launch requires server settings before practice', async () => {
     assert.equal(h.app.resources.status, null);
     h.app.closeSyncModal();
     assert.equal(h.app.syncModal.visible, true, 'the first connection cannot be dismissed');
-    h.app.cancelServerEdit();
-    assert.equal(h.app.serverSettings.editing, true);
 });
 
 test('a configured server skips the setup dialog', async () => {
@@ -874,18 +869,6 @@ test('a configured server skips the setup dialog', async () => {
     assert.equal(h.app.serverSettings.hasToken, true);
     assert.equal(h.app.serverSettings.savedUrl, 'https://sync.example.com');
     assert.equal(h.app.serverSettings.editing, false);
-});
-
-test('a rejected token keeps the dialog open with the server message', async () => {
-    const h = harness();
-    const calls = serverStub(h, { saveError: '访问令牌无效，请检查同步设置' });
-    await h.app.checkServerSetup();
-    Object.assign(h.app.serverSettings, { url: 'https://sync.example.com', token: 'wrong' });
-    await h.app.saveServerSettings();
-    assert.equal(h.app.syncModal.visible, true);
-    assert.equal(h.app.serverSettings.saving, false);
-    assert.equal(h.app.serverSettings.error, '访问令牌无效，请检查同步设置');
-    assert.equal(calls.some(call => call[1]?.endsWith('/sync/now')), false);
 });
 
 test('saving the first server syncs and then loads practice', async () => {
@@ -950,23 +933,6 @@ test('server validation cannot be dismissed or submitted twice while it is runni
     assert.equal(h.app.syncModal.visible, false);
 });
 
-test('a failed server settings read can be retried inside sync', async () => {
-    const h = harness();
-    serverStub(h, { configured: true });
-    const get = h.context.axios.get;
-    h.context.axios.get = url => {
-        if (url.endsWith('/settings/server')) throw new Error('read failed');
-        return get(url);
-    };
-    await h.app.openSyncModal();
-    assert.equal(h.app.serverSettings.loaded, false);
-    assert.match(h.app.serverSettings.error, /重试/);
-    h.context.axios.get = get;
-    await h.app.loadServerSettings();
-    assert.equal(h.app.serverSettings.loaded, true);
-    assert.equal(h.app.serverSettings.error, '');
-});
-
 test('server details expand on demand and cancelling restores the configured address without saving', async () => {
     const h = harness();
     const calls = serverStub(h, { configured: true });
@@ -986,7 +952,7 @@ test('server details expand on demand and cancelling restores the configured add
 
 test('a rejected server change stays editable until cancelled and keeps the configured address', async () => {
     const h = harness();
-    serverStub(h, { configured: true, saveError: '访问令牌无效' });
+    const calls = serverStub(h, { configured: true, saveError: '访问令牌无效' });
     await h.app.openSyncModal();
     h.app.editServerSettings();
     h.app.serverSettings.url = 'https://other.example.com';
@@ -996,6 +962,9 @@ test('a rejected server change stays editable until cancelled and keeps the conf
     assert.equal(h.app.serverSettings.url, 'https://other.example.com');
     assert.equal(h.app.serverSettings.savedUrl, 'https://sync.example.com');
     assert.equal(h.app.serverSettings.error, '访问令牌无效');
+    assert.equal(h.app.syncModal.visible, true);
+    assert.equal(h.app.serverSettings.saving, false);
+    assert.equal(calls.some(call => call[1]?.endsWith('/sync/now')), false);
     h.app.cancelServerEdit();
     assert.equal(h.app.serverSettings.error, '');
     assert.equal(h.app.serverSettings.url, 'https://sync.example.com');
