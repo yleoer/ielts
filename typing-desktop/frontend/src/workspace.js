@@ -10,8 +10,9 @@ const workspaceControls = {
             updates: { current: '', available: null, phase: 'idle', downloaded: 0, total: 0, error: '' },
             desktopSettings: { loaded: false, saving: false, closeToTray: true, savedCloseToTray: true, error: '' },
             autostartSettings: { loaded: false, saving: false, enabled: false, savedEnabled: false, error: '' },
-            // Sync server settings; `required` blocks the page until a first server is saved.
-            setup: { visible: false, required: false, url: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
+            setup: { visible: false },
+            // The sync panel owns the server form, including first-run connection.
+            serverSettings: { loaded: false, required: false, editing: false, url: '', savedUrl: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
         };
     },
     computed: {
@@ -70,7 +71,7 @@ const workspaceControls = {
             const blocked = reload || (ctrl && ['p', 'f', 'g', 'j', 'u'].includes(event.key.toLowerCase()));
             if (blocked) event.preventDefault();
             if (event.key === 'Escape') {
-                if (this.setup.visible) this.closeServerSetup();
+                if (this.setup.visible) this.closeSettings();
                 else if (this.syncModal.visible) this.closeSyncModal();
                 else if (this.detailModal?.visible) this.closeDetailModal();
                 return;
@@ -85,7 +86,7 @@ const workspaceControls = {
                 this.toggleSidebar();
             } else if (ctrl && event.key === ',') {
                 event.preventDefault();
-                this.openServerSetup();
+                this.openSettings();
             } else if (reload) {
                 return this.refreshPageData();
             }
@@ -139,7 +140,7 @@ const workspaceControls = {
                 this.updates.error = '更新失败，请稍后重试。';
             }
         },
-        setupKeydown(event) {
+        dialogKeydown(event) {
             if (event.key !== 'Tab') return;
             const controls = [...event.currentTarget.querySelectorAll('button:not(:disabled), input:not(:disabled):not([tabindex="-1"]), select:not(:disabled)')];
             const first = controls[0], last = controls[controls.length - 1];
@@ -260,63 +261,77 @@ const workspaceControls = {
         },
 
         async loadServerSettings() {
+            // This reads the desktop core's in-memory configuration, not the remote server.
             const settings = (await axios.get(`${this.apiBaseUrl}/settings/server`)).data.data;
-            Object.assign(this.setup, { url: settings.url || '', token: '', hasToken: settings.has_token, editable: settings.editable, error: '' });
+            Object.assign(this.serverSettings, { url: settings.url || '', savedUrl: settings.url || '', token: '', hasToken: settings.has_token,
+                editable: settings.editable, required: !settings.configured, editing: !settings.configured, loaded: true });
             return settings;
         },
 
-        async openServerSetup() {
+        async openSettings() {
             this.setupOpener = document.activeElement;
-            this.syncModal.visible = false;
             this.pauseClock?.();
-            Object.assign(this.setup, { visible: true, required: false, error: '' });
-            await Promise.all([this.loadDesktopSettings(), this.loadAutostartSettings()]);
-            try {
-                await this.loadServerSettings();
-                await this.loadResourceStatus();
-                this.$nextTick(() => (this.setup.editable ? this.$refs.serverUrl : this.$refs.resourceChoose)?.focus());
-            } catch (error) {
-                this.setup.error = '无法加载服务器设置';
-            }
+            this.setup.visible = true;
+            await Promise.all([this.loadDesktopSettings(), this.loadAutostartSettings(), this.loadResourceStatus()]);
+            this.$nextTick(() => (this.desktopSettings.loaded ? this.$refs.closeBehavior : this.$refs.resourceChoose)?.focus());
         },
 
-        closeServerSetup() {
-            if (this.setup.required || this.setup.saving || this.desktopSettings.saving || this.autostartSettings.saving || this.resources.transferring || this.updateInstalling) return;
+        closeSettings() {
+            if (this.desktopSettings.saving || this.autostartSettings.saving || this.resources.transferring || this.updateInstalling) return;
             this.setup.visible = false;
             this.resumeClock?.();
             this.$nextTick(() => this.setupOpener?.focus());
         },
 
-        async saveServerSetup() {
-            if (this.setup.saving || this.autostartSettings.saving || this.resourceBusy || this.updateInstalling) return;
-            if (!this.setup.editable) { this.closeServerSetup(); return; }
-            this.setup.saving = true;
-            this.setup.error = '';
+        editServerSettings() {
+            const server = this.serverSettings;
+            if (server.saving || this.syncModal.syncing) return;
+            Object.assign(server, { editing: true, url: server.savedUrl, token: '', error: '' });
+            this.$nextTick(() => this.$refs.serverUrl?.focus());
+        },
+
+        cancelServerEdit() {
+            const server = this.serverSettings;
+            if (server.saving || this.syncModal.syncing) return;
+            Object.assign(server, { editing: false, url: server.savedUrl, token: '', error: '' });
+            this.$nextTick(() => this.$refs.serverEdit?.focus());
+        },
+
+        async saveServerSettings() {
+            const server = this.serverSettings;
+            if (server.saving || this.syncModal.syncing) return;
+            const firstRun = server.required;
+            server.saving = true;
+            server.error = '';
             try {
-                await axios.post(`${this.apiBaseUrl}/settings/server`, { url: this.setup.url, token: this.setup.token });
+                const response = await axios.post(`${this.apiBaseUrl}/settings/server`, { url: server.url, token: server.token });
+                const settings = response.data.data;
+                Object.assign(server, { url: settings.url, savedUrl: settings.url, hasToken: settings.has_token, required: false, editing: false, token: '' });
+                await this.syncNow();
+                if (firstRun) await this.fetchWords?.();
             } catch (error) {
-                this.setup.error = error.response?.data?.error || '无法连接同步服务器';
-                return;
+                server.error = error.response?.data?.error || '无法连接同步服务器';
             } finally {
-                this.setup.saving = false;
+                server.saving = false;
             }
-            const firstRun = this.setup.required;
-            Object.assign(this.setup, { visible: false, required: false, token: '' });
-            // Bring in the vocabulary and other devices' answers right away.
-            await this.openSyncModal();
-            await this.syncNow();
-            if (firstRun) await this.fetchWords();
+            if (!server.editing) this.$nextTick(() => this.$refs.serverEdit?.focus());
         },
 
         async openSyncModal() {
+            this.syncOpener = document.activeElement;
             this.pauseClock?.();
+            if (!this.serverSettings.loaded) await this.loadServerSettings();
             this.syncModal.visible = true;
             await this.loadSyncStatus();
+            this.$nextTick(() => (this.serverSettings.required ? this.$refs.serverUrl : this.$refs.syncClose)?.focus());
         },
 
         closeSyncModal() {
+            if (this.serverSettings.required || this.serverSettings.saving || this.syncModal.syncing) return;
             this.syncModal.visible = false;
+            Object.assign(this.serverSettings, { editing: false, url: this.serverSettings.savedUrl, token: '', error: '' });
             this.resumeClock?.();
+            this.$nextTick(() => this.syncOpener?.focus());
         },
 
         async loadSyncStatus() {
@@ -334,6 +349,7 @@ const workspaceControls = {
         },
 
         async syncNow() {
+            if (this.syncModal.syncing) return;
             this.syncModal.syncing = true;
             this.syncModal.error = '';
             try {

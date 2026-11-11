@@ -67,6 +67,7 @@ python3 check_image.py yleoer/ielts-typing-practice:提交SHA --pull
 - 默认 60 秒内 `/api/health` 返回 `success: true`、`status: ok`，且 `Server` 响应头为 `waitress`，确认镜像默认入口使用生产服务器。
 - 没有 Anki 数据库时 `/api/vocab` 返回 503。
 - 在容器临时目录构造最小 Anki SQLite，检查带 `word_atlas::excluded` 的暂停词被过滤，且已学变体可让其保留项进入练习池；不读取真实 Anki 数据。
+- 确认打包后的 `vocabulary.py` 可用：`/api/vocab` 返回空的 `sync_history` 基线。行为细节由本机单元测试覆盖。
 - `/api/sync` 接受一条作答并在日志中返回，再次上传同一 `attempt_id` 记为重复，验证临时 SQLite 初始化与读写。
 - 已退役的 `/`、`/stats.html`、`/api/stats/overview` 返回 404。
 - 镜像中未安装 `fsrs` 与 `torch`。

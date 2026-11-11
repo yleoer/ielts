@@ -23,38 +23,63 @@ function harness(get, globals = {}) {
     return app;
 }
 
-test('statistics opens server and resource settings and restores the header button focus', async () => {
+test('statistics opens resource settings without reading server settings and restores focus', async () => {
     let focused = false;
     const opener = { focus() { focused = true; } };
-    const app = harness(async url => ({ data: { data: url.endsWith('/settings/server')
-        ? { configured: true, url: 'https://sync.example', has_token: true, editable: true }
-        : { installed: false, phase: 'idle', busy: false } } }), { document: { activeElement: opener } });
-    await app.openServerSetup();
+    const app = harness(async url => {
+        assert.equal(url, 'http://test/api/resources/status');
+        return { data: { data: { installed: false, phase: 'idle', busy: false } } };
+    }, { document: { activeElement: opener } });
+    await app.openSettings();
     assert.equal(app.setup.visible, true);
-    assert.equal(app.setup.url, 'https://sync.example');
+    assert.equal(app.serverSettings.loaded, false);
     assert.equal(app.resources.status.installed, false);
-    app.closeServerSetup();
+    app.closeSettings();
     assert.equal(app.setup.visible, false);
     assert.equal(focused, true);
 });
 
 test('statistics sync refreshes statistics in place after successful synchronization', async () => {
     const requests = [];
+    const batch = { id: 7, synced_at: '2026-11-03T05:44:49Z', added_words: 20 };
+    const status = { history: [batch], added_words: 20, last_anki_sync_at: '2026-11-03T05:44:49Z',
+        last_sync_at: '2026-11-03T06:00:00Z' };
     const app = harness(async () => ({ data: { data: { history: [] } } }), {
         axios: {
-            get: async () => ({ data: { data: { history: [] } } }),
-            post: async url => { requests.push(url); return { data: { data: { success: true, message: '同步完成' } } }; }
+            get: async url => ({ data: { data: url.endsWith('/settings/server')
+                ? { configured: true, url: 'https://sync.example', has_token: true, editable: true } : status } }),
+            post: async url => { requests.push(url); return { data: { data: { ...status, success: true, message: '同步完成' } } }; }
         }
     });
     let refreshed = 0;
     app.loadAllData = async () => { refreshed++; };
     await app.openSyncModal();
+    assert.equal(app.syncHistory()[0], batch);
+    assert.equal(app.syncModal.status.added_words, 20);
     await app.syncNow();
     assert.equal(app.syncModal.visible, true);
     assert.equal(app.syncModal.status.message, '同步完成');
     assert.equal(app.syncModal.syncing, false);
+    assert.equal(app.syncHistory()[0].synced_at, batch.synced_at);
+    assert.equal(app.syncModal.status.last_anki_sync_at, status.last_anki_sync_at);
+    assert.equal(app.lastSyncAt, status.last_sync_at);
     assert.equal(refreshed, 1);
     assert.deepEqual(requests, ['http://test/api/sync/now']);
+});
+
+test('sync shows environment server settings as read-only while allowing synchronization', async () => {
+    const posts = [];
+    const get = async url => ({ data: { data: url.endsWith('/settings/server')
+        ? { configured: true, url: 'https://env.example', has_token: true, editable: false } : { history: [] } } });
+    const app = harness(get, { axios: { get, post: async url => { posts.push(url); return { data: { data: { history: [] } } }; } } });
+    app.afterSync = async () => {};
+    await app.openSyncModal();
+    assert.equal(app.serverSettings.url, 'https://env.example');
+    assert.equal(app.serverSettings.editable, false);
+    assert.equal(app.serverSettings.editing, false);
+    await app.syncNow();
+    assert.deepEqual(posts, ['http://test/api/sync/now']);
+    assert.equal(app.setup.visible, false);
 });
 
 test('sync refresh keeps existing statistics and chart containers visible while reloading', async () => {

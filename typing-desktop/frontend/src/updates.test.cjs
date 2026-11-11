@@ -101,7 +101,7 @@ test('settings cannot close while downloading, and duplicate checks are ignored'
     const { app, calls } = harness();
     app.setup.visible = true;
     app.updates.phase = 'downloading';
-    app.closeServerSetup();
+    app.closeSettings();
     assert.equal(app.setup.visible, true);
     await app.checkForUpdates();
     assert.deepEqual(calls, []);

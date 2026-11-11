@@ -135,7 +135,7 @@ fn progress(entries: &[Map<String, Value>]) -> Value {
 }
 
 /// Practiced words first, prioritising a smoothed lifetime error rate (`vocabulary.word_sort_key`).
-fn word_order(a: &Map<String, Value>, b: &Map<String, Value>) -> Ordering {
+pub(crate) fn word_order(a: &Map<String, Value>, b: &Map<String, Value>) -> Ordering {
     let key = |w: &Map<String, Value>| {
         let total = w.get("total_attempts").and_then(Value::as_i64).unwrap_or(0);
         let errors = total - w.get("correct_attempts").and_then(Value::as_i64).unwrap_or(0);
@@ -154,7 +154,7 @@ fn word_key(word: &Map<String, Value>) -> String {
 }
 
 /// Adds lifetime `correct_attempts` / `total_attempts` to each item.
-fn with_attempt_counts(db: &Connection, items: &mut [Map<String, Value>]) -> ApiResult<()> {
+pub(crate) fn with_attempt_counts(db: &Connection, items: &mut [Map<String, Value>]) -> ApiResult<()> {
     let mut stmt = db.prepare("SELECT word_key,SUM(is_correct),COUNT(*) FROM word_reviews GROUP BY word_key")?;
     let counts: HashMap<String, (i64, i64)> = stmt
         .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?

@@ -70,6 +70,18 @@ finally:
     reader.close()
 print("PASS excluded Anki variants and canonical learned state", flush=True)
 
+# The packaged vocabulary module serves the server-owned history field.
+from app import create_app
+from config import AnkiConfig, Config
+config = Config(anki=AnkiConfig(db_path=str(collection), deck_name="Word Atlas", deck_id=1),
+                db_path="/tmp/image-check/vocabulary.db")
+application = create_app(config, start_background_tasks=False)
+try:
+    assert application.test_client().get("/api/vocab").json["data"]["sync_history"] == []
+finally:
+    application.extensions["cijian_state"].close()
+print("PASS server vocabulary history", flush=True)
+
 attempt = {"attempt_id": "image-check", "word_key": "word-atlas:check", "word": "check", "chinese_meaning": "检查",
            "category": "", "user_input": "check", "is_correct": True, "rating": 3,
            "reviewed_at": "2026-01-01T00:00:00Z", "duration_ms": 7000, "first_input_ms": None}
