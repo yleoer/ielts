@@ -98,20 +98,21 @@ test('resource installation refreshes URLs without replacing the active question
     assert.equal(requests, 1);
 });
 
-test('combined settings load server and resources and pause practice until closed', async () => {
+test('settings load resources without reading the server and pause practice until closed', async () => {
     const h = harness();
     h.app.clockStartedAt = 0;
     h.tick(1000);
-    h.context.axios.get = async url => ({ data: { data: url.endsWith('/resources/status')
-        ? { installed: false, phase: 'idle', busy: false }
-        : { configured: true, url: 'https://sync.example', has_token: true, editable: true } } });
-    await h.app.openServerSetup();
+    h.context.axios.get = async url => {
+        assert.equal(url, 'http://test/api/resources/status');
+        return { data: { data: { installed: false, phase: 'idle', busy: false } } };
+    };
+    await h.app.openSettings();
     assert.equal(h.app.clockStartedAt, null);
     assert.equal(h.app.setup.visible, true);
     assert.equal(h.app.resources.status.installed, false);
-    assert.equal(h.app.setup.url, 'https://sync.example');
+    assert.equal(h.app.serverSettings.loaded, false);
     h.tick(5000);
-    h.app.closeServerSetup();
+    h.app.closeSettings();
     assert.equal(h.app.setup.visible, false);
     assert.equal(h.app.elapsedMs, 1000);
     assert.equal(h.app.clockStartedAt, 6000);
@@ -163,7 +164,7 @@ test('autostart errors support retry and preserve the saved value while blocking
     h.app.autostartSettings.enabled = true;
     const saving = h.app.saveAutostartSettings();
     assert.equal(h.app.autostartSettings.saving, true);
-    h.app.closeServerSetup();
+    h.app.closeSettings();
     assert.equal(h.app.setup.visible, true);
     await h.app.saveAutostartSettings();
     assert.equal(saves, 1);
@@ -172,7 +173,7 @@ test('autostart errors support retry and preserve the saved value while blocking
     assert.equal(h.app.autostartSettings.enabled, false);
     assert.equal(h.app.autostartSettings.saving, false);
     assert.match(h.app.autostartSettings.error, /重试/);
-    h.app.closeServerSetup();
+    h.app.closeSettings();
     assert.equal(h.app.setup.visible, false);
 });
 
@@ -187,10 +188,10 @@ test('an interrupted local import can be cancelled', async () => {
     assert.equal(h.app.resourceBusy, false);
 });
 
-test('first-run local import preserves the server form and uploads in chunks', async () => {
+test('resource settings upload in chunks without requiring server settings', async () => {
     const h = harness();
     h.app.words = [];
-    Object.assign(h.app.setup, { visible: true, required: true, url: 'https://sync.example', token: 'test-token' });
+    h.app.setup.visible = true;
     const calls = [];
     h.context.axios.post = async (url, body) => {
         calls.push(url);
@@ -199,8 +200,7 @@ test('first-run local import preserves the server form and uploads in chunks', a
     h.context.axios.get = async () => ({ data: { data: { phase: 'ready', id: 'package', installed: true, busy: false } } });
     const target = { files: [{ name: 'media.zip', size: 8, slice: () => ({ arrayBuffer: async () => new ArrayBuffer(4) }) }], value: 'selected' };
     await h.app.importResources({ target });
-    assert.equal(h.app.setup.url, 'https://sync.example');
-    assert.equal(h.app.setup.token, 'test-token');
+    assert.equal(h.app.serverSettings.loaded, false);
     assert.equal(h.app.setup.visible, true);
     assert.equal(h.app.resources.status.installed, true);
     assert.equal(target.value, '');
@@ -825,10 +825,11 @@ test('formal previews preload illustrations without appending speculative practi
 
 function serverStub(h, { configured, saveError } = {}) {
     const calls = [];
+    let serverConfigured = Boolean(configured);
     h.context.axios = {
         get: async url => {
             calls.push(['get', url]);
-            if (url.endsWith('/settings/server')) return { data: { data: configured
+            if (url.endsWith('/settings/server')) return { data: { data: serverConfigured
                 ? { configured: true, url: 'https://sync.example.com', has_token: true, editable: true, source: 'file' }
                 : { configured: false, url: null, has_token: false, editable: true, source: null } } };
             if (url.endsWith('/resources/status')) return { data: { data: { installed: false, phase: 'idle', busy: false } } };
@@ -837,6 +838,10 @@ function serverStub(h, { configured, saveError } = {}) {
         post: async (url, body) => {
             calls.push(['post', url, body]);
             if (url.endsWith('/settings/server') && saveError) throw { response: { data: { error: saveError } } };
+            if (url.endsWith('/settings/server')) {
+                serverConfigured = true;
+                return { data: { data: { configured: true, url: body.url.trim().replace(/\/$/, ''), has_token: true, editable: true } } };
+            }
             return { data: { data: { success: true, message: 'ok' } } };
         }
     };
@@ -849,11 +854,15 @@ test('first launch requires server settings before practice', async () => {
     const h = harness();
     serverStub(h);
     assert.equal(await h.app.checkServerSetup(), true);
-    assert.equal(h.app.setup.visible, true);
-    assert.equal(h.app.setup.required, true);
-    assert.equal(h.app.resources.status.installed, false);
-    h.app.closeServerSetup();
-    assert.equal(h.app.setup.visible, true, 'the first-run dialog cannot be dismissed');
+    assert.equal(h.app.syncModal.visible, true);
+    assert.equal(h.app.serverSettings.required, true);
+    assert.equal(h.app.serverSettings.editing, true);
+    assert.equal(h.app.setup.visible, false);
+    assert.equal(h.app.resources.status, null);
+    h.app.closeSyncModal();
+    assert.equal(h.app.syncModal.visible, true, 'the first connection cannot be dismissed');
+    h.app.cancelServerEdit();
+    assert.equal(h.app.serverSettings.editing, true);
 });
 
 test('a configured server skips the setup dialog', async () => {
@@ -861,19 +870,21 @@ test('a configured server skips the setup dialog', async () => {
     serverStub(h, { configured: true });
     assert.equal(await h.app.checkServerSetup(), false);
     assert.equal(h.app.setup.visible, false);
-    assert.equal(h.app.setup.url, 'https://sync.example.com');
-    assert.equal(h.app.setup.hasToken, true);
+    assert.equal(h.app.serverSettings.url, 'https://sync.example.com');
+    assert.equal(h.app.serverSettings.hasToken, true);
+    assert.equal(h.app.serverSettings.savedUrl, 'https://sync.example.com');
+    assert.equal(h.app.serverSettings.editing, false);
 });
 
 test('a rejected token keeps the dialog open with the server message', async () => {
     const h = harness();
     const calls = serverStub(h, { saveError: '访问令牌无效，请检查同步设置' });
     await h.app.checkServerSetup();
-    Object.assign(h.app.setup, { url: 'https://sync.example.com', token: 'wrong' });
-    await h.app.saveServerSetup();
-    assert.equal(h.app.setup.visible, true);
-    assert.equal(h.app.setup.saving, false);
-    assert.equal(h.app.setup.error, '访问令牌无效，请检查同步设置');
+    Object.assign(h.app.serverSettings, { url: 'https://sync.example.com', token: 'wrong' });
+    await h.app.saveServerSettings();
+    assert.equal(h.app.syncModal.visible, true);
+    assert.equal(h.app.serverSettings.saving, false);
+    assert.equal(h.app.serverSettings.error, '访问令牌无效，请检查同步设置');
     assert.equal(calls.some(call => call[1]?.endsWith('/sync/now')), false);
 });
 
@@ -881,12 +892,111 @@ test('saving the first server syncs and then loads practice', async () => {
     const h = harness();
     const calls = serverStub(h);
     await h.app.checkServerSetup();
-    Object.assign(h.app.setup, { url: 'https://sync.example.com', token: 'secret' });
-    await h.app.saveServerSetup();
+    Object.assign(h.app.serverSettings, { url: 'https://sync.example.com', token: 'secret' });
+    await h.app.saveServerSettings();
     const saved = calls.find(call => call[1]?.endsWith('/settings/server') && call[0] === 'post')[2];
     assert.equal(JSON.stringify(saved), JSON.stringify({ url: 'https://sync.example.com', token: 'secret' }));
     assert.equal(h.app.setup.visible, false);
-    assert.equal(h.app.setup.token, '', 'the token is not kept in page state');
+    assert.equal(h.app.syncModal.visible, true, 'saving stays in the sync panel');
+    assert.equal(h.app.serverSettings.required, false);
+    assert.equal(h.app.serverSettings.editing, false, 'a successful save collapses the form');
+    assert.equal(h.app.serverSettings.token, '', 'the token is not kept in page state');
     const order = calls.map(call => call[0] === 'fetchWords' ? 'fetchWords' : call[1]?.replace('http://test/api', ''));
     assert.ok(order.indexOf('/sync/now') < order.indexOf('fetchWords'), order.join(','));
+});
+
+test('changing the server in sync keeps a blank token and does not reset practice', async () => {
+    const h = harness();
+    const calls = serverStub(h, { configured: true });
+    await h.app.openSyncModal();
+    h.app.editServerSettings();
+    h.app.serverSettings.url = 'https://other.example.com/';
+    h.app.serverSettings.token = '';
+    await h.app.saveServerSettings();
+    const saved = calls.find(call => call[0] === 'post' && call[1].endsWith('/settings/server'))[2];
+    assert.equal(saved.token, '');
+    assert.equal(h.app.serverSettings.url, 'https://other.example.com');
+    assert.equal(h.app.serverSettings.hasToken, true);
+    assert.equal(h.app.serverSettings.savedUrl, 'https://other.example.com');
+    assert.equal(h.app.serverSettings.editing, false);
+    assert.equal(h.app.syncModal.visible, true);
+    assert.equal(calls.some(call => call[0] === 'fetchWords'), false);
+});
+
+test('server validation cannot be dismissed or submitted twice while it is running', async () => {
+    const h = harness();
+    serverStub(h, { configured: true });
+    await h.app.openSyncModal();
+    h.app.editServerSettings();
+    let checked, checks = 0;
+    const post = h.context.axios.post;
+    h.context.axios.post = (url, body) => {
+        if (!url.endsWith('/settings/server')) return post(url, body);
+        checks++;
+        return new Promise(resolve => { checked = resolve; });
+    };
+    const saving = h.app.saveServerSettings();
+    assert.equal(h.app.serverSettings.saving, true);
+    h.app.closeSyncModal();
+    assert.equal(h.app.syncModal.visible, true);
+    h.app.cancelServerEdit();
+    assert.equal(h.app.serverSettings.editing, true, 'saving cannot be cancelled halfway through');
+    await h.app.saveServerSettings();
+    assert.equal(checks, 1);
+    checked({ data: { data: { url: 'https://sync.example.com', has_token: true } } });
+    await saving;
+    assert.equal(h.app.serverSettings.saving, false);
+    h.app.closeSyncModal();
+    assert.equal(h.app.syncModal.visible, false);
+});
+
+test('a failed server settings read can be retried inside sync', async () => {
+    const h = harness();
+    serverStub(h, { configured: true });
+    const get = h.context.axios.get;
+    h.context.axios.get = url => {
+        if (url.endsWith('/settings/server')) throw new Error('read failed');
+        return get(url);
+    };
+    await h.app.openSyncModal();
+    assert.equal(h.app.serverSettings.loaded, false);
+    assert.match(h.app.serverSettings.error, /重试/);
+    h.context.axios.get = get;
+    await h.app.loadServerSettings();
+    assert.equal(h.app.serverSettings.loaded, true);
+    assert.equal(h.app.serverSettings.error, '');
+});
+
+test('server details expand on demand and cancelling restores the configured address without saving', async () => {
+    const h = harness();
+    const calls = serverStub(h, { configured: true });
+    await h.app.openSyncModal();
+    assert.equal(h.app.serverSettings.editing, false);
+    h.app.editServerSettings();
+    assert.equal(h.app.serverSettings.editing, true);
+    h.app.serverSettings.url = 'https://discard.example.com';
+    h.app.serverSettings.token = 'discard-token';
+    h.app.cancelServerEdit();
+    assert.equal(h.app.serverSettings.editing, false);
+    assert.equal(h.app.serverSettings.url, 'https://sync.example.com');
+    assert.equal(h.app.serverSettings.savedUrl, 'https://sync.example.com');
+    assert.equal(h.app.serverSettings.token, '');
+    assert.equal(calls.some(call => call[0] === 'post'), false);
+});
+
+test('a rejected server change stays editable until cancelled and keeps the configured address', async () => {
+    const h = harness();
+    serverStub(h, { configured: true, saveError: '访问令牌无效' });
+    await h.app.openSyncModal();
+    h.app.editServerSettings();
+    h.app.serverSettings.url = 'https://other.example.com';
+    h.app.serverSettings.token = 'wrong';
+    await h.app.saveServerSettings();
+    assert.equal(h.app.serverSettings.editing, true);
+    assert.equal(h.app.serverSettings.url, 'https://other.example.com');
+    assert.equal(h.app.serverSettings.savedUrl, 'https://sync.example.com');
+    assert.equal(h.app.serverSettings.error, '访问令牌无效');
+    h.app.cancelServerEdit();
+    assert.equal(h.app.serverSettings.error, '');
+    assert.equal(h.app.serverSettings.url, 'https://sync.example.com');
 });

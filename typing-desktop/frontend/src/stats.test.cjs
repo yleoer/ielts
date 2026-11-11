@@ -23,17 +23,18 @@ function harness(get, globals = {}) {
     return app;
 }
 
-test('statistics opens server and resource settings and restores the header button focus', async () => {
+test('statistics opens resource settings without reading server settings and restores focus', async () => {
     let focused = false;
     const opener = { focus() { focused = true; } };
-    const app = harness(async url => ({ data: { data: url.endsWith('/settings/server')
-        ? { configured: true, url: 'https://sync.example', has_token: true, editable: true }
-        : { installed: false, phase: 'idle', busy: false } } }), { document: { activeElement: opener } });
-    await app.openServerSetup();
+    const app = harness(async url => {
+        assert.equal(url, 'http://test/api/resources/status');
+        return { data: { data: { installed: false, phase: 'idle', busy: false } } };
+    }, { document: { activeElement: opener } });
+    await app.openSettings();
     assert.equal(app.setup.visible, true);
-    assert.equal(app.setup.url, 'https://sync.example');
+    assert.equal(app.serverSettings.loaded, false);
     assert.equal(app.resources.status.installed, false);
-    app.closeServerSetup();
+    app.closeSettings();
     assert.equal(app.setup.visible, false);
     assert.equal(focused, true);
 });
@@ -45,7 +46,8 @@ test('statistics sync refreshes statistics in place after successful synchroniza
         last_sync_at: '2026-11-03T06:00:00Z' };
     const app = harness(async () => ({ data: { data: { history: [] } } }), {
         axios: {
-            get: async () => ({ data: { data: status } }),
+            get: async url => ({ data: { data: url.endsWith('/settings/server')
+                ? { configured: true, url: 'https://sync.example', has_token: true, editable: true } : status } }),
             post: async url => { requests.push(url); return { data: { data: { ...status, success: true, message: '同步完成' } } }; }
         }
     });
@@ -63,6 +65,31 @@ test('statistics sync refreshes statistics in place after successful synchroniza
     assert.equal(app.lastSyncAt, status.last_sync_at);
     assert.equal(refreshed, 1);
     assert.deepEqual(requests, ['http://test/api/sync/now']);
+});
+
+test('sync shows environment server settings as read-only while allowing synchronization', async () => {
+    const posts = [];
+    const app = harness(async url => ({ data: { data: url.endsWith('/settings/server')
+        ? { configured: true, url: 'https://env.example', has_token: true, editable: false }
+        : { history: [] } } }), {
+        axios: {
+            get: async url => ({ data: { data: url.endsWith('/settings/server')
+                ? { configured: true, url: 'https://env.example', has_token: true, editable: false }
+                : { history: [] } } }),
+            post: async url => { posts.push(url); return { data: { data: { history: [] } } }; }
+        }
+    });
+    app.afterSync = async () => {};
+    await app.openSyncModal();
+    assert.equal(app.serverSettings.url, 'https://env.example');
+    assert.equal(app.serverSettings.editable, false);
+    app.editServerSettings();
+    assert.equal(app.serverSettings.editing, false);
+    await app.saveServerSettings();
+    assert.equal(posts.length, 0);
+    await app.syncNow();
+    assert.deepEqual(posts, ['http://test/api/sync/now']);
+    assert.equal(app.setup.visible, false);
 });
 
 test('sync refresh keeps existing statistics and chart containers visible while reloading', async () => {
