@@ -385,8 +385,7 @@ const practiceApp = {
         },
         quitPractice() {
             if (this.pendingAttempt) { this.submitError = '请先重试保存或处理失效题目，再退出练习。'; return; }
-            const message = this.isUntrackedPractice ? '确定要退出练习吗？本轮练习不计入记忆与统计。' : '确定要退出练习吗？已保存的作答会保留。';
-            if (confirm(message)) this.finishPractice({ abandoned: true });
+            this.finishPractice({ abandoned: true });
         },
         focusInput() { this.$nextTick(() => this.$refs.inputField?.focus()); },
         scheduleDraftSave() {

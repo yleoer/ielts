@@ -215,7 +215,7 @@ test('first-run local import preserves the server form and uploads in chunks', a
 for (const mode of ['normal', 'free', 'mistakes', 'difficult']) {
     test(`exiting ${mode} practice preserves saved answers without submitting the unfinished word`, () => {
         const h = harness();
-        h.context.confirm = () => true;
+        h.context.confirm = () => { throw new Error('exiting practice must not ask for confirmation'); };
         h.app.practiceMode = mode;
         h.app.words.push({ word: 'book', source_id: 'book', attempt_id: 'unfinished' });
         h.app.currentIndex = 1;
@@ -238,20 +238,6 @@ for (const mode of ['normal', 'free', 'mistakes', 'difficult']) {
         assert.equal(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'), null);
     });
 }
-
-test('cancelling exit keeps the current answer and saved draft available', () => {
-    const h = harness();
-    h.context.confirm = () => false;
-    h.app.userInput = 'app';
-    h.app.beginCurrentWord();
-    h.app.saveDraftSession();
-    h.app.quitPractice();
-    assert.equal(h.app.isFinished, false);
-    assert.equal(h.app.userInput, 'app');
-    assert.equal(h.app.currentWord.attempt_id, 'attempt');
-    assert.ok(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'));
-    assert.equal(h.requests.length, 0);
-});
 
 test('a failed answer must be saved or resolved before exiting practice', async () => {
     const h = harness();
@@ -587,6 +573,7 @@ for (const count of [3, 20]) {
 for (const count of [3, 20]) {
     test(`difficult practice completes its ${count} selected words without submitting answers`, async () => {
         const h = harness();
+        h.context.confirm = () => { throw new Error('difficult practice must not ask for confirmation'); };
         let queues = 0;
         h.context.axios.get = async (url, { params } = {}) => {
             if (url.endsWith('/memory/summary')) return { data: { data: { total: 125 } } };
