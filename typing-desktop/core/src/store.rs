@@ -82,13 +82,17 @@ CREATE TABLE IF NOT EXISTS vocabulary (
     illustration_file TEXT NOT NULL,
     word_json TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS sync_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+"#;
+
+/// Server-owned addition batches; the migration drops rows the device once generated itself.
+const SYNC_HISTORY: &str = r#"
+DROP TABLE IF EXISTS sync_history;
+CREATE TABLE sync_history (
+    id INTEGER PRIMARY KEY,
     synced_at TEXT NOT NULL,
     before_words INTEGER NOT NULL,
     after_words INTEGER NOT NULL,
     added_words INTEGER NOT NULL,
-    message TEXT NOT NULL,
     added_word_list TEXT NOT NULL
 );
 "#;
@@ -203,6 +207,13 @@ impl Store {
         db.execute_batch(crate::optimize::SCHEMA)?;
         db.execute_batch(crate::sync::SCHEMA)?;
         db.execute("INSERT OR IGNORE INTO schema_migrations VALUES('desktop-v1',?)", params![time_text(now())])?;
+        let migrated: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE name='server-sync-history')", [], |r| r.get(0))?;
+        if !migrated {
+            let tx = db.unchecked_transaction()?;
+            tx.execute_batch(SYNC_HISTORY)?;
+            tx.execute("INSERT INTO schema_migrations VALUES('server-sync-history',?)", [time_text(now())])?;
+            tx.commit()?;
+        }
         // Parameters accepted by an earlier optimization run replace the configured defaults.
         let active = match crate::optimize::accepted_parameters(&db)? {
             Some(parameters) => Active::new(MemoryConfig { parameters, ..config })?,
@@ -252,15 +263,14 @@ impl Store {
         self.lock().vocabulary.iter().find(|w| w.note_id == note_id).map(|w| w.source_id.clone())
     }
 
-    /// Replaces a vocabulary without inventing history from a device's local changes.
+    /// Replaces only the vocabulary; tests and fixtures use this without server history.
     pub fn import_vocabulary(&self, words: Vec<Word>) -> ApiResult<()> {
         self.replace_vocabulary(words, None)
     }
 
     /// Vocabulary and server-owned history are cached in the same transaction.
     pub fn import_server_vocabulary(&self, snapshot: &Value) -> ApiResult<()> {
-        let sync: VocabularySync = serde_json::from_value(snapshot.clone())
-            .map_err(|_| ApiError::bad("同步服务器缺少有效的词库历史，请先升级服务器"))?;
+        let sync: VocabularySync = serde_json::from_value(snapshot.clone())?;
         self.replace_vocabulary(crate::vocab::parse_snapshot(snapshot)?, Some(sync))
     }
 
@@ -277,9 +287,9 @@ impl Store {
         if let Some(sync) = sync {
             tx.execute("DELETE FROM sync_history", [])?;
             for batch in sync.sync_history {
-                tx.execute("INSERT INTO sync_history(id,synced_at,before_words,after_words,added_words,message,added_word_list) VALUES(?,?,?,?,?,?,?)",
+                tx.execute("INSERT INTO sync_history(id,synced_at,before_words,after_words,added_words,added_word_list) VALUES(?,?,?,?,?,?)",
                     params![batch.id, batch.synced_at, batch.before_words as i64, batch.after_words as i64,
-                            batch.added_words as i64, "Anki 新增已学词", Value::Array(batch.added_word_list).to_string()])?;
+                            batch.added_words as i64, Value::Array(batch.added_word_list).to_string()])?;
             }
             tx.execute("INSERT INTO sync_state VALUES('last_anki_sync_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                        [sync.last_anki_sync_at])?;
@@ -289,11 +299,9 @@ impl Store {
         Ok(())
     }
 
-    /// The 50 most recent server batches; legacy device-generated rows stay hidden.
+    /// The 50 most recent server batches.
     pub fn sync_history(&self) -> ApiResult<Vec<Value>> {
         let inner = self.lock();
-        let cached: bool = inner.db.query_row("SELECT EXISTS(SELECT 1 FROM sync_state WHERE key='last_anki_sync_at')", [], |r| r.get(0))?;
-        if !cached { return Ok(vec![]); }
         let mut stmt = inner.db.prepare("SELECT id,synced_at,before_words,after_words,added_words,added_word_list FROM sync_history ORDER BY id DESC LIMIT 50")?;
         let rows = stmt.query_map([], |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, String>(5)?))
@@ -352,19 +360,29 @@ pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<V
         if !(1..=100).contains(&session_id.chars().count()) {
             return Err(ApiError::bad("需要有效的 session_id"));
         }
-        if mode != "scheduled" && mode != "free" && mode != "difficult" {
+        if !["scheduled", "free", "difficult", "stale"].contains(&mode) {
             return Err(ApiError::bad("无效练习模式"));
         }
         let now = self.now();
         let mut guard = self.lock();
         let inner = &mut *guard;
         let words = pool_by_key(&inner.vocabulary)?;
-        if mode == "difficult" {
-            // This mode never issues review tickets or changes the stored schedule.
+        if mode == "difficult" || mode == "stale" {
+            // Review-only modes never issue tickets or change the stored schedule.
             let mut items: Vec<_> = words.iter().map(|(_, word)| word.data.clone()).collect();
             crate::stats::with_attempt_counts(&inner.db, &mut items)?;
-            items.retain(|word| word["total_attempts"].as_i64().unwrap() > word["correct_attempts"].as_i64().unwrap());
-            items.sort_by(crate::stats::word_order);
+            if mode == "difficult" {
+                items.retain(|word| word["total_attempts"].as_i64().unwrap() > word["correct_attempts"].as_i64().unwrap());
+                items.sort_by(crate::stats::word_order);
+            } else {
+                let mut stmt = inner.db.prepare("SELECT word_key,MAX(reviewed_at) FROM word_reviews GROUP BY word_key")?;
+                let last: HashMap<String, String> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+                items.retain_mut(|word| {
+                    let key = format!("word-atlas:{}", word["source_id"].as_str().unwrap_or_default().trim());
+                    last.get(&key).map(|at| word.insert("last_reviewed_at".into(), at.clone().into())).is_some()
+                });
+                items.sort_by(|a, b| a["last_reviewed_at"].as_str().cmp(&b["last_reviewed_at"].as_str()));
+            }
             items.truncate(limit.unwrap_or(FREE_PRACTICE_LIMIT).clamp(1, FREE_PRACTICE_LIMIT));
             let states = memory_rows(&inner.db)?;
             let summary = Self::plan(&inner.db, &words, &states, now)?.1;

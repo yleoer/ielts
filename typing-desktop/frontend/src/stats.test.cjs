@@ -69,16 +69,9 @@ test('statistics sync refreshes statistics in place after successful synchroniza
 
 test('sync shows environment server settings as read-only while allowing synchronization', async () => {
     const posts = [];
-    const app = harness(async url => ({ data: { data: url.endsWith('/settings/server')
-        ? { configured: true, url: 'https://env.example', has_token: true, editable: false }
-        : { history: [] } } }), {
-        axios: {
-            get: async url => ({ data: { data: url.endsWith('/settings/server')
-                ? { configured: true, url: 'https://env.example', has_token: true, editable: false }
-                : { history: [] } } }),
-            post: async url => { posts.push(url); return { data: { data: { history: [] } } }; }
-        }
-    });
+    const get = async url => ({ data: { data: url.endsWith('/settings/server')
+        ? { configured: true, url: 'https://env.example', has_token: true, editable: false } : { history: [] } } });
+    const app = harness(get, { axios: { get, post: async url => { posts.push(url); return { data: { data: { history: [] } } }; } } });
     app.afterSync = async () => {};
     await app.openSyncModal();
     assert.equal(app.serverSettings.url, 'https://env.example');

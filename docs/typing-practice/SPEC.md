@@ -64,8 +64,8 @@
 
 作答日志保存在 `STATS_DB_PATH`（沿用旧统计库路径）。首次启动时，若同一数据库中存在网页版的 `word_reviews` 表，按 `reviewed_at` 顺序一次性导入 `attempts`（`device_id` 为 `web`），并在 `ledger_migrations` 记录 `web-history-v1`；之后不再导入。旧网页版的表原样保留，不会删除。
 
-词库数据同样保存在 `STATS_DB_PATH`：`vocabulary_snapshot` 保存最新成功快照及检查时间，`anki_learned_words` 保存曾经发现过的已学 SourceId，`vocabulary_sync_history` 保存新增批次。启用新流程前的桌面历史不上传，首次获取服务器历史后替换本地历史缓存；作答与 FSRS 记录保留。
+词库数据同样保存在 `STATS_DB_PATH`：`vocabulary_snapshot` 保存最新成功快照及检查时间，`anki_learned_words` 保存曾经发现过的已学 SourceId，`vocabulary_sync_history` 保存新增批次。
 
-配置来自 `backend/config/config.yaml`、`typing-practice/.env` 和进程环境变量，环境变量优先；变量列表见 [typing-practice/README.md](../../typing-practice/README.md)。启动时先检查已有数据库，后台线程首次等待默认 60 秒、检查间隔默认 3600 秒。设置 `ANKI_SYNC_SOURCE_DIR` 与 `ANKI_SYNC_TARGET` 后，每次先复制最新数据库再检查；否则直接检查 `ANKI_DB_PATH`。部署时先升级服务器，再升级桌面端；新桌面端要求服务器提供历史字段，缺失时明确提示升级服务器。
+配置来自 `backend/config/config.yaml`、`typing-practice/.env` 和进程环境变量，环境变量优先；变量列表见 [typing-practice/README.md](../../typing-practice/README.md)。启动时先检查已有数据库，后台线程首次等待默认 60 秒、检查间隔默认 3600 秒。设置 `ANKI_SYNC_SOURCE_DIR` 与 `ANKI_SYNC_TARGET` 后，每次先复制最新数据库再检查；否则直接检查 `ANKI_DB_PATH`。部署时先升级服务器，再升级桌面端。
 
 Python 单元测试在本机按改动范围运行，镜像冒烟检查统一在 SSH 测试机 `typetest` 运行；GitHub Actions 只负责构建、发布和部署。详见 [测试范围](TESTING.md)、[镜像验证](IMAGE-CHECK.md)、[部署](DOCKER-DEPLOY.md)。

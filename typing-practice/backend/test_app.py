@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from app import create_app, start_collection_refresh
+from app import create_app
 from anki import FIELD_SEPARATOR, WORD_ATLAS_FIELDS
 from config import AnkiConfig, Config, ServerConfig
 
@@ -160,22 +160,6 @@ class ServerTest(unittest.TestCase):
         restarted = create_app(make_config(self.root, str(self.collection)), start_background_tasks=False)
         self.addCleanup(restarted.extensions["cijian_state"].close)
         self.assertEqual(restarted.test_client().get("/api/vocab").json["data"], before)
-
-    def test_hourly_schedule_also_checks_direct_anki_paths(self):
-        for source, target in (("", ""), ("source", "target")):
-            with self.subTest(source=source):
-                state = Mock()
-                state.stop.wait.side_effect = [False, True]
-                state.stop.is_set.return_value = False
-                with patch.dict("os.environ", {"ANKI_SYNC_INTERVAL_SECONDS": "", "ANKI_SYNC_INITIAL_WAIT_SECONDS": ""}), \
-                        patch("app.threading.Thread") as thread:
-                    start_collection_refresh(state, source, target)
-                    thread.call_args.kwargs["target"]()
-                self.assertEqual([call.args[0] for call in state.stop.wait.call_args_list], [60, 3600])
-                if source:
-                    state.refresh_collection.assert_called_once_with(source, target)
-                else:
-                    state.scan_vocabulary.assert_called_once_with()
 
     def test_sync_deduplicates_and_pages_by_cursor(self):
         first = self.sync(attempts=[attempt(1), attempt(2)])

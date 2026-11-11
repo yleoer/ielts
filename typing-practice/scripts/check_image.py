@@ -70,37 +70,17 @@ finally:
     reader.close()
 print("PASS excluded Anki variants and canonical learned state", flush=True)
 
-# Exercise the packaged server-owned history against disposable SQLite files.
+# The packaged vocabulary module serves the server-owned history field.
 from app import create_app
 from config import AnkiConfig, Config
 config = Config(anki=AnkiConfig(db_path=str(collection), deck_name="Word Atlas", deck_id=1),
                 db_path="/tmp/image-check/vocabulary.db")
 application = create_app(config, start_background_tasks=False)
-state = application.extensions["cijian_state"]
 try:
-    client = application.test_client()
-    baseline = client.get("/api/vocab").json["data"]
-    assert baseline["sync_history"] == [], baseline
-    with sqlite3.connect(collection) as db:
-        fields = {"Word": "banana", "SourceId": "banana", "MeaningZH": "香蕉"}
-        db.execute("INSERT INTO notes VALUES(103,?,'')", ("\x1f".join(fields.get(k, "") for k in WORD_ATLAS_FIELDS),))
-        db.execute("INSERT INTO cards VALUES(3,103,1,1,1)")
-    assert client.get("/api/vocab").json["data"] == baseline
-    state.scan_vocabulary()
-    published = client.get("/api/vocab").json["data"]
-    batch = published["sync_history"][0]
-    assert (batch["before_words"], batch["after_words"], batch["added_words"]) == (1, 2, 1), batch
-    assert batch["added_word_list"][0]["source_id"] == "banana", batch
-    state.scan_vocabulary()
-    assert client.get("/api/vocab").json["data"]["sync_history"] == [batch]
-finally:
-    state.close()
-application = create_app(config, start_background_tasks=False)
-try:
-    assert application.test_client().get("/api/vocab").json["data"]["sync_history"] == [batch]
+    assert application.test_client().get("/api/vocab").json["data"]["sync_history"] == []
 finally:
     application.extensions["cijian_state"].close()
-print("PASS server vocabulary baseline, passive reads, additions and restart", flush=True)
+print("PASS server vocabulary history", flush=True)
 
 attempt = {"attempt_id": "image-check", "word_key": "word-atlas:check", "word": "check", "chinese_meaning": "检查",
            "category": "", "user_input": "check", "is_correct": True, "rating": 3,

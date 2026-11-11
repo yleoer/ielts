@@ -32,11 +32,13 @@ const practiceApp = {
         remainingChineseSenses() { return this.currentChineseSenses.slice(3); },
         isMistakePractice() { return this.practiceMode === 'mistakes'; },
         isDifficultPractice() { return this.practiceMode === 'difficult'; },
-        isUntrackedPractice() { return this.isMistakePractice || this.isDifficultPractice; },
+        isStalePractice() { return this.practiceMode === 'stale'; },
+        isUntrackedPractice() { return this.isMistakePractice || this.isDifficultPractice || this.isStalePractice; },
         isFormalPractice() { return this.practiceMode === 'normal'; },
         titlebarNote() {
             if (this.isMistakePractice) return '错词重练 · 不计入记忆与统计';
             if (this.isDifficultPractice) return '难点突破 · 最多 20 个 · 不计入记忆与统计';
+            if (this.isStalePractice) return '久未练习 · 最多 20 个 · 不计入记忆与统计';
             if (!this.isFormalPractice) return '自由练习 · 最多 20 个 · 计入记忆与统计';
             return this.summary ? `待复习 ${this.summary.due_count} 个 · 今日可学 ${this.summary.new_available} 个` : '';
         },
@@ -120,7 +122,7 @@ const practiceApp = {
                     && (!buffered.summary.next_due || Date.parse(buffered.summary.next_due) > Date.now());
                 const data = fresh ? buffered : (await axios.get(`${this.apiBaseUrl}/practice/queue`, {
                     params: { session_id: this.sessionId, limit: this.isFormalPractice ? 3 : 20,
-                        mode: this.isFormalPractice ? 'scheduled' : this.isDifficultPractice ? 'difficult' : 'free' }, timeout: 15000
+                        mode: this.isFormalPractice ? 'scheduled' : this.practiceMode }, timeout: 15000
                 })).data.data;
                 this.summary = data.summary;
                 this.preloadIllustrations(data.items);
@@ -369,6 +371,7 @@ const practiceApp = {
         restartPractice() { this.fetchWords(); },
         startFreePractice() { this.fetchWords({ mode: 'free' }); },
         startDifficultPractice() { return this.fetchWords({ mode: 'difficult' }); },
+        startStalePractice() { return this.fetchWords({ mode: 'stale' }); },
         startMistakePractice() {
             const words = this.mistakePracticeWords.map(word => this.cloneWord(word));
             if (!words.length || this.pendingAttempt) return;

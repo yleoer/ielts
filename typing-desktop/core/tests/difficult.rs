@@ -1,4 +1,4 @@
-//! Difficult-word practice selects from history without issuing or recording reviews.
+//! Difficult and stale practice select from history without issuing or recording reviews.
 
 mod common;
 
@@ -58,5 +58,25 @@ fn no_error_history_returns_an_empty_batch_instead_of_unpracticed_or_correct_wor
     let data = env.data("/api/practice/queue?session_id=focus&mode=difficult");
     assert_eq!(data["items"], json!([]));
     assert_eq!(data["summary"]["total"], 2);
+    assert_eq!(env.fingerprint(), before);
+}
+
+#[test]
+fn stale_practice_orders_practiced_words_by_oldest_last_review_without_writes() {
+    let words: Vec<_> = ["old", "middle", "recent", "never"].iter().enumerate()
+        .map(|(i, name)| word(name, i as i64 + 1, true)).collect();
+    let env = Env::new(at(2026, 11, 11, 0, 0, 0), words);
+    env.review("middle", "middle");
+    env.review("old", "wrong");
+    env.review("recent", "recent");
+    env.advance(TimeDelta::days(3));
+    env.review("middle", "middle");
+    env.review("recent", "recent");
+    let before = env.fingerprint();
+    let data = env.data("/api/practice/queue?session_id=focus&mode=stale&limit=2");
+    assert_eq!(sources(&data), ["old", "middle"]);
+    assert!(data["items"][0]["last_reviewed_at"].as_str().unwrap() < data["items"][1]["last_reviewed_at"].as_str().unwrap());
+    assert!(data["items"][0].get("attempt_id").is_none());
+    assert_eq!(sources(&env.data("/api/practice/queue?session_id=focus&mode=stale")), ["old", "middle", "recent"]);
     assert_eq!(env.fingerprint(), before);
 }

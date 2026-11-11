@@ -34,7 +34,7 @@
 同步对象是**只追加的作答日志**，不是卡片状态。服务端实现在 `typing-practice/backend/ledger.py`，客户端在 `core/src/sync.rs`（本地合并）与 `core/src/remote.rs`（HTTP 与流程）。
 
 - **鉴权**：请求头 `Authorization: Bearer <令牌>`，令牌是服务端的 `ACCESS_TOKEN`（未设置时沿用旧的 `ACCESS_PASSWORD`，两者都为空则不鉴权）。`/api/health` 不需要令牌。
-- `GET /api/vocab`：完整词库快照 `{"format": 1, "generated_at", "last_anki_sync_at", "deck_name", "words", "sync_history"}`。服务器默认每小时检查 Anki，首次成功检查建立已有已学 SourceId 基线，之后持久化首次发现的新增批次。接口仅返回最近成功快照及最近 50 批，不因客户端请求而扫描 Anki。客户端在同一事务替换词库、历史缓存与检查时间，不自行计算新增词。旧本机历史在首次成功拉取后替换，在此之前不作为服务器历史展示；缺少历史字段时要求升级服务器。
+- `GET /api/vocab`：完整词库快照 `{"format": 1, "generated_at", "last_anki_sync_at", "deck_name", "words", "sync_history"}`。服务器默认每小时检查 Anki，首次成功检查建立已有已学 SourceId 基线，之后持久化首次发现的新增批次。接口仅返回最近成功快照及最近 50 批，不因客户端请求而扫描 Anki。客户端在同一事务替换词库、历史缓存与检查时间，不自行计算新增词；升级时一次性清空旧的本机历史表。
 - `POST /api/sync`：请求 `{"device_id", "cursor", "attempts"}`，每次最多上传 500 条；服务端以 `attempt_id` 去重（先到为准），返回游标之后最多 500 条日志 `{"accepted", "duplicates", "attempts", "next_cursor", "more"}`。游标是服务端行号，递增但可能不连续。
 - **作答字段**：`attempt_id`、`word_key`（`word-atlas:<SourceId>`）、`word`、`chinese_meaning`、`category`、`user_input`、`is_correct`、`rating`、`reviewed_at`（UTC 微秒 `Z`）、`duration_ms`、`first_input_ms`。评分在作答设备上确定，重放直接使用记录的评分。
 - **流程**（`remote::sync_all`）：先刷新词库；再循环“上传未确认的本地作答 + 取回游标后的日志”，直到没有待上传作答且 `more` 为假。网络请求不持有存储锁，练习不受影响；同一时间只允许一次同步。

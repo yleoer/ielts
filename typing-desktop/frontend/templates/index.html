@@ -85,8 +85,9 @@
                     </div>
                     <div v-else class="empty-state">
                         <svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#document"/></svg>
-                        <h2>{{ isDifficultPractice ? '暂无需要突破的单词' : summary && summary.total ? '当前复习已完成' : '暂无可练习单词' }}</h2>
+                        <h2>{{ isDifficultPractice ? '暂无需要突破的单词' : isStalePractice ? '暂无练习过的单词' : summary && summary.total ? '当前复习已完成' : '暂无可练习单词' }}</h2>
                         <p v-if="isDifficultPractice">当前词池还没有答错记录，可先进行正式或自由练习。</p>
+                        <p v-else-if="isStalePractice">当前词池还没有作答记录，可先进行正式或自由练习。</p>
                         <p v-else-if="nextDueText">下次复习：{{ nextDueText }}</p>
                         <p v-else-if="summary && summary.total">当前没有待复习或未开始的单词。</p>
                         <p v-else>先在 Anki 学习单词，再同步词库。</p>
@@ -94,6 +95,7 @@
                             <template v-if="summary && summary.total">
                                 <button type="button" class="button button-secondary" @click="startFreePractice">自由练习</button>
                                 <button v-if="!isDifficultPractice" type="button" class="button button-secondary" @click="startDifficultPractice">难点突破</button>
+                                <button v-if="!isStalePractice" type="button" class="button button-secondary" @click="startStalePractice">久未练习</button>
                             </template>
                             <button v-else type="button" class="button button-primary" @click="openSyncModal">同步 Anki</button>
                             <button type="button" class="button button-secondary" @click="fetchWords">检查待复习</button>
@@ -102,12 +104,12 @@
                 </section>
             </template>
             <section v-else class="results-sheet">
-                <div class="result-heading"><svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#check"/></svg><h2>{{ isPracticeAbandoned ? '已退出练习' : isMistakePractice ? '错词重练完成' : isDifficultPractice ? '难点突破完成' : practiceMode === 'free' ? '自由练习完成' : '本轮练习完成' }}</h2></div>
+                <div class="result-heading"><svg class="state-icon" aria-hidden="true"><use href="/assets/icons.svg#check"/></svg><h2>{{ isPracticeAbandoned ? '已退出练习' : isMistakePractice ? '错词重练完成' : isDifficultPractice ? '难点突破完成' : isStalePractice ? '久未练习完成' : practiceMode === 'free' ? '自由练习完成' : '本轮练习完成' }}</h2></div>
                 <p v-if="!isUntrackedPractice" class="result-save-status">{{ attemptedTotal }} 次作答已保存<span v-if="nextDueText"> · 下次复习 {{ nextDueText }}</span></p>
                 <p v-else class="result-save-status">本轮练习不计入记忆与统计</p>
                 <dl class="metrics-strip result-metrics"><div><dt>总题数</dt><dd>{{ attemptedTotal }}</dd></div><div><dt>正确</dt><dd>{{ stats.correct }}</dd></div><div><dt>错误</dt><dd>{{ stats.incorrect }}</dd></div><div><dt>正确率</dt><dd>{{ accuracy }}<small>%</small></dd></div></dl>
                 <div v-if="stats.errors.length" class="mistakes-section"><h3>错题回顾</h3><ul class="entry-list"><li v-for="(error, index) in stats.errors" :key="index"><div><strong class="mono"><button type="button" class="word-audio" :disabled="!hasWordAudio(error.wordData)" @click="playWord(error.wordData)">{{ error.word }}</button></strong><p class="muted">{{ error.meaning }}</p></div><del class="mono muted">{{ error.user_input }}</del></li></ul></div>
-                <div class="button-row"><button v-if="mistakePracticeWords.length" type="button" class="button button-secondary" @click="startMistakePractice">错词重练</button><button type="button" class="button button-secondary" @click="startFreePractice">自由练习</button><button type="button" class="button button-secondary" @click="startDifficultPractice">难点突破</button><button type="button" class="button button-primary" @click="restartPractice">继续计划<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button></div>
+                <div class="button-row"><button v-if="mistakePracticeWords.length" type="button" class="button button-secondary" @click="startMistakePractice">错词重练</button><button type="button" class="button button-secondary" @click="startFreePractice">自由练习</button><button type="button" class="button button-secondary" @click="startDifficultPractice">难点突破</button><button type="button" class="button button-secondary" @click="startStalePractice">久未练习</button><button type="button" class="button button-primary" @click="restartPractice">继续计划<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#arrow"/></svg></button></div>
             </section>
             </div>
         </main>

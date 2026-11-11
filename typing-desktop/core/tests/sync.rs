@@ -206,44 +206,32 @@ fn devices_cache_the_same_server_batches_despite_different_local_vocabulary_and_
     assert_eq!(status["last_anki_sync_at"], "2026-10-01T07:00:00.000000Z");
     assert_ne!(status["last_sync_at"], status["last_anki_sync_at"]);
     assert_eq!(b.reopen().sync_history().unwrap(), vec![batch()], "offline restart keeps the cache");
-    remote.words.lock().unwrap()[1]["id"] = 999.into();
-    sync_all(a.store(), remote.as_ref()).unwrap();
-    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
     *remote.offline.lock().unwrap() = true;
     assert!(sync_all(a.store(), remote.as_ref()).is_err());
     assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
-}
-
-#[test]
-fn first_server_history_replaces_legacy_rows_without_touching_answers() {
-    let remote = server(500);
-    let a = device();
-    a.review("apple", "apple");
-    a.db().execute("INSERT INTO sync_history VALUES(99,'2026-11-03T05:44:49Z',0,105,105,'旧记录','[]')", []).unwrap();
-    assert!(a.store().sync_history().unwrap().is_empty(), "legacy history is not presented as server history");
-    *remote.history.lock().unwrap() = vec![batch()];
-    sync_all(a.store(), remote.as_ref()).unwrap();
-    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
-    assert_eq!(log_ids(&a).len(), 1);
-    sync_all(a.store(), remote.as_ref()).unwrap();
-    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
+    *remote.offline.lock().unwrap() = false;
     remote.history.lock().unwrap().clear();
     sync_all(a.store(), remote.as_ref()).unwrap();
     assert!(a.store().sync_history().unwrap().is_empty(), "an empty server history also replaces the cache");
 }
 
 #[test]
-fn a_server_without_history_requires_upgrade_and_keeps_the_cache() {
-    let remote = server(500);
+fn upgrade_drops_device_generated_history_once_without_touching_answers() {
     let a = device();
+    a.review("apple", "apple");
+    let db = a.db();
+    db.execute_batch("DROP TABLE sync_history;
+        CREATE TABLE sync_history(id INTEGER PRIMARY KEY AUTOINCREMENT,synced_at TEXT,before_words INTEGER,after_words INTEGER,
+                                  added_words INTEGER,message TEXT,added_word_list TEXT);
+        INSERT INTO sync_history VALUES(99,'2026-11-03T05:44:49Z',0,105,105,'旧记录','[]');
+        DELETE FROM schema_migrations WHERE name='server-sync-history';").unwrap();
+    assert!(a.reopen().sync_history().unwrap().is_empty());
+    assert_eq!(log_ids(&a).len(), 1);
+    let remote = server(500);
     *remote.history.lock().unwrap() = vec![batch()];
-    sync_all(a.store(), remote.as_ref()).unwrap();
-    let mut snapshot = remote.vocab().unwrap();
-    snapshot["words"] = json!([word("cherry", 3, true)]);
-    snapshot.as_object_mut().unwrap().remove("sync_history");
-    assert!(a.store().import_server_vocabulary(&snapshot).unwrap_err().to_string().contains("请先升级服务器"));
-    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
-    assert_eq!(a.store().learned_count(), 2);
+    let store = a.reopen();
+    sync_all(&store, remote.as_ref()).unwrap();
+    assert_eq!(a.reopen().sync_history().unwrap(), vec![batch()], "later opens keep server history");
 }
 
 #[test]

@@ -568,25 +568,25 @@ for (const count of [3, 20]) {
     });
 }
 
-test('difficult practice completes its selected batch without submitting answers', async () => {
+for (const [mode, label] of [['difficult', '难点突破'], ['stale', '久未练习']]) test(`${mode} practice completes its selected batch without submitting answers`, async () => {
     const count = 3;
     const h = harness();
-    h.context.confirm = () => { throw new Error('difficult practice must not ask for confirmation'); };
+    h.context.confirm = () => { throw new Error('review-only practice must not ask for confirmation'); };
     let queues = 0;
     h.context.axios.get = async (url, { params } = {}) => {
         if (url.endsWith('/memory/summary')) return { data: { data: { total: 125 } } };
         queues++;
-        assert.equal(params.mode, 'difficult');
+        assert.equal(params.mode, mode);
         assert.equal(params.limit, 20);
         return { data: { data: {
             items: Array.from({ length: count }, (_, index) => ({ word: 'apple', source_id: `apple-${index}` })),
             summary: { total: 125 }
         } } };
     };
-    await h.app.startDifficultPractice();
-    assert.equal(h.app.isDifficultPractice, true);
+    await (mode === 'stale' ? h.app.startStalePractice() : h.app.startDifficultPractice());
+    assert.equal(h.app.practiceMode, mode);
     assert.equal(h.app.isUntrackedPractice, true);
-    assert.match(h.app.titlebarNote, /难点突破.*不计入记忆与统计/);
+    assert.match(h.app.titlebarNote, new RegExp(`${label}.*不计入记忆与统计`));
     assert.equal(h.app.progressTotal, count);
     for (let index = 0; index < count; index++) {
         await h.app.submitInput('apple');
@@ -618,22 +618,6 @@ test('difficult practice restores a wrong answer for correction without writing 
     assert.equal(restored.stats.correct, 0);
     assert.equal(h.requests.length, 0);
     assert.equal(restored.pendingAttempt, null);
-});
-
-test('difficult practice with no error history stays empty instead of requesting random words', async () => {
-    const h = harness();
-    let queues = 0;
-    h.context.axios.get = async (url, { params }) => {
-        queues++;
-        assert.equal(params.mode, 'difficult');
-        return { data: { data: { items: [], summary: { total: 3 } } } };
-    };
-    await h.app.startDifficultPractice();
-    assert.equal(h.app.isDifficultPractice, true);
-    assert.equal(h.app.currentWord, null);
-    assert.equal(h.app.attemptedTotal, 0);
-    assert.equal(h.requests.length, 0);
-    assert.equal(queues, 1);
 });
 
 test('a free practice conflict skips the stale word without fetching another batch', async () => {
@@ -933,24 +917,7 @@ test('server validation cannot be dismissed or submitted twice while it is runni
     assert.equal(h.app.syncModal.visible, false);
 });
 
-test('server details expand on demand and cancelling restores the configured address without saving', async () => {
-    const h = harness();
-    const calls = serverStub(h, { configured: true });
-    await h.app.openSyncModal();
-    assert.equal(h.app.serverSettings.editing, false);
-    h.app.editServerSettings();
-    assert.equal(h.app.serverSettings.editing, true);
-    h.app.serverSettings.url = 'https://discard.example.com';
-    h.app.serverSettings.token = 'discard-token';
-    h.app.cancelServerEdit();
-    assert.equal(h.app.serverSettings.editing, false);
-    assert.equal(h.app.serverSettings.url, 'https://sync.example.com');
-    assert.equal(h.app.serverSettings.savedUrl, 'https://sync.example.com');
-    assert.equal(h.app.serverSettings.token, '');
-    assert.equal(calls.some(call => call[0] === 'post'), false);
-});
-
-test('a rejected server change stays editable until cancelled and keeps the configured address', async () => {
+test('a rejected server change stays editable and cancelling restores the configured address', async () => {
     const h = harness();
     const calls = serverStub(h, { configured: true, saveError: '访问令牌无效' });
     await h.app.openSyncModal();
@@ -966,6 +933,8 @@ test('a rejected server change stays editable until cancelled and keeps the conf
     assert.equal(h.app.serverSettings.saving, false);
     assert.equal(calls.some(call => call[1]?.endsWith('/sync/now')), false);
     h.app.cancelServerEdit();
+    assert.equal(h.app.serverSettings.editing, false);
     assert.equal(h.app.serverSettings.error, '');
+    assert.equal(h.app.serverSettings.token, '');
     assert.equal(h.app.serverSettings.url, 'https://sync.example.com');
 });
