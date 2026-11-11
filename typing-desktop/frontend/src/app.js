@@ -31,9 +31,12 @@ const practiceApp = {
         secondaryChineseSenses() { return this.currentChineseSenses.slice(1, 3); },
         remainingChineseSenses() { return this.currentChineseSenses.slice(3); },
         isMistakePractice() { return this.practiceMode === 'mistakes'; },
+        isDifficultPractice() { return this.practiceMode === 'difficult'; },
+        isUntrackedPractice() { return this.isMistakePractice || this.isDifficultPractice; },
         isFormalPractice() { return this.practiceMode === 'normal'; },
         titlebarNote() {
             if (this.isMistakePractice) return '错词重练 · 不计入记忆与统计';
+            if (this.isDifficultPractice) return '难点突破 · 最多 20 个 · 不计入记忆与统计';
             if (!this.isFormalPractice) return '自由练习 · 最多 20 个 · 计入记忆与统计';
             return this.summary ? `待复习 ${this.summary.due_count} 个 · 今日可学 ${this.summary.new_available} 个` : '';
         },
@@ -116,7 +119,8 @@ const practiceApp = {
                 const fresh = buffered && Date.now() - this.nextQueueReceivedAt < 5000
                     && (!buffered.summary.next_due || Date.parse(buffered.summary.next_due) > Date.now());
                 const data = fresh ? buffered : (await axios.get(`${this.apiBaseUrl}/practice/queue`, {
-                    params: { session_id: this.sessionId, limit: this.isFormalPractice ? 3 : 20, mode: this.isFormalPractice ? 'scheduled' : 'free' }, timeout: 15000
+                    params: { session_id: this.sessionId, limit: this.isFormalPractice ? 3 : 20,
+                        mode: this.isFormalPractice ? 'scheduled' : this.isDifficultPractice ? 'difficult' : 'free' }, timeout: 15000
                 })).data.data;
                 this.summary = data.summary;
                 this.preloadIllustrations(data.items);
@@ -210,7 +214,7 @@ const practiceApp = {
         async submitInput(input) {
             if (!this.currentWord || this.pendingAttempt || this.isChecking || this.answerAccepted || this.showAnswer) return;
             this.pauseClock();
-            if (this.isMistakePractice) {
+            if (this.isUntrackedPractice) {
                 this.acceptAnswer({ is_correct: Boolean(input) && this.answerCandidates(this.currentWord.word).includes(this.normalizeAnswer(input)), duration_ms: this.elapsedMs }, input);
                 return;
             }
@@ -364,6 +368,7 @@ const practiceApp = {
         },
         restartPractice() { this.fetchWords(); },
         startFreePractice() { this.fetchWords({ mode: 'free' }); },
+        startDifficultPractice() { return this.fetchWords({ mode: 'difficult' }); },
         startMistakePractice() {
             const words = this.mistakePracticeWords.map(word => this.cloneWord(word));
             if (!words.length || this.pendingAttempt) return;
@@ -380,7 +385,8 @@ const practiceApp = {
         },
         quitPractice() {
             if (this.pendingAttempt) { this.submitError = '请先重试保存或处理失效题目，再退出练习。'; return; }
-            if (confirm('确定要退出练习吗？已保存的作答会保留。')) this.finishPractice({ abandoned: true });
+            const message = this.isUntrackedPractice ? '确定要退出练习吗？本轮练习不计入记忆与统计。' : '确定要退出练习吗？已保存的作答会保留。';
+            if (confirm(message)) this.finishPractice({ abandoned: true });
         },
         focusInput() { this.$nextTick(() => this.$refs.inputField?.focus()); },
         scheduleDraftSave() {

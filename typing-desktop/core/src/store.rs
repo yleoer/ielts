@@ -352,13 +352,24 @@ pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<V
         if !(1..=100).contains(&session_id.chars().count()) {
             return Err(ApiError::bad("需要有效的 session_id"));
         }
-        if mode != "scheduled" && mode != "free" {
+        if mode != "scheduled" && mode != "free" && mode != "difficult" {
             return Err(ApiError::bad("无效练习模式"));
         }
         let now = self.now();
         let mut guard = self.lock();
         let inner = &mut *guard;
         let words = pool_by_key(&inner.vocabulary)?;
+        if mode == "difficult" {
+            // This mode never issues review tickets or changes the stored schedule.
+            let mut items: Vec<_> = words.iter().map(|(_, word)| word.data.clone()).collect();
+            crate::stats::with_attempt_counts(&inner.db, &mut items)?;
+            items.retain(|word| word["total_attempts"].as_i64().unwrap() > word["correct_attempts"].as_i64().unwrap());
+            items.sort_by(crate::stats::word_order);
+            items.truncate(limit.unwrap_or(FREE_PRACTICE_LIMIT).clamp(1, FREE_PRACTICE_LIMIT));
+            let states = memory_rows(&inner.db)?;
+            let summary = Self::plan(&inner.db, &words, &states, now)?.1;
+            return Ok(json!({"items": items, "summary": summary, "server_time": time_text(now)}));
+        }
         let tx = inner.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let states = memory_rows(&tx)?;
         let (mut keys, summary) = Self::plan(&tx, &words, &states, now)?;

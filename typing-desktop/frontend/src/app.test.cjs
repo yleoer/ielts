@@ -212,7 +212,7 @@ test('first-run local import preserves the server form and uploads in chunks', a
     ]);
 });
 
-for (const mode of ['normal', 'free', 'mistakes']) {
+for (const mode of ['normal', 'free', 'mistakes', 'difficult']) {
     test(`exiting ${mode} practice preserves saved answers without submitting the unfinished word`, () => {
         const h = harness();
         h.context.confirm = () => true;
@@ -583,6 +583,74 @@ for (const count of [3, 20]) {
         assert.equal(queueRequests, 1);
     });
 }
+
+for (const count of [3, 20]) {
+    test(`difficult practice completes its ${count} selected words without submitting answers`, async () => {
+        const h = harness();
+        let queues = 0;
+        h.context.axios.get = async (url, { params } = {}) => {
+            if (url.endsWith('/memory/summary')) return { data: { data: { total: 125 } } };
+            queues++;
+            assert.equal(params.mode, 'difficult');
+            assert.equal(params.limit, 20);
+            return { data: { data: {
+                items: Array.from({ length: count }, (_, index) => ({ word: 'apple', source_id: `apple-${index}` })),
+                summary: { total: 125 }
+            } } };
+        };
+        await h.app.startDifficultPractice();
+        assert.equal(h.app.isDifficultPractice, true);
+        assert.equal(h.app.isUntrackedPractice, true);
+        assert.match(h.app.titlebarNote, /难点突破.*不计入记忆与统计/);
+        assert.equal(h.app.progressTotal, count);
+        for (let index = 0; index < count; index++) {
+            await h.app.submitInput('apple');
+            await h.app.nextWord();
+        }
+        assert.equal(h.app.isFinished, true);
+        assert.equal(h.app.attemptedTotal, count);
+        assert.equal(h.app.pendingAttempt, null);
+        assert.equal(h.requests.length, 0);
+        assert.equal(queues, 1);
+        assert.equal(Object.keys(h.localStorage).some(key => key.startsWith('typingPracticePending:')), false);
+    });
+}
+
+test('difficult practice restores a wrong answer for correction without writing an outbox', async () => {
+    const h = harness();
+    h.app.practiceMode = 'difficult';
+    h.app.words.push({ word: 'book', source_id: 'book' });
+    await h.app.submitInput('aple');
+    assert.equal(h.app.showAnswer, true);
+    assert.equal(h.app.stats.incorrect, 1);
+    const restored = h.mount();
+    await restored.restoreDraftSession();
+    assert.equal(restored.isDifficultPractice, true);
+    assert.equal(restored.showAnswer, true);
+    restored.userInput = 'apple';
+    restored.handleEnter({ preventDefault() {} });
+    assert.equal(restored.currentWord.word, 'book');
+    assert.equal(restored.stats.incorrect, 1);
+    assert.equal(restored.stats.correct, 0);
+    assert.equal(h.requests.length, 0);
+    assert.equal(restored.pendingAttempt, null);
+});
+
+test('difficult practice with no error history stays empty instead of requesting random words', async () => {
+    const h = harness();
+    let queues = 0;
+    h.context.axios.get = async (url, { params }) => {
+        queues++;
+        assert.equal(params.mode, 'difficult');
+        return { data: { data: { items: [], summary: { total: 3 } } } };
+    };
+    await h.app.startDifficultPractice();
+    assert.equal(h.app.isDifficultPractice, true);
+    assert.equal(h.app.currentWord, null);
+    assert.equal(h.app.attemptedTotal, 0);
+    assert.equal(h.requests.length, 0);
+    assert.equal(queues, 1);
+});
 
 test('a free practice conflict skips the stale word without fetching another batch', async () => {
     const h = harness();
