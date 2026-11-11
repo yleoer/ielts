@@ -368,17 +368,16 @@ impl App {
     }
 
     fn sync_status(&self, last: Option<Value>) -> ApiResult<Value> {
-        let mut status = last.unwrap_or_else(|| json!({
-            "before_words": 0, "after_words": self.store.learned_count(), "added_words": 0,
-            "added_word_list": [], "success": false,
-        }));
+        let mut status = last.unwrap_or_else(|| json!({"success": false}));
         let remote = self.remote();
         status["sync_configured"] = remote.is_some().into();
         status["target_path"] = remote.map(|r| r.label()).into();
-        status["history"] = self.store.sync_history()?.into();
-        if status.get("last_sync_at").is_none() {
-            status["last_sync_at"] = self.store.last_sync_at()?.into();
-        }
+        let history = self.store.sync_history()?;
+        status["added_words"] = history.first().map_or(json!(0), |batch| batch["added_words"].clone());
+        status["after_words"] = self.store.learned_count().into();
+        status["history"] = history.into();
+        status["last_sync_at"] = self.store.last_sync_at()?.into();
+        status["last_anki_sync_at"] = self.store.last_anki_sync_at()?.into();
         Ok(status)
     }
 

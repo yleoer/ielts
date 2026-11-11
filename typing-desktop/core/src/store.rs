@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use chrono::{FixedOffset, TimeDelta};
 use rand::seq::SliceRandom;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
@@ -93,6 +94,22 @@ CREATE TABLE IF NOT EXISTS sync_history (
 "#;
 
 pub type Clock = Box<dyn Fn() -> Time + Send + Sync>;
+
+#[derive(Deserialize)]
+struct VocabularySync {
+    last_anki_sync_at: String,
+    sync_history: Vec<VocabularyBatch>,
+}
+
+#[derive(Deserialize)]
+struct VocabularyBatch {
+    id: i64,
+    synced_at: String,
+    before_words: usize,
+    after_words: usize,
+    added_words: usize,
+    added_word_list: Vec<Value>,
+}
 
 pub fn shanghai() -> FixedOffset {
     FixedOffset::east_opt(8 * 3600).unwrap()
@@ -235,14 +252,21 @@ impl Store {
         self.lock().vocabulary.iter().find(|w| w.note_id == note_id).map(|w| w.source_id.clone())
     }
 
-    /// Replaces the vocabulary and records a sync history row, like `AppState.sync_now`.
-    pub fn import_vocabulary(&self, words: Vec<Word>) -> ApiResult<Value> {
+    /// Replaces a vocabulary without inventing history from a device's local changes.
+    pub fn import_vocabulary(&self, words: Vec<Word>) -> ApiResult<()> {
+        self.replace_vocabulary(words, None)
+    }
+
+    /// Vocabulary and server-owned history are cached in the same transaction.
+    pub fn import_server_vocabulary(&self, snapshot: &Value) -> ApiResult<()> {
+        let sync: VocabularySync = serde_json::from_value(snapshot.clone())
+            .map_err(|_| ApiError::bad("同步服务器缺少有效的词库历史，请先升级服务器"))?;
+        self.replace_vocabulary(crate::vocab::parse_snapshot(snapshot)?, Some(sync))
+    }
+
+    fn replace_vocabulary(&self, words: Vec<Word>, sync: Option<VocabularySync>) -> ApiResult<()> {
         pool_by_key(&words)?;
-        let now = time_text(self.now());
         let mut inner = self.lock();
-        let before: std::collections::HashSet<i64> = inner.vocabulary.iter().filter(|w| w.learned).map(|w| w.note_id).collect();
-        let added: Vec<Value> = words.iter().filter(|w| w.learned && !before.contains(&w.note_id)).map(|w| Value::Object(w.data.clone())).collect();
-        let after = words.iter().filter(|w| w.learned).count();
         let tx = inner.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM vocabulary", [])?;
         for w in &words {
@@ -250,32 +274,34 @@ impl Store {
                 w.note_id, w.source_id, w.learned, w.illustration_file, Value::Object(w.data.clone()).to_string()
             ])?;
         }
-        if !added.is_empty() {
-            let brief: Vec<Value> = added.iter().map(|w| json!({
-                "id": w["id"], "word": w["word"], "chinese_meaning": w["chinese_meaning"], "category": w["category"],
-            })).collect();
-            tx.execute("INSERT INTO sync_history(synced_at,before_words,after_words,added_words,message,added_word_list) VALUES(?,?,?,?,?,?)",
-                params![now, before.len(), after, added.len(), "词库已更新", Value::Array(brief).to_string()])?;
+        if let Some(sync) = sync {
+            tx.execute("DELETE FROM sync_history", [])?;
+            for batch in sync.sync_history {
+                tx.execute("INSERT INTO sync_history(id,synced_at,before_words,after_words,added_words,message,added_word_list) VALUES(?,?,?,?,?,?,?)",
+                    params![batch.id, batch.synced_at, batch.before_words as i64, batch.after_words as i64,
+                            batch.added_words as i64, "Anki 新增已学词", Value::Array(batch.added_word_list).to_string()])?;
+            }
+            tx.execute("INSERT INTO sync_state VALUES('last_anki_sync_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                       [sync.last_anki_sync_at])?;
         }
         tx.commit()?;
         inner.vocabulary = words;
-        Ok(json!({
-            "last_sync_at": now, "before_words": before.len(), "after_words": after,
-            "added_words": added.len(), "added_word_list": added, "success": true, "message": "词库已更新",
-        }))
+        Ok(())
     }
 
-    /// The 50 most recent vocabulary changes.
+    /// The 50 most recent server batches; legacy device-generated rows stay hidden.
     pub fn sync_history(&self) -> ApiResult<Vec<Value>> {
         let inner = self.lock();
-        let mut stmt = inner.db.prepare("SELECT synced_at,before_words,after_words,added_words,message,added_word_list FROM sync_history ORDER BY synced_at DESC,id DESC LIMIT 50")?;
+        let cached: bool = inner.db.query_row("SELECT EXISTS(SELECT 1 FROM sync_state WHERE key='last_anki_sync_at')", [], |r| r.get(0))?;
+        if !cached { return Ok(vec![]); }
+        let mut stmt = inner.db.prepare("SELECT id,synced_at,before_words,after_words,added_words,added_word_list FROM sync_history ORDER BY id DESC LIMIT 50")?;
         let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?))
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, String>(5)?))
         })?;
         rows.map(|row| {
-            let (synced_at, before, after, added, message, list) = row?;
-            Ok(json!({"synced_at": synced_at, "before_words": before, "after_words": after, "added_words": added,
-                      "success": true, "message": message, "added_word_list": serde_json::from_str::<Value>(&list)?}))
+            let (id, synced_at, before, after, added, list) = row?;
+            Ok(json!({"id": id, "synced_at": synced_at, "before_words": before, "after_words": after, "added_words": added,
+                      "added_word_list": serde_json::from_str::<Value>(&list)?}))
         }).collect()
     }
 

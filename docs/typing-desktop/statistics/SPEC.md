@@ -6,7 +6,7 @@
 
 word_reviews 保存正式练习和自由练习首次作答的追加日志，包含作答 ID、会话 ID、稳定词条标识、答案、评分、有效耗时、首次输入时间、答案长度、实际作答时间、接收时间、前后卡片状态与配置版本。word_memory 保存当前 FSRS 卡片状态；srs_configs 保存历史调度配置；practice_items 保存带版本和模式的题目，有效期 7 天。
 
-vocabulary 保存最近一次导入的完整词库快照（含 learned 与插图文件名），sync_history 记录词库导入与新增词；sync_state 保存设备 ID、服务端游标与上次同步时间，synced_attempts 记录服务端已有的作答（`core/src/sync.rs`）。其他设备和网页版历史（设备 `web`）的作答经同步写入 word_reviews 后重放得到 word_memory。
+vocabulary 保存最近一次获取的完整词库快照（含 learned 与插图文件名），sync_history 缓存服务器记录的最近 50 批新增已学词历史，不根据本机导入计算新增；sync_state 保存设备 ID、服务端游标、本机上次同步时间及 last_anki_sync_at，synced_attempts 记录服务端已有的作答（`core/src/sync.rs`）。服务器默认每小时检查 Anki，首次成功检查只建立基线。其他设备和网页版历史（设备 `web`）的作答经同步写入 word_reviews 后重放得到 word_memory。
 
 ## 汇总口径
 

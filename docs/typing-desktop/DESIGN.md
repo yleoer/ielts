@@ -7,7 +7,7 @@
 | 部分 | 位置 | 职责 |
 | --- | --- | --- |
 | 桌面端 | `typing-desktop/`（Tauri 2，Rust 后端 + 现有 Vue 页面） | 判题、FSRS 调度与参数优化、统计查询、本地 SQLite、本地资源包中的插图与音频 |
-| 服务端 | `typing-practice/backend`（最小 Python 同步服务） | 从 anki-sync-server 复制并读取 `collection.anki2`，提供词库快照；保存只追加的作答日志；访问令牌 |
+| 服务端 | `typing-practice/backend`（最小 Python 同步服务） | 默认每小时从 anki-sync-server 复制并检查 `collection.anki2`，提供词库快照与统一新增词历史；保存只追加的作答日志；访问令牌 |
 
 服务端不再运行 FSRS、不提供页面和媒体，运行依赖为 Flask、Waitress、PyYAML、python-dotenv，通过 Waitress 提供生产 WSGI 服务。网页版已下线。
 
@@ -25,7 +25,7 @@
 - **对照基准**：`typing-desktop/scripts/gen_fsrs_fixtures.py` 用 py-fsrs 生成 `typing-desktop/fixtures/fsrs-golden.json`（关闭 fuzz，300 条随机复习序列共 2258 次复习、评分边界、答案归一化）。`core/tests/golden.rs` 逐条比对 state、step、due、last_review，以及 stability、difficulty、回忆概率（相对误差 ≤ 1e-9），当前全部通过。修改评分或调度规则时同时改 `srs_reference.py` 与 Rust 实现，并重新生成。
 - **fuzz**：取 SHA-256(`attempt_id`) 前 53 位作为 `[0, 1)` 随机数，重放同一日志得到相同计划；fuzz 区间算法与 py-fsrs 相同，不在基准中比对。
 - **统计**：`core/src/stats.rs` 移植 `stats.py`、`activity.py`、`vocabulary.py` 及 `memory.py` 的日历与词库查询：概览与连续天数、近 30 天、学习日历（前 6 个月至后 5 个月，北京时间）、日历单日词表、词库进度与分组明细、单词错误记录，均为只读查询，路径、参数校验与 JSON 与 Flask 一致。
-- **存储**：`core/src/store.rs` 移植 `memory.py` 的出题、提交与汇总，本地 SQLite 沿用 `srs_configs`、`word_memory`、`practice_items`、`word_reviews` 结构，另有 `vocabulary`（词库快照）、`sync_history`（新增词记录）、`sync_state`（设备 ID、服务端游标、上次同步时间）与 `synced_attempts`（服务端已有的作答）。`practice_items` 只在本地使用，不同步。
+- **存储**：`core/src/store.rs` 移植 `memory.py` 的出题、提交与汇总，本地 SQLite 沿用 `srs_configs`、`word_memory`、`practice_items`、`word_reviews` 结构，另有 `vocabulary`（词库快照）、`sync_history`（服务器新增词历史缓存）、`sync_state`（设备 ID、服务端游标、本机上次同步时间及服务器上次检查 Anki 时间）与 `synced_attempts`（服务端已有的作答）。`practice_items` 只在本地使用，不同步。
 - **词库**：服务端 `GET /api/vocab` 返回 JSON 快照（全部词条 + `learned` + 插图文件名，`AnkiReader.snapshot()`）。桌面端必须连接服务器，没有离线导入词库的方式；已同步的词库和作答保存在本地，断网时照常练习。
 - **媒体**：个人自用，插图与英、美单词读音（不含例句朗读）单独分发为 `cijian-media.zip`。首次设置将服务器配置与可选的本地 ZIP 导入放在同一窗口，之后可在设置中更换；没有下载功能。`media.rs` 按 SourceId 直接读取 ZIP，`media_install.rs` 管理分块复制与切换；不逐文件校验 SHA，不做成员扫描、多实例锁、后台安装线程或旧散文件兼容。保留基本解析和失败保留原包，详见 [独立媒体资源包](MEDIA.md)。
 
@@ -34,7 +34,7 @@
 同步对象是**只追加的作答日志**，不是卡片状态。服务端实现在 `typing-practice/backend/ledger.py`，客户端在 `core/src/sync.rs`（本地合并）与 `core/src/remote.rs`（HTTP 与流程）。
 
 - **鉴权**：请求头 `Authorization: Bearer <令牌>`，令牌是服务端的 `ACCESS_TOKEN`（未设置时沿用旧的 `ACCESS_PASSWORD`，两者都为空则不鉴权）。`/api/health` 不需要令牌。
-- `GET /api/vocab`：完整词库快照 `{"format": 1, "generated_at", "deck_name", "words"}`。词库只有几千条，不做增量游标；客户端整体替换本地词库并记录新增词。
+- `GET /api/vocab`：完整词库快照 `{"format": 1, "generated_at", "last_anki_sync_at", "deck_name", "words", "sync_history"}`。服务器默认每小时检查 Anki，首次成功检查建立已有已学 SourceId 基线，之后持久化首次发现的新增批次。接口仅返回最近成功快照及最近 50 批，不因客户端请求而扫描 Anki。客户端在同一事务替换词库、历史缓存与检查时间，不自行计算新增词。旧本机历史在首次成功拉取后替换，在此之前不作为服务器历史展示；缺少历史字段时要求升级服务器。
 - `POST /api/sync`：请求 `{"device_id", "cursor", "attempts"}`，每次最多上传 500 条；服务端以 `attempt_id` 去重（先到为准），返回游标之后最多 500 条日志 `{"accepted", "duplicates", "attempts", "next_cursor", "more"}`。游标是服务端行号，递增但可能不连续。
 - **作答字段**：`attempt_id`、`word_key`（`word-atlas:<SourceId>`）、`word`、`chinese_meaning`、`category`、`user_input`、`is_correct`、`rating`、`reviewed_at`（UTC 微秒 `Z`）、`duration_ms`、`first_input_ms`。评分在作答设备上确定，重放直接使用记录的评分。
 - **流程**（`remote::sync_all`）：先刷新词库；再循环“上传未确认的本地作答 + 取回游标后的日志”，直到没有待上传作答且 `more` 为假。网络请求不持有存储锁，练习不受影响；同一时间只允许一次同步。

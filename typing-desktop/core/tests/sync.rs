@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 struct FakeServer {
     log: Mutex<Vec<Value>>,
     words: Mutex<Vec<Value>>,
+    history: Mutex<Vec<Value>>,
     page: usize,
     offline: Mutex<bool>,
     requests: Mutex<Vec<Value>>,
@@ -27,7 +28,8 @@ impl Remote for FakeServer {
         if *self.offline.lock().unwrap() {
             return Err("无法连接同步服务器".into());
         }
-        Ok(json!({"format": 1, "words": *self.words.lock().unwrap()}))
+        Ok(json!({"format": 1, "words": *self.words.lock().unwrap(),
+                  "last_anki_sync_at": "2026-10-01T07:00:00.000000Z", "sync_history": *self.history.lock().unwrap()}))
     }
 
     fn sync(&self, request: &Value) -> Result<Value, String> {
@@ -175,9 +177,76 @@ fn server_vocabulary_replaces_the_local_snapshot() {
     let remote = server(500);
     let a = device();
     remote.words.lock().unwrap().push(word("cherry", 3, true));
-    let status = sync_all(a.store(), remote.as_ref()).unwrap();
-    assert_eq!((status["added_words"].as_u64(), status["after_words"].as_u64()), (Some(1), Some(3)));
+    sync_all(a.store(), remote.as_ref()).unwrap();
+    let status = a.data("/api/sync/status");
+    assert_eq!((status["added_words"].as_u64(), status["after_words"].as_u64()), (Some(0), Some(3)));
+    assert_eq!(status["history"], json!([]), "the device never invents an initial batch");
     assert_eq!(a.store().summary().unwrap()["total"], 3);
+}
+
+fn batch() -> Value {
+    json!({"id": 7, "synced_at": "2026-09-30T23:00:00.000000Z", "before_words": 1, "after_words": 2,
+           "added_words": 1, "added_word_list": [{"id": 2, "source_id": "banana", "word": "banana",
+                                                  "chinese_meaning": "香蕉", "category": "食物"}]})
+}
+
+#[test]
+fn devices_cache_the_same_server_batches_despite_different_local_vocabulary_and_clocks() {
+    let remote = server(500);
+    *remote.history.lock().unwrap() = vec![batch()];
+    let (a, b) = (device(), device());
+    b.import(vec![]);
+    b.advance(TimeDelta::days(10));
+    sync_all(a.store(), remote.as_ref()).unwrap();
+    sync_all(b.store(), remote.as_ref()).unwrap();
+    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
+    assert_eq!(b.store().sync_history().unwrap(), vec![batch()]);
+    let status = b.data("/api/sync/status");
+    assert_eq!(status["added_words"], 1, "opening status still shows the latest server batch");
+    assert_eq!(status["last_anki_sync_at"], "2026-10-01T07:00:00.000000Z");
+    assert_ne!(status["last_sync_at"], status["last_anki_sync_at"]);
+    assert_eq!(b.reopen().sync_history().unwrap(), vec![batch()], "offline restart keeps the cache");
+    remote.words.lock().unwrap()[1]["id"] = 999.into();
+    sync_all(a.store(), remote.as_ref()).unwrap();
+    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
+    *remote.offline.lock().unwrap() = true;
+    assert!(sync_all(a.store(), remote.as_ref()).is_err());
+    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
+}
+
+#[test]
+fn first_server_history_replaces_legacy_rows_without_touching_answers() {
+    let remote = server(500);
+    let a = device();
+    a.review("apple", "apple");
+    a.db().execute("INSERT INTO sync_history VALUES(99,'2026-11-03T05:44:49Z',0,105,105,'旧记录','[]')", []).unwrap();
+    assert!(a.store().sync_history().unwrap().is_empty(), "legacy history is not presented as server history");
+    *remote.history.lock().unwrap() = vec![batch()];
+    sync_all(a.store(), remote.as_ref()).unwrap();
+    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
+    assert_eq!(log_ids(&a).len(), 1);
+    sync_all(a.store(), remote.as_ref()).unwrap();
+    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
+    remote.history.lock().unwrap().clear();
+    sync_all(a.store(), remote.as_ref()).unwrap();
+    assert!(a.store().sync_history().unwrap().is_empty(), "an empty server history also replaces the cache");
+}
+
+#[test]
+fn invalid_history_does_not_partially_replace_the_cached_vocabulary() {
+    let remote = server(500);
+    let a = device();
+    *remote.history.lock().unwrap() = vec![batch()];
+    sync_all(a.store(), remote.as_ref()).unwrap();
+    let mut snapshot = remote.vocab().unwrap();
+    snapshot["words"] = json!([word("cherry", 3, true)]);
+    snapshot["sync_history"] = json!([batch(), batch()]);
+    assert!(a.store().import_server_vocabulary(&snapshot).is_err());
+    assert_eq!(a.store().sync_history().unwrap(), vec![batch()]);
+    assert_eq!(a.store().learned_count(), 2);
+    snapshot.as_object_mut().unwrap().remove("sync_history");
+    assert!(a.store().import_server_vocabulary(&snapshot).unwrap_err().to_string().contains("请先升级服务器"));
+    assert_eq!(a.store().learned_count(), 2);
 }
 
 #[test]
