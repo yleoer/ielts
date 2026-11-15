@@ -1,6 +1,6 @@
 # 词间前端
 
-页面源码位于 `typing-desktop/frontend`：`templates/` 的 index.html 与 stats.html 由 `typing-desktop/scripts/build_frontend.py` 渲染到 `typing-desktop/dist/`，编译时内嵌进桌面端。Vue 3 管理状态，Axios 请求 `location.origin + "/api"`，统计趋势使用 ECharts；三者来自 `typing-desktop/vendor/` 的固定版本，样式与图标为本地资源。请求经 `cijian://` 协议由 `typing-desktop/core/src/api.rs` 在本地处理，不访问远程服务。
+页面源码位于 `typing-desktop/frontend`：`templates/` 的 index.html 与 stats.html 由 `typing-desktop/scripts/build_frontend.py` 渲染到 `typing-desktop/dist/`，编译时内嵌进桌面端。Vue 3 管理状态，Axios 请求相对路径 `/api`（Linux 页面地址为 `cijian://localhost/`，Axios 会拒绝 `cijian:` 开头的绝对地址），统计趋势使用 ECharts；三者来自 `typing-desktop/vendor/` 的固定版本，样式与图标为本地资源。请求经 `cijian://` 协议由 `typing-desktop/core/src/api.rs` 在本地处理，不访问远程服务。
 
 ## 窗口布局与快捷键
 

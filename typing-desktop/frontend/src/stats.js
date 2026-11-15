@@ -34,7 +34,9 @@ createApp({
                 error: '',
                 items: []
             },
-            apiBaseUrl: `${window.location.origin}/api`
+            // Relative on purpose: axios rejects absolute URLs with the cijian: scheme used on Linux,
+            // while a relative path resolves to the page's own origin on every platform.
+            apiBaseUrl: '/api'
         };
     },
     computed: {

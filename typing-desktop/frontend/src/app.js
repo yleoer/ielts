@@ -20,7 +20,9 @@ const practiceApp = {
             clockStartedAt: null, elapsedMs: 0, firstInputMs: null,
             nextQueue: null, nextQueueReceivedAt: 0, feedbackStartedAt: null,
             stats: { correct: 0, incorrect: 0, errors: [], attempts: [] },
-            apiBaseUrl: `${window.location.origin}/api`
+            // Relative on purpose: axios rejects absolute URLs with the cijian: scheme used on Linux,
+            // while a relative path resolves to the page's own origin on every platform.
+            apiBaseUrl: '/api'
         };
     },
     computed: {
