@@ -27,7 +27,7 @@
 
 ## GitHub Actions
 
-`.github/workflows/windows-desktop.yml` 使用 Windows x64 runner 构建简体中文 NSIS 安装包。构建只需 Rust、Node、Python 和 Jinja2，不包含媒体资源，不运行独立测试任务；测试在本机完成。
+`.github/workflows/windows-desktop.yml` 使用 Windows x64 runner 构建简体中文 NSIS 安装包。构建只需 Rust、Node、Python 和 Jinja2，不包含媒体资源，不运行独立测试任务；测试在本机完成。安装器与卸载器固定使用简体中文（NSIS `SimpChinese`），图标复用程序的 `app/icons/icon.ico`，由 `app/tauri.conf.json` 的 `bundle.windows.nsis` 配置。
 
 | 触发方式 | 结果 |
 | --- | --- |
@@ -37,7 +37,7 @@
 
 桌面与现有 Docker 工作流独立。只有正式标签发布会更新应用的下载源；普通提交不会让已安装程序升级。失败构建留下的草稿不会成为公开更新。
 
-发布前先按 [桌面 README](../../typing-desktop/README.md#测试) 完成本轮相关测试。功能改动与版本号放在同一个分支、同一个 PR：最后一个提交只更新版本号和本文的“当前发布版本”。PR 的 Windows 构建通过后合并到 master，再对 master 的最新提交打标签触发发布：
+发布前先按 [桌面端测试](TESTING.md) 完成本轮相关测试，包括 Linux 上的真实窗口测试和 Windows 上的手工检查。功能改动与版本号放在同一个分支、同一个 PR：最后一个提交只更新版本号和本文的“当前发布版本”。PR 的 Windows 构建通过后合并到 master，再对 master 的最新提交打标签触发发布：
 
 ```powershell
 git switch master

@@ -69,13 +69,9 @@
 
 正式练习和自由练习的最终判分统一由 core 执行，不再计算错误分类；前端用相同答案规范检查错词重练和订正。完整复习历史保存在本地 SQLite，并通过同步服务器在设备间合并。
 
-前端行为测试（仓库根目录）：
+测试分层、命令与真实窗口检查见 [桌面端测试](TESTING.md)。
 
-```powershell
-node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs
-```
-
-修改模板或静态资源后重新执行 `build_frontend.py` 并在真实窗口中检查输入、提交、订正、恢复、错误，以及默认、窄（侧栏图标栏）和矮窗口的布局；core 用 `cargo test` 验证。视觉约束见根目录 PRODUCT.md / DESIGN.md。
+修改模板或静态资源后运行真实窗口测试 `python3 typing-desktop/e2e/run.py`（自动重新构建），默认、窄（侧栏图标栏）和矮窗口的布局另按 [桌面端测试](TESTING.md) 检查；core 用 `cargo test` 验证。视觉约束见根目录 PRODUCT.md / DESIGN.md。
 
 ## 服务器配置与资源设置
 

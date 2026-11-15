@@ -1,43 +1,75 @@
-# typing-desktop
+# 词间
 
-“词间”桌面端（Tauri 2 + Rust），开发中。设计见 [docs/typing-desktop/DESIGN.md](../docs/typing-desktop/DESIGN.md)。
+看中文释义和插图，拼出英文单词。词间是一个 Windows 桌面应用：按 FSRS 记忆模型安排复习，到点提醒；词库来自 Anki 的 Word Atlas 牌组，作答经自建的同步服务在公司和家里的电脑之间合并。
+
+![练习](../docs/typing-desktop/screenshots/practice.png)
+
+## 功能
+
+- **拼写练习**：中文释义和插图作提示，`Enter` 提交，输入框为空时按 `Space` 看答案；答错后订正拼写，再按 `Enter` 继续。
+- **自动评分**：不用手动打分。答错或看答案记为 Again，答对时按用时记为 Easy（6 秒内）、Good（6–20 秒）或 Hard（20 秒以上），交给 FSRS 安排下次复习。
+- **到点提醒**：练完显示本轮结果和错题，等待页显示下次复习时间与倒计时，到点出现“开始复习”。关闭窗口时收进托盘，托盘图标在到期前 10 分钟变橙、到期变红。
+- **额外练习**：自由练习（可提前复习）、难点突破（最易错的 20 个词）、久未练习（最久没练的 20 个词）、本轮错词重练。后三种不影响记忆和统计。
+- **学习统计**：连续学习天数、一年学习日历、最近 30 天作答量与正确率、CEFR 等级与话题进度，以及每个词的逐次答错记录。
+- **多台电脑轮流用**：作答先保存在本机，启动时和每 10 分钟与同步服务器合并，断网照常练习，联网后补传。
+- **插图与读音**：资源包单独导入，点击释义或单词依次播放英音、美音。
+- **自动优化**：累计 1,000 条有效复习后，后台每月评估一次 FSRS 参数，只在验证误差更低时启用。
+
+## 截图
+
+| 答错后订正 | 本轮结果 |
+| --- | --- |
+| ![订正](../docs/typing-desktop/screenshots/correction.png) | ![结果](../docs/typing-desktop/screenshots/results.png) |
+| **等待下次复习** | **学习统计** |
+| ![等待页](../docs/typing-desktop/screenshots/waiting.png) | ![统计](../docs/typing-desktop/screenshots/stats.png) |
+| **等级与话题进度** | **单词明细与答错记录** |
+| ![进度](../docs/typing-desktop/screenshots/stats-progress.png) | ![明细](../docs/typing-desktop/screenshots/stats-detail.png) |
+
+截图使用演示数据，由 [`e2e/screenshots.py`](e2e/screenshots.py) 生成：在 Linux 的 WebKitGTK 上渲染，字体与 Windows 略有不同，也没有导入插图资源包。
+
+## 安装与开始使用
+
+1. 从 GitHub Releases 下载 `Cijian_<版本>_x64-setup.exe`，安装到当前用户（Windows x64）。之后在“设置 → 软件更新”里检查并安装新版本。
+2. 部署同步服务，见 [typing-practice](../typing-practice/README.md)。首次启动时，在弹出的“同步”面板里填写服务器地址和访问令牌，点“连接并同步”。
+3. （可选）在“设置 → 插图与音频”导入 `cijian-media.zip`，资源包的生成见 [独立媒体资源包](../docs/typing-desktop/MEDIA.md)。没有资源包也能练习文字。
+4. （可选）在“设置 → 启动与窗口”里开启开机自启动，或把关闭窗口改为直接退出。
+
+### 快捷键
+
+| 按键 | 作用 |
+| --- | --- |
+| `Enter` | 提交答案；订正后继续；在结果页和等待页执行主按钮 |
+| `Space`（输入框为空） | 看答案 |
+| `Esc` | 退出练习；关闭弹窗 |
+| `Ctrl+1` / `Ctrl+2` | 切换到练习 / 统计 |
+| `Ctrl+B` | 折叠侧栏 |
+| `Ctrl+,` | 打开设置 |
+| `F5` / `Ctrl+R` | 重新读取当前页数据（不发起同步） |
+
+### 数据与同步
+
+- 数据保存在 `%APPDATA%\com.yleoer.cijian`：本地数据库、服务器设置和导入的资源包。
+- 正式作答答一题存一题。应用重启后直接接着出下一道到期题，只丢弃本轮统计和未答完的额外练习。
+- 设计上一次只在一台电脑上练习：作答日志合并后，按作答时间重放得到同一套复习计划。各电脑独立优化 FSRS 参数，暂不同步，见 [SRS 计划](../docs/typing-desktop/SRS-PLAN.md#待办多设备参数优化同步)。
+
+## 开发
 
 | 目录 | 内容 |
 | --- | --- |
-| `core/` | `cijian-core`：判题、FSRS、本地 SQLite（`store.rs`）、统计查询（`stats.rs`）、参数优化（`optimize.rs`）、作答日志同步（`sync.rs`、`remote.rs`）、与原 Flask 同路径同 JSON 的路由（`api.rs`） |
-| `frontend/` | Vue 页面模板、脚本与样式（由网页版迁入） |
-| `app/` | Tauri 2 壳：`cijian://` 协议转发到 `core`，页面来自内嵌的 `dist/` |
-| `vendor/` | 固定版本的 Vue 3.4.21、axios 1.6.7、ECharts 5.4.3 及许可证，替代 CDN |
-| `scripts/` | 前端打包、FSRS 基准生成（含参考实现 `srs_reference.py`）、CDP 调试脚本 |
+| `core/` | `cijian-core`：判题、FSRS、本地 SQLite（`store.rs`）、统计（`stats.rs`）、参数优化（`optimize.rs`）、作答日志同步（`sync.rs`、`remote.rs`）、页面接口（`api.rs`） |
+| `app/` | Tauri 2 壳：`cijian://` 协议转发到 `core`，页面来自编译时内嵌的 `dist/`；托盘、窗口与开机自启动 |
+| `frontend/` | Vue 页面模板、脚本、样式和前端测试 |
+| `e2e/` | 真实窗口测试与 README 截图脚本（Linux） |
+| `vendor/` | 固定版本的 Vue 3.4.21、axios 1.6.7、ECharts 5.4.3 及许可证 |
+| `scripts/` | 前端打包、版本号、FSRS 基准生成（含参考实现 `srs_reference.py`）、WebView2 调试脚本 |
 | `fixtures/` | py-fsrs 对照基准 |
-| `media/` | 独立分发的 `cijian-media.zip` （生成产物，不入 Git） |
 
-当前已实现练习页（正式/自由练习、提交、汇总、插图、同步弹窗）和统计页（概览、学习日历、近 30 天、词库进度与明细、错误记录、参数优化记录）。FSRS 参数优化在后台线程运行：启动时检查一次，此后每天一次，有效间隔复习满 1000 条后每月最多训练一次。
+### 构建与运行
 
-各练习模式的进度条右侧都有“退出练习”按钮，也可在输入框按 Esc。退出不确认，保留已保存作答，未答词不计错；保存失败时需先重试或处理失效题目。
-
-空队列与结果页在“自由练习”旁提供“难点突破”（最多 20 个历史错词，最易错优先）和“久未练习”（最多 20 个练过的词，最久没练优先）。两者不写入记忆、统计或同步日志，规则见 [选词说明](../docs/typing-desktop/WORD-SELECTION.md#难点突破与久未练习)。
-
-窗口隐藏系统标题栏，采用桌面应用布局：左侧边栏放练习、统计入口，底部为同步（显示上次同步时间）和设置；右侧为 48px 标题栏（页面名、当前状态、贴边的最小化／最大化／关闭按钮）和独立滚动的内容区。标题栏空白处可拖动、双击最大化／还原；窗口宽度不超过 960px 时侧栏收成图标栏，最小窗口 760×560。侧栏可用底部按钮或 `Ctrl+B` 折叠为图标栏，状态会被记住。快捷键：`Ctrl+1` / `Ctrl+2` 切换页面，`Ctrl+,` 打开设置，`F5` / `Ctrl+R` 刷新当前页数据（练习页重新获取到期队列，统计页重新读取统计；不弹出同步窗口或发起同步），`Esc` 关闭弹窗；不显示网页右键菜单。刷新保留本轮已保存的作答；待保存答案、订正反馈以及自由／错词练习批次保留，仅更新汇总。弹窗遮罩覆盖整个窗口，窗口按钮仍可操作。统计页同步成功后在原页刷新数据，复用已挂载的图表。同步和设置弹窗打开时仍可操作窗口按钮。当前各设备独立优化 FSRS，参数暂不同步，限制及后续方案见 [SRS 计划](../docs/typing-desktop/SRS-PLAN.md#待办多设备参数优化同步)。
-
-关闭主窗口默认收进系统托盘，后台同步继续运行；在“设置 → 启动与窗口 → 关闭窗口时”可改为“直接退出应用”，选择后自动保存，无需保存或重新验证同步服务器。偏好保存在数据目录的 `desktop.json`，仅在本机生效。单击托盘图标或右键“打开词间”恢复窗口，右键“退出”彻底退出。悬停图标显示距离下次复习的天／小时／分钟（不足一分钟单独提示）；已经到期则显示待复习数量，无复习计划时显示可学新词数或暂无计划。
-
-到期前 10 分钟，托盘图标由上向下逐渐填充赭橙色（`#f6ad43`）；到达复习时间或存在待复习词时，整枚图标切换为砖红色（`#d84c3e`），明确区分即将到期和已经到期。完成复习后按下一次到期时间恢复。仅有新词不触发变色，不闪烁或弹窗，也不改变窗口图标。原生线程每秒推进颜色和倒计时，正式队列汇总每 30 秒、鼠标移入及作答／同步后刷新，窗口隐藏时仍运行；到期颜色切换使用缓存中的到期时间，无需等待下一次汇总刷新。读取失败恢复原图标并提示暂时无法读取。
-
-收进托盘会保存练习草稿、停止读音并暂停计时，恢复后继续当前题目，隐藏期间不计入作答耗时。
-
-“设置 → 启动与窗口 → 开机自启动”可开启或关闭 Windows 登录后自动打开词间，默认关闭。勾选后立即生效，无需保存服务器设置；状态从系统启动项读取，仅影响当前 Windows 用户，不参与同步。读取失败可重试，保存失败会恢复原选项并提示重选。启动项写入当前用户注册表的 `Run` 项，指向当前程序路径，因此应在安装后的正式程序中开启。系统任务管理器中的禁用状态也会显示为关闭，重新勾选可启用。
-
-词库和作答日志通过同步服务器（`typing-practice/backend`）获取与合并。首次未配置时自动打开“同步”面板，直接填写服务器地址和访问令牌，点击“连接并同步”；保存前先校验连接，通过后写入数据目录的 `server.json` 并同步、加载练习。配置完成后只展示服务器地址，点击“修改”才展开地址和令牌输入框；“取消”恢复原配置，“保存并同步”成功后自动收起（令牌留空表示保留原值），仍停留在同步面板。设置窗口只管理启动与窗口、资源包和软件更新。之后启动时和每 10 分钟自动同步；离线时照常练习，联网后补传。
-
-同步历史由服务器每小时检查 Anki 后记录，桌面端只缓存最近 50 批，离线可看。首次检查只建立基线；时间是服务器发现时间。先升级服务器再升级桌面端；桌面端升级时清空旧的本机历史表，作答与 FSRS 记录不受影响。
-
-## 构建与运行
-
-需要 Rust 工具链、MSVC 生成工具和 Node.js（见设计文档“本机环境”）。在仓库根目录：
+需要 Rust 工具链、MSVC 生成工具和 Node.js（见设计文档的“本机环境”）。在仓库根目录：
 
 ```powershell
-# 1. 准备前端（需要 Jinja2，.venv 已带；不需要媒体源仓库）
+# 1. 准备前端（需要 Jinja2，.venv 已带）
 node typing-desktop\scripts\prepare.mjs
 
 # 2. 编译并启动
@@ -46,45 +78,9 @@ npm install
 cargo run -p cijian
 ```
 
-首次启动按提示填写服务器地址和令牌（本机开发可先运行服务端，见 [typing-practice/README.md](../typing-practice/README.md)）。前端模板或脚本修改后需重新执行 `build_frontend.py` 再编译，页面在编译时内嵌。
+页面在编译时内嵌，修改模板或脚本后要重新执行 `build_frontend.py` 再编译。`npm run tauri -- dev` / `build` 会自动准备前端；`build` 在 `target/release/bundle/nsis/` 生成 NSIS 安装包和更新签名，需要签名环境变量，发布流程见 [发布与更新](../docs/typing-desktop/RELEASING.md)。
 
-在 `typing-desktop` 目录运行 `npm run tauri -- dev` 或 `npm run tauri -- build` 时，Tauri 钩子只准备前端；`build` 生成 Windows NSIS 安装包和更新签名，位于 `target/release/bundle/nsis/`，需设置签名环境变量（见 [发布与更新](../docs/typing-desktop/RELEASING.md)）。媒体独立导出和安装，构建不需要 Word Atlas 源仓库。直接 `cargo run` / `cargo build` 不执行钩子，需要先完成第 1 步。详见 [独立媒体资源包](../docs/typing-desktop/MEDIA.md)。
-
-Windows 安装器与卸载器固定使用简体中文（NSIS `SimpChinese`），图标均复用程序的 `app/icons/icon.ico`。语言和图标由 `app/tauri.conf.json` 的 `bundle.windows.nsis` 配置，重新构建安装包后生效。
-
-`app/tauri.conf.json` 的 `productName` 使用英文 `Cijian`，生成的安装包为 `Cijian_<版本>_x64-setup.exe`，当前用户默认安装目录为 `%LOCALAPPDATA%\Cijian`。程序窗口和页面继续显示“词间”，本地数据仍由应用标识 `com.yleoer.cijian` 定位。覆盖同名安装包后，文件列表可能沿用旧图标缓存，刷新目录可重新读取图标。
-
-GitHub Actions 在任意分支桌面代码变化或手动运行时构建 Windows x64 artifact，推送 `desktop-v<版本>` 标签时发布安装包、签名与 `latest.json`。版本统一来自工作区 `Cargo.toml`，可用 `scripts/version.py --set <版本>` 更新。程序后台检查正式 Release，在“设置 → 软件更新”中下载、安装并自动重启；检测到更新时设置图标显示圆点。发布步骤、签名备份和本机打包命令见 [发布与更新](../docs/typing-desktop/RELEASING.md)。
-
-环境变量（均可选）：
-
-| 变量 | 默认 |
-| --- | --- |
-| `CIJIAN_DATA_DIR` | `%APPDATA%\com.yleoer.cijian`；数据库、`server.json` 与 `desktop.json` 的默认位置，开发和测试时可指向临时目录 |
-| `CIJIAN_DB_PATH` | 数据目录下的 `cijian.db` |
-| `CIJIAN_MEDIA_DIR` | 数据目录下的 `media/`；保存用户导入的资源包与 `active.json`，需可写，无需 Anki `collection.media` |
-| `CIJIAN_OPTIMIZATION` | 设为 `0` 关闭自动参数优化（已启用的参数保留）；默认开启 |
-| `CIJIAN_SERVER_URL` | 同步服务器地址，如 `https://example.com`；设置后跳过首次连接提示，同步面板只展示地址，不提供修改入口 |
-| `CIJIAN_SERVER_TOKEN` | 访问令牌，对应服务端的 `ACCESS_TOKEN` |
-| `CIJIAN_SYNC_MINUTES` | 自动同步间隔（分钟），默认 `10` |
-| `CIJIAN_DEVTOOLS_PORT` | 开发调试用，开启 WebView2 远程调试端口，供 `scripts/cdp.mjs` 使用；默认关闭 |
-
-服务器设置的优先顺序：环境变量 > 数据目录的 `server.json`（`{"url": …, "token": …}`，由同步面板保存）> 首次启动弹窗。`server.json` 损坏时记录日志并重新打开同步面板进行配置。
-
-桌面端必须连接同步服务器：没有设置服务器时自动打开不可关闭的同步面板，不提供离线导入词库的方式。设置完成后，已同步的词库和作答保存在本地，断网时照常练习。
-
-### 调试真实窗口
-
-设置 `CIJIAN_DEVTOOLS_PORT=9333` 后启动（Tauri 会传入自己的 WebView2 参数，`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 不再生效），可用：
-
-```powershell
-node typing-desktop\scripts\cdp.mjs eval "document.title"
-node typing-desktop\scripts\cdp.mjs shot practice.png
-```
-
-### 在 Linux 上开发调试
-
-发布只面向 Windows，但 Linux 上也能编译运行，用来检查页面。Ubuntu 需先安装 Tauri 2 的系统依赖（WebKitGTK、托盘用的 appindicator 等）：
+Linux 上也能编译运行，用来检查页面（正式版只发布 Windows）。先安装 Tauri 2 的系统依赖：
 
 ```bash
 sudo apt install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
@@ -92,11 +88,38 @@ python3 typing-desktop/scripts/build_frontend.py
 cd typing-desktop && CIJIAN_DATA_DIR=/tmp/cijian-dev cargo run -p cijian
 ```
 
-Linux 上页面地址是 `cijian://localhost/`，渲染引擎为 WebKitGTK，与 Windows 的 WebView2（Chromium）在字体和细节上略有差异；`CIJIAN_DEVTOOLS_PORT` 只对 WebView2 生效。前端接口地址必须写成相对路径 `/api`：Axios 遇到 `cijian:` 开头的绝对地址会直接报 `Unsupported protocol`，请求不会发出。
+Linux 的页面地址是 `cijian://localhost/`，渲染引擎为 WebKitGTK，字体和细节与 Windows 的 WebView2 略有差异。前端接口地址必须写成相对路径 `/api`：Axios 会拒绝 `cijian:` 开头的绝对地址。
 
-## FSRS 对照基准
+### 环境变量（均可选）
 
-在仓库根目录用 py-fsrs 和 `scripts/srs_reference.py`（原网页版 `srs.py`，仅作参考实现）生成 Rust 实现的比对数据（输出可复现；依赖见 `scripts/requirements.txt`，`.venv` 已带）：
+| 变量 | 默认 |
+| --- | --- |
+| `CIJIAN_DATA_DIR` | `%APPDATA%\com.yleoer.cijian`；数据库、`server.json` 与 `desktop.json` 的位置，开发和测试时可指向临时目录 |
+| `CIJIAN_DB_PATH` | 数据目录下的 `cijian.db` |
+| `CIJIAN_MEDIA_DIR` | 数据目录下的 `media/`，保存导入的资源包与 `active.json` |
+| `CIJIAN_OPTIMIZATION` | 设为 `0` 关闭自动参数优化（已启用的参数保留） |
+| `CIJIAN_SERVER_URL` / `CIJIAN_SERVER_TOKEN` | 同步服务器地址与令牌；设置后跳过首次连接，同步面板只展示地址 |
+| `CIJIAN_SYNC_MINUTES` | 自动同步间隔（分钟），默认 `10` |
+| `CIJIAN_DEVTOOLS_PORT` | 开启 WebView2 远程调试端口，供 `scripts/cdp.mjs` 使用 |
+
+服务器设置的优先顺序：环境变量 > 数据目录的 `server.json`（同步面板保存）> 首次启动弹窗。
+
+在 Windows 上调试真实窗口：设置 `CIJIAN_DEVTOOLS_PORT=9333` 后启动，再运行 `node typing-desktop\scripts\cdp.mjs eval "document.title"` 或 `node typing-desktop\scripts\cdp.mjs shot practice.png`。
+
+### 测试
+
+```bash
+cd typing-desktop && cargo test                          # Rust core 与桌面壳
+node --test typing-desktop/frontend/src/*.test.cjs       # 前端逻辑（仓库根目录）
+python3 typing-desktop/e2e/run.py                        # 真实窗口（Linux，约 2.5 分钟）
+python3 typing-desktop/e2e/screenshots.py                # 重新生成 README 截图
+```
+
+分层、按改动选择测试、真实窗口测试的环境准备，以及发布前在 Windows 上的手工检查，见 [桌面端测试](../docs/typing-desktop/TESTING.md)。
+
+### FSRS 对照基准
+
+用 py-fsrs 和 `scripts/srs_reference.py`（原网页版 `srs.py`，仅作参考实现）生成 Rust 实现的比对数据，输出可复现：
 
 ```powershell
 .\.venv\Scripts\python.exe typing-desktop\scripts\gen_fsrs_fixtures.py
@@ -104,37 +127,9 @@ Linux 上页面地址是 `cijian://localhost/`，渲染引擎为 WebKitGTK，与
 
 输出 `fixtures/fsrs-golden.json`。修改评分或调度规则时，同时修改 `srs_reference.py` 与 Rust 实现，重新生成并提交。
 
-## 测试
+## 文档
 
-在 `typing-desktop` 目录运行：
-
-```powershell
-cargo test
-```
-
-前端脚本测试在仓库根目录运行：
-
-```powershell
-node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs typing-desktop/frontend/src/pronunciation.test.cjs typing-desktop/frontend/src/window-controls.test.cjs typing-desktop/frontend/src/updates.test.cjs
-.\.venv\Scripts\python.exe -m unittest discover -s typing-desktop/scripts -p test_version.py
-```
-
-- `core/tests/golden.rs`：逐条比对 Rust 调度、评分与答案归一化结果。
-- `core/tests/store.rs`：移植 `test_memory.py` / `test_app.py` 的练习用例（学习/重学/掌握、重试幂等、多标签冲突、自由练习、队列顺序、北京时间新词计数、过期与非法时间、参数变更重放、路由路径与 JSON）。
-- `core/tests/difficult.rs`：难点突破的错误率排序、20 词上限与排除规则；久未练习按最后作答时间排序；两者读取不写库。
-- `core/tests/media.rs`：按 SourceId 获取本地插图与英美单词读音（练习和统计明细可点击播放）、Anki note id 变化、缺失媒体、无哈希清单与资源包 URL 版本。
-- `core/tests/stats.rs`：移植 `test_activity.py` / `test_vocabulary.py`（日历窗口与北京时间边界、到期分布、移出词库后的历史、近 30 天、连续天数、词库进度与平滑错误率排序、分页与参数校验、错误记录），并确认统计查询不写库。
-- `core/tests/sync.rs`：两台设备经内存服务器同步（交错作答收敛为同一重放结果、重复同步不重传、小分页、离线失败不改数据后补传、服务器词库替换本地、不同词库与时钟获取同一服务器历史、历史缓存重启与离线保留、升级时清空旧本机历史且保留作答、合并使未提交题目失效），以及首次设置（地址与令牌校验、错误令牌不保存、保存后同步、只改地址保留令牌、环境变量配置不可修改、损坏的 `server.json`）。
-- `frontend/src/app.test.cjs` 与 `stats.test.cjs`：使用共享的 `workspace.js` 验证两页设置、资源与同步，统计页同步后在原页刷新；前者另含同步面板内的首次连接与服务器修改（未配置时不可关闭、错误令牌保留输入并可取消、令牌留空保留原值、保存后同步、重复提交）；常规设置不再读取服务器配置。
-- `frontend/src/window-controls.test.cjs`：窗口按钮调用原生操作，最大化／还原图标与名称随窗口状态更新；拖动、双击、缩放和关闭另在真实桌面窗口验证。
-- `app/src/desktop.rs`：关闭偏好默认值、保存后重启、写入失败保留原值，以及托盘倒计时、到期、仅有新词和空计划的提示。真实窗口另检查关闭收进托盘、单击恢复、右键退出、直接退出偏好及隐藏后的练习计时。
-- `app/src/tray_indicator.rs`：10 分钟边界、渐变进度、到期立即转红、到期保持、完成后恢复、无计划及无效时间；像素测试检查临近到期橙色与到期红色的色相差异、从上到下填充、透明度及白色书页保留。真实托盘另检查正常、半橙、临近到期橙色、到期红色及作答后恢复。
-- 开机自启动：前端测试检查读取系统状态、开启／关闭、失败恢复与重试，以及保存时禁止重复操作；真实窗口检查勾选状态、注册表启动项写入／删除、重启读取及启动项命令能打开应用。验证后恢复测试前的启动项；实际系统登录需手动验证。
-- `frontend/src/updates.test.cjs`：发现新版本、无更新、下载进度、安装前保存草稿、失败重试与未保存答案阻止安装；`scripts/test_version.py` 验证标签匹配、正式版格式与 Cargo 工作区/锁文件版本同步。
-- `core/tests/optimize.rs`：移植 `test_optimizer.py` / `test_optimizer_service.py`（有效复习计数、时间留出不泄漏、1000 条门槛、每月跳过、启用后保留到期时间并接受未提交题目、重启恢复、失败与异常一天后重试、无效结果、退出中断恢复、接口），另用 fsrs-rs 实际训练一次合成数据。
-
-`Cargo.toml` 对 `fsrs`、`ndarray` 在开发构建中开启优化，否则训练测试会慢很多。
-
-## 插图与音频资源
-
-安装包不包含大媒体。服务器在“同步”面板配置；`cijian-media.zip` 在“设置 → 插图与音频”中导入或更换。仅支持本地导入，资源包单独生成，不做逐文件 SHA 校验。导入后离线读取，未导入可先练习文字。详见 [独立媒体资源包](../docs/typing-desktop/MEDIA.md)。测试验证导入、失败保留、重启读取以及当前题目和输入保持。
+- [产品说明](../PRODUCT.md) · [视觉设计](../DESIGN.md)
+- [桌面端设计](../docs/typing-desktop/DESIGN.md) · [前端说明](../docs/typing-desktop/FRONTEND.md) · [统计页面](../docs/typing-desktop/statistics/FRONTEND.md)
+- [选词规则](../docs/typing-desktop/WORD-SELECTION.md) · [FSRS 与参数优化](../docs/typing-desktop/SRS-PLAN.md) · [独立媒体资源包](../docs/typing-desktop/MEDIA.md)
+- [桌面端测试](../docs/typing-desktop/TESTING.md) · [发布与更新](../docs/typing-desktop/RELEASING.md)
