@@ -139,7 +139,7 @@ def main() -> int:
             "run", "--detach", "--name", name, "--network", "none",
             "--pull", "never", *platform,
             "--env", "SERVER_HOST=127.0.0.1", "--env", "SERVER_PORT=8080",
-            "--env", "ACCESS_TOKEN=", "--env", "ACCESS_PASSWORD=",
+            "--env", "ACCESS_TOKEN=",
             "--env", "ANKI_DB_PATH=/tmp/image-check/missing.anki2",
             "--env", "STATS_DB_PATH=/tmp/image-check/stats.db",
             "--env", "ANKI_SYNC_SOURCE_DIR=", "--env", "ANKI_SYNC_TARGET=",

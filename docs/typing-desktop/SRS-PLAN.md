@@ -83,8 +83,7 @@
 统计页底部“参数优化记录”可查看积累进度、现用版本、下次评估时间及每次评估的详情：
 
 - `GET /api/memory/optimization`：配置、积累进度、运行状态、当前版本与下次计划。
-- `GET /api/memory/optimization/runs?before_id=0&limit=20`：按 ID 倒序分页，返回 `items`、`next_before_id`，每页最多 100 条。
-- `GET /api/memory/optimization/runs/<id>`：完整记录，不存在返回 404。
+- `GET /api/memory/optimization/runs`：按 ID 倒序返回全部记录 `items`，不分页。
 
 ### 待办：多设备参数优化同步
 

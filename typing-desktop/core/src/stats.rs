@@ -331,7 +331,8 @@ impl Store {
     }
 
     /// Wrong answers for one word, newest first, paged by review id.
-    pub fn word_errors(&self, source_id: &str, before_id: i64, limit: usize) -> ApiResult<Value> {
+    /// All wrong answers for one word, newest first; a word rarely collects more than a few.
+    pub fn word_errors(&self, source_id: &str) -> ApiResult<Value> {
         let source_id = source_id.trim();
         if source_id.is_empty() {
             return Err(ApiError::bad("需要有效的 SourceId"));
@@ -340,14 +341,9 @@ impl Store {
         let inner = self.lock();
         let counts = query_objects(&inner.db, "SELECT COUNT(*) total_attempts,
             COALESCE(SUM(is_correct),0) correct_attempts FROM word_reviews WHERE word_key=?", &[&key])?.remove(0);
-        let rows = query_objects(&inner.db, "SELECT id,word,user_input,reviewed_at
-            FROM word_reviews WHERE word_key=? AND is_correct=0 AND (?=0 OR id<?)
-            ORDER BY id DESC LIMIT ?", &[&key, &before_id, &before_id, &(limit as i64 + 1)])?;
-        let more = rows.len() > limit;
-        let items: Vec<_> = rows.into_iter().take(limit).collect();
-        let next = if more { items.last().map_or(Value::Null, |r| r["id"].clone()) } else { Value::Null };
-        Ok(json!({"items": items, "correct_attempts": counts["correct_attempts"],
-                  "total_attempts": counts["total_attempts"], "next_before_id": next}))
+        let items = query_objects(&inner.db, "SELECT id,word,user_input,reviewed_at
+            FROM word_reviews WHERE word_key=? AND is_correct=0 ORDER BY id DESC", &[&key])?;
+        Ok(json!({"items": items, "correct_attempts": counts["correct_attempts"], "total_attempts": counts["total_attempts"]}))
     }
 }
 

@@ -134,14 +134,14 @@ fn first_attempt_starts_at_1000_effective_reviews_and_is_not_repeated() {
     let stub = candidate(false);
     assert!(store.check_optimization(&config(), &stub).unwrap().is_none());
     assert_eq!(store.optimization_status(&config()).unwrap()["effective_reviews"], 999);
-    assert_eq!(store.optimization_history(0, 20).unwrap()["items"], json!([]));
+    assert_eq!(store.optimization_history().unwrap()["items"], json!([]));
     append_day(&env, 10, 100, 1);
     let result = store.check_optimization(&config(), &stub).unwrap().unwrap();
     assert_eq!(result["effective_reviews"], MINIMUM_REVIEWS);
     assert_eq!(result["status"], "rejected");
     assert!(result.get("owner").is_none() && result["report"]["baseline_parameters"].is_array());
     assert!(store.check_optimization(&config(), &stub).unwrap().is_none());
-    assert_eq!(store.optimization_history(0, 20).unwrap()["items"].as_array().unwrap().len(), 1);
+    assert_eq!(store.optimization_history().unwrap()["items"].as_array().unwrap().len(), 1);
     assert_eq!(store.optimization_status(&config()).unwrap()["next_evaluation_at"], "2026-04-30T08:00:00.000000Z");
 }
 
@@ -161,13 +161,8 @@ fn monthly_skip_is_recorded_and_new_data_accumulates() {
     env.set(next_month(env.now()));
     let result = store.check_optimization(&config(), &stub).unwrap().unwrap();
     assert_eq!((result["status"].as_str(), result["new_effective_reviews"].as_i64()), (Some("rejected"), Some(100)));
-    let statuses: Vec<Value> = store.optimization_history(0, 20).unwrap()["items"].as_array().unwrap().iter().map(|r| r["status"].clone()).collect();
+    let statuses: Vec<Value> = store.optimization_history().unwrap()["items"].as_array().unwrap().iter().map(|r| r["status"].clone()).collect();
     assert_eq!(statuses, [json!("rejected"), json!("skipped"), json!("rejected")]);
-    let first = store.optimization_history(0, 2).unwrap();
-    assert_eq!(first["items"].as_array().unwrap().len(), 2);
-    let rest = store.optimization_history(first["next_before_id"].as_i64().unwrap(), 2).unwrap();
-    assert_eq!(rest["items"].as_array().unwrap().len(), 1);
-    assert!(rest["next_before_id"].is_null());
 }
 
 #[test]
@@ -205,7 +200,7 @@ fn restart_restores_the_accepted_version() {
     let accepted = env.store().check_optimization(&config(), &candidate(true)).unwrap().unwrap();
     let reopened = env.reopen();
     assert_eq!(accepted["activated_version"], reopened.config_version());
-    assert_eq!(reopened.optimization_history(0, 20).unwrap()["items"].as_array().unwrap().len(), 1);
+    assert_eq!(reopened.optimization_history().unwrap()["items"].as_array().unwrap().len(), 1);
     let disabled = OptimizationConfig { enabled: false, ..config() };
     assert!(reopened.check_optimization(&disabled, &candidate(true)).unwrap().is_none());
     assert_eq!(reopened.optimization_status(&disabled).unwrap()["enabled"], false);
@@ -227,7 +222,7 @@ fn failure_is_saved_and_retried_after_a_day() {
     let panics = |_: &[ReviewLog], _: [f64; 21]| -> Result<Value, String> { panic!("boom") };
     let result = store.check_optimization(&config(), &panics).unwrap().unwrap();
     assert_eq!((result["status"].as_str(), result["reason"].as_str()), (Some("failed"), Some("后台训练异常终止")));
-    assert_eq!(store.optimization_history(0, 20).unwrap()["items"].as_array().unwrap().len(), 2);
+    assert_eq!(store.optimization_history().unwrap()["items"].as_array().unwrap().len(), 2);
 }
 
 #[test]
@@ -272,14 +267,9 @@ fn optimization_routes_match_flask() {
     let status = env.data("/api/memory/optimization");
     assert_eq!((status["enabled"].as_bool(), status["minimum_reviews"].as_u64(), status["desired_retention"].as_f64()), (Some(true), Some(1000), Some(0.9)));
     assert_eq!(status["current_version"], env.store().config_version());
-    let runs = env.data("/api/memory/optimization/runs?limit=1");
+    let runs = env.data("/api/memory/optimization/runs");
+    assert_eq!(runs["items"].as_array().unwrap().len(), 1);
     assert_eq!(runs["items"][0]["status"], "rejected");
-    assert_eq!(env.data("/api/memory/optimization/runs/1")["id"], 1);
-    assert_eq!(env.get("/api/memory/optimization/runs/99").0, 404);
-    assert_eq!(env.get("/api/memory/optimization/runs/abc").0, 404);
-    for cursor in ["-1", "bad"] {
-        assert_eq!(env.get(&format!("/api/memory/optimization/runs?before_id={cursor}")).0, 400);
-    }
 }
 
 #[test]

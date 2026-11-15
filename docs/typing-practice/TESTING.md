@@ -10,9 +10,9 @@
 | --- | --- |
 | `test_anki.py` | Word Atlas 22 字段映射、全部中文义项、HTML 清理、插图引用、子牌组与外部提交后的缓存刷新；真实 APKG 用例在本地完整包不存在时跳过 |
 | `test_sync.py` | 复制 `collection.anki2` 及 SQLite 附属文件 |
-| `test_app.py` | 三条路由、被动读取服务器快照、复制后扫描、检查失败保留快照、多设备获取同一历史、作答去重与游标分页、大日志分页、非法请求不写入、网页版历史一次性导入 |
+| `test_app.py` | 三条路由、被动读取服务器快照、复制后扫描、检查失败保留快照、多设备获取同一历史、作答去重与游标分页、大日志分页、非法请求不写入 |
 | `test_vocabulary.py` | 首次与空词池基线、SourceId 去重、重启及重置后不重复计数、发现时词条快照、最近 50 批返回范围、快照发布失败整批回滚 |
-| `test_auth.py` | 健康检查公开、令牌校验、`ACCESS_TOKEN` 读取与旧 `ACCESS_PASSWORD` 回退 |
+| `test_auth.py` | 健康检查公开、令牌校验、`ACCESS_TOKEN` 读取 |
 
 删除实现时同步删除只绑定该内部接口的断言，避免把测试数量本身当作覆盖目标。防御性代码的取舍见 [防御性代码审计](../DEFENSIVE-PROGRAMMING.md)。判题、FSRS、统计与参数优化已移到桌面端，由 `typing-desktop` 的 `cargo test` 与 Node 测试覆盖，见 [typing-desktop/README.md](../../typing-desktop/README.md)。
 
@@ -48,10 +48,10 @@
 .\.venv\Scripts\python.exe -m unittest discover -s typing-practice/backend -p 'test_app.py'
 ```
 
-按名称选择单项，例如网页版历史导入：
+按名称选择单项，例如作答去重与游标分页：
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s typing-practice/backend -p 'test_app.py' -k test_web_history_is_imported_once_as_the_initial_log
+.\.venv\Scripts\python.exe -m unittest discover -s typing-practice/backend -p 'test_app.py' -k test_sync_deduplicates_and_pages_by_cursor
 ```
 
 桌面端前端单元测试：
