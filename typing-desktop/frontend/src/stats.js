@@ -358,7 +358,12 @@ createApp({
                 grid: { left: 40, right: 44, top: 16, bottom: 28 },
                 tooltip: {
                     trigger: 'axis',
-                    axisPointer: { type: 'shadow' },
+                    axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(45, 62, 53, .05)' } },
+                    // Matches the page's popover style: paper fill, faint outline, soft shadow.
+                    backgroundColor: '#fffefb',
+                    borderColor: 'rgba(45, 62, 53, .09)',
+                    textStyle: { color: '#2d3e35', fontSize: 13 },
+                    extraCssText: 'border-radius: 8px; box-shadow: 0 10px 32px rgba(31, 42, 36, .12);',
                     formatter: (params) => {
                         const item = this.trendData[params[0].dataIndex];
                         if (!item.words) {
@@ -371,15 +376,15 @@ createApp({
                     type: 'category',
                     data: dates,
                     axisTick: { show: false },
-                    axisLine: { lineStyle: { color: '#e5e7eb' } },
+                    axisLine: { lineStyle: { color: '#e3e5dd' } },
                     axisLabel: { color: '#5f6b62', fontSize: 12, interval: 4 }
                 },
                 yAxis: [
                     {
                         type: 'value',
                         minInterval: 1,
-                        splitLine: { lineStyle: { color: '#f3f4f6' } },
-                        axisLabel: { color: '#626b77', fontSize: 12 }
+                        splitLine: { lineStyle: { color: '#efefea' } },
+                        axisLabel: { color: '#5f6b62', fontSize: 12 }
                     },
                     {
                         type: 'value',
@@ -387,7 +392,7 @@ createApp({
                         max: 100,
                         interval: 25,
                         splitLine: { show: false },
-                        axisLabel: { color: '#626b77', fontSize: 12, formatter: '{value}%' }
+                        axisLabel: { color: '#5f6b62', fontSize: 12, formatter: '{value}%' }
                     }
                 ],
                 series: [
