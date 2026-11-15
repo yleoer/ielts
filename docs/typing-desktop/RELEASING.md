@@ -4,17 +4,17 @@
 
 桌面端唯一的版本来源是 `typing-desktop/Cargo.toml` 中的 `[workspace.package].version`。壳、core、Tauri 安装包和程序显示均使用该值；不要另在 `tauri.conf.json` 或 `package.json` 添加版本。
 
-使用正式版三段数字（如 `0.1.0`、`0.1.1`）。发布标签固定为 `desktop-v<版本>`，与后端镜像分开。工作流在打包前核对标签与工作区版本，不一致就停止。
+使用正式版三段数字（如 `0.1.0`、`0.1.1`）：新增功能或改变使用方式时升第二段，只改样式或修复问题时升第三段。发布标签固定为 `desktop-v<版本>`，与后端镜像分开。工作流在打包前核对标签与工作区版本，不一致就停止。
 
 在仓库根目录更新版本：
 
 ```powershell
-.\.venv\Scripts\python.exe typing-desktop\scripts\version.py --set 0.5.0
+.\.venv\Scripts\python.exe typing-desktop\scripts\version.py --set 0.4.1
 ```
 
 脚本同时通过 `cargo update --workspace --offline` 刷新 `Cargo.lock` 的本地包版本，不升级第三方依赖。需已安装 Rust 并下载过当前依赖。只读取版本可省略 `--set`。
 
-当前发布版本为 `0.5.0`，主题是界面改版：
+当前发布版本为 `0.4.1`，主题是界面样式调整：
 
 - 窗口改为纸色底加一张内容卡片，侧栏、标题栏与内容之间不再画分隔线；练习和统计内容直接排在卡片上，不再卡片套卡片。
 - 按钮去掉边框，次按钮改为浅底；输入框聚焦只保留一圈边框；导航选中只用浅底表示。
@@ -22,6 +22,8 @@
 - 前端接口改用相对路径 `/api`，桌面端也能在 Linux 上编译运行，用于开发调试。
 
 同步服务器未改动，无需升级。安装包不包含独立插图与音频资源包，已有媒体无需重新导入。
+
+这批改动曾以 `0.5.0` 发布，因只涉及样式，随即撤回并改以 `0.4.1` 重新发布；已删除 `desktop-v0.5.0` 的 Release 与标签。
 
 ## GitHub Actions
 
@@ -40,8 +42,8 @@
 ```powershell
 git switch master
 git pull --ff-only
-git tag desktop-v0.5.0
-git push origin desktop-v0.5.0
+git tag -a desktop-v0.4.1 -m "词间 v0.4.1"
+git push origin desktop-v0.4.1
 ```
 
 首个已发布版本为 `0.1.0`，标签为 `desktop-v0.1.0`。之后每次发布递增版本；不要重新打包覆盖已经公开的同版本安装包。工作流需在标签指向的提交中存在；Actions 页面手动运行还需工作流已进入默认分支。
