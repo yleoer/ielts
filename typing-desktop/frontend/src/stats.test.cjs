@@ -27,7 +27,7 @@ test('statistics opens resource settings without reading server settings and res
     let focused = false;
     const opener = { focus() { focused = true; } };
     const app = harness(async url => {
-        assert.equal(url, 'http://test/api/resources/status');
+        assert.equal(url, '/api/resources/status');
         return { data: { data: { installed: false, phase: 'idle', busy: false } } };
     }, { document: { activeElement: opener } });
     await app.openSettings();
@@ -64,7 +64,7 @@ test('statistics sync refreshes statistics in place after successful synchroniza
     assert.equal(app.syncModal.status.last_anki_sync_at, status.last_anki_sync_at);
     assert.equal(app.lastSyncAt, status.last_sync_at);
     assert.equal(refreshed, 1);
-    assert.deepEqual(requests, ['http://test/api/sync/now']);
+    assert.deepEqual(requests, ['/api/sync/now']);
 });
 
 test('sync shows environment server settings as read-only while allowing synchronization', async () => {
@@ -78,7 +78,7 @@ test('sync shows environment server settings as read-only while allowing synchro
     assert.equal(app.serverSettings.editable, false);
     assert.equal(app.serverSettings.editing, false);
     await app.syncNow();
-    assert.deepEqual(posts, ['http://test/api/sync/now']);
+    assert.deepEqual(posts, ['/api/sync/now']);
     assert.equal(app.setup.visible, false);
 });
 
@@ -99,7 +99,7 @@ test('calendar date detail shows every scheduled word and switches history witho
     let calls = 0;
     const app = harness(async (url, { params }) => {
         calls++;
-        assert.equal(url, 'http://test/api/stats/calendar-words');
+        assert.equal(url, '/api/stats/calendar-words');
         assert.equal(params.date, '2026-10-30');
         assert.equal(params.limit, undefined);
         return { data: { data: { practiced: [{ word: 'studied' }], due: words } } };
@@ -197,7 +197,7 @@ test('calendar and recent activity load independently and use separate color sca
     await app.loadTrend();
     assert.equal(app.calendarDayClass(app.calendar.days[0])[0], 'calendar-history-4');
     assert.equal(app.calendarDayClass(app.calendar.days[1])[0], 'calendar-due-4');
-    assert.equal(calls.join(','), 'http://test/api/stats/calendar,http://test/api/stats/recent-activity');
+    assert.equal(calls.join(','), '/api/stats/calendar,/api/stats/recent-activity');
     assert.equal(app.trendData.length, 30);
     assert.equal(app.trendRangeLabel, '最近 30 天 · 2026.01.12 — 2026.02.10');
     assert.equal(app.monthLabel, '2026 年 2 月');
@@ -263,7 +263,7 @@ test('vocabulary detail loads later pages and retries without losing the first p
     let fail = false;
     const offsets = [];
     const app = harness(async (url, { params }) => {
-        assert.equal(url, 'http://test/api/stats/vocabulary-words');
+        assert.equal(url, '/api/stats/vocabulary-words');
         assert.equal(params.dimension, 'topic');
         assert.equal(params.value, '教育');
         assert.equal(params.status, 'all');
@@ -319,7 +319,7 @@ test('word errors expand by source identity, paginate, retry and preserve the co
     let fail = false;
     const cursors = [];
     const app = harness(async (url, { params }) => {
-        assert.equal(url, 'http://test/api/stats/word-errors');
+        assert.equal(url, '/api/stats/word-errors');
         assert.equal(params.source_id, 'stable-source');
         cursors.push(params.before_id);
         if (fail) throw new Error('offline');
