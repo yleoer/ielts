@@ -23,7 +23,7 @@
 | 改动 | 执行范围 |
 | --- | --- |
 | 纯文档 | 核对内容、链接和命令，不运行代码测试或重建镜像 |
-| 桌面端前端 `app.js` / `stats.js` | 对应 `app.test.cjs` / `stats.test.cjs`；接口契约也改变时补 `cargo test` |
+| 桌面端（`typing-desktop/`） | 见 [桌面端测试](../typing-desktop/TESTING.md) |
 | `auth.py` | `test_auth` |
 | `ledger.py` | `test_app` |
 | `anki.py` / `sync.py` | `test_anki` / `test_sync`，以及 `test_app` 的词库快照测试；字段身份规则改变时运行全量 |
@@ -52,12 +52,6 @@
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s typing-practice/backend -p 'test_app.py' -k test_sync_deduplicates_and_pages_by_cursor
-```
-
-桌面端前端单元测试：
-
-```powershell
-node --test typing-desktop/frontend/src/app.test.cjs typing-desktop/frontend/src/stats.test.cjs
 ```
 
 `-k` 的名称应对应实际用例，检查运行结果中的测试数量，避免拼写错误导致零项通过。无需新增测试环境配置或自动选择测试的脚本。

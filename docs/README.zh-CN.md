@@ -29,6 +29,7 @@
 - [独立媒体资源包](typing-desktop/MEDIA.md)
 - [选词策略](typing-desktop/WORD-SELECTION.md)
 - [FSRS 单词记忆与参数优化](typing-desktop/SRS-PLAN.md)
+- [测试与真实窗口检查](typing-desktop/TESTING.md)
 
 ## 学习统计
 
