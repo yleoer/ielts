@@ -33,59 +33,69 @@
             <section class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="setup-title" @keydown="dialogKeydown">
                 <header class="dialog-header"><h2 id="setup-title">设置</h2><button type="button" class="icon-button" @click="closeSettings" :disabled="resources.transferring || updateInstalling || desktopSettings.saving || autostartSettings.saving" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#close"/></svg></button></header>
                 <div class="dialog-body setup-form">
-                    <section class="setup-desktop" aria-labelledby="setup-desktop-title">
-                        <h3 id="setup-desktop-title">启动与窗口</h3>
-                        <label class="field-label" for="close-behavior">关闭窗口时</label>
-                        <select ref="closeBehavior" id="close-behavior" v-model="desktopSettings.closeToTray" class="text-input" :disabled="!desktopSettings.loaded || desktopSettings.saving || updateInstalling" aria-describedby="close-behavior-help" @change="saveDesktopSettings">
-                            <option :value="true">收进系统托盘</option>
-                            <option :value="false">直接退出应用</option>
-                        </select>
-                        <p id="close-behavior-help" class="muted">自动保存。悬停托盘图标可查看下次复习时间，右键可退出。</p>
-                        <p v-if="desktopSettings.saving" class="muted" role="status">正在保存…</p>
-                        <div v-if="desktopSettings.error" class="desktop-settings-error"><p class="error-message" role="alert">{{ desktopSettings.error }}</p><button v-if="!desktopSettings.loaded" type="button" class="button button-secondary" @click="loadDesktopSettings">重试读取</button></div>
-                        <label class="autostart-option" for="autostart">
-                            <input id="autostart" type="checkbox" v-model="autostartSettings.enabled" :disabled="!autostartSettings.loaded || autostartSettings.saving || updateInstalling" aria-describedby="autostart-help" @change="saveAutostartSettings">
-                            <span>开机自启动</span>
-                        </label>
-                        <p id="autostart-help" class="muted">登录 Windows 后自动打开词间。更改后自动保存，仅在本机生效。</p>
-                        <p v-if="autostartSettings.saving" class="muted" role="status">正在保存…</p>
-                        <div v-if="autostartSettings.error" class="desktop-settings-error"><p class="error-message" role="alert">{{ autostartSettings.error }}</p><button v-if="!autostartSettings.loaded" type="button" class="button button-secondary" @click="loadAutostartSettings">重试读取</button></div>
-                    </section>
-                    <section class="setup-resources" aria-labelledby="setup-resources-title">
-                        <h3 id="setup-resources-title">插图与音频</h3>
-                        <p class="muted">可选：导入 ZIP 资源包，无需解压。暂不导入也可先练习文字。</p>
-                        <div class="resource-status" aria-live="polite">
-                            <p v-if="resources.loading" class="muted">正在读取资源状态…</p>
-                            <p v-else-if="resources.status?.installed">已安装 {{ resources.status.counts.kinds.illustration.toLocaleString() }} 张插图、{{ (resources.status.counts.files - resources.status.counts.kinds.illustration).toLocaleString() }} 段音频</p>
-                            <p v-else class="muted">尚未导入资源包</p>
-                            <p v-if="resourceBusy" role="status">{{ resourceProgressText || '正在准备…' }}</p>
-                            <progress v-if="resourceBusy && resourceProgress !== null" :value="resourceProgress" max="100" :aria-label="resourceProgressText"></progress>
+                    <!-- Each row: label, control, then full-width help and feedback (see .settings-row). -->
+                    <section class="settings-group" aria-labelledby="setup-desktop-title">
+                        <h3 id="setup-desktop-title" class="settings-caption">启动与窗口</h3>
+                        <div class="settings-card">
+                            <div class="settings-row">
+                                <span id="close-behavior-label" class="settings-label">关闭窗口时</span>
+                                <div class="segmented" role="radiogroup" aria-labelledby="close-behavior-label" aria-describedby="close-behavior-help">
+                                    <label><input ref="closeBehavior" type="radio" name="close-behavior" :value="true" v-model="desktopSettings.closeToTray" :disabled="!desktopSettings.loaded || desktopSettings.saving || updateInstalling" @change="saveDesktopSettings"><span>收进系统托盘</span></label>
+                                    <label><input type="radio" name="close-behavior" :value="false" v-model="desktopSettings.closeToTray" :disabled="!desktopSettings.loaded || desktopSettings.saving || updateInstalling" @change="saveDesktopSettings"><span>直接退出应用</span></label>
+                                </div>
+                                <p id="close-behavior-help" class="settings-help">自动保存。悬停托盘图标可查看下次复习时间，右键可退出。</p>
+                                <p v-if="desktopSettings.saving" class="settings-help" role="status">正在保存…</p>
+                                <div v-if="desktopSettings.error" class="settings-feedback"><p class="error-message" role="alert">{{ desktopSettings.error }}</p><button v-if="!desktopSettings.loaded" type="button" class="button button-secondary" @click="loadDesktopSettings">重试读取</button></div>
+                            </div>
+                            <div class="settings-row">
+                                <label class="settings-label" for="autostart">开机自启动</label>
+                                <input id="autostart" class="switch" type="checkbox" v-model="autostartSettings.enabled" :disabled="!autostartSettings.loaded || autostartSettings.saving || updateInstalling" aria-describedby="autostart-help" @change="saveAutostartSettings">
+                                <p id="autostart-help" class="settings-help">登录 Windows 后自动打开词间。更改后自动保存，仅在本机生效。</p>
+                                <p v-if="autostartSettings.saving" class="settings-help" role="status">正在保存…</p>
+                                <div v-if="autostartSettings.error" class="settings-feedback"><p class="error-message" role="alert">{{ autostartSettings.error }}</p><button v-if="!autostartSettings.loaded" type="button" class="button button-secondary" @click="loadAutostartSettings">重试读取</button></div>
+                            </div>
                         </div>
-                        <p v-if="resources.error || resources.status?.error" class="error-message" role="alert">{{ resources.error || resources.status.error }}</p>
+                    </section>
+                    <section class="settings-group" aria-labelledby="setup-resources-title">
+                        <h3 id="setup-resources-title" class="settings-caption">插图与音频</h3>
+                        <div class="settings-card">
+                            <div class="settings-row">
+                                <div class="settings-label" aria-live="polite">
+                                    <p v-if="resources.loading" class="muted">正在读取资源状态…</p>
+                                    <p v-else-if="resources.status?.installed">已安装 {{ resources.status.counts.kinds.illustration.toLocaleString() }} 张插图、{{ (resources.status.counts.files - resources.status.counts.kinds.illustration).toLocaleString() }} 段音频</p>
+                                    <p v-else>尚未导入资源包</p>
+                                </div>
+                                <button ref="resourceChoose" type="button" class="button button-secondary" :disabled="resourceBusy || updateInstalling" @click="$refs.resourceFile.click()">{{ resources.status?.installed ? '更换资源包' : '选择资源包' }}</button>
+                                <p class="settings-help">可选：导入 ZIP 资源包，无需解压。暂不导入也可先练习文字。</p>
+                                <p v-if="resourceBusy" class="settings-help" role="status">{{ resourceProgressText || '正在准备…' }}</p>
+                                <progress v-if="resourceBusy && resourceProgress !== null" :value="resourceProgress" max="100" :aria-label="resourceProgressText"></progress>
+                                <p v-if="resources.error || resources.status?.error" class="error-message" role="alert">{{ resources.error || resources.status.error }}</p>
+                                <button v-if="resources.status?.phase === 'uploading' && !resources.transferring" type="button" class="button button-secondary" @click="cancelResourceUpload">取消未完成的导入</button>
+                            </div>
+                        </div>
                         <input ref="resourceFile" type="file" accept=".zip,application/zip" class="sr-only" aria-label="选择 ZIP 资源包" tabindex="-1" :disabled="resourceBusy || updateInstalling" @change="importResources">
-                        <button ref="resourceChoose" type="button" class="button button-secondary" :disabled="resourceBusy || updateInstalling" @click="$refs.resourceFile.click()">{{ resources.status?.installed ? '更换资源包' : '选择资源包' }}</button>
-                        <button v-if="resources.status?.phase === 'uploading' && !resources.transferring" type="button" class="button button-secondary" @click="cancelResourceUpload">取消未完成的导入</button>
-                        <p class="resource-credit muted">Word Atlas contributors · CC BY 4.0</p>
+                        <p class="resource-credit">Word Atlas contributors · CC BY 4.0</p>
                     </section>
-                    <section v-if="updates.current" class="setup-updates" aria-labelledby="setup-updates-title">
-                        <h3 id="setup-updates-title">软件更新</h3>
-                        <p class="muted">当前版本 {{ updates.current }}</p>
-                        <div class="update-status" aria-live="polite">
-                            <p v-if="updates.phase === 'checking'">正在检查更新…</p>
-                            <p v-else-if="updates.phase === 'current'">已是最新版本</p>
-                            <p v-else-if="updates.phase === 'downloading'">正在下载{{ updateProgress === null ? '…' : ' ' + updateProgress + '%' }}</p>
-                            <p v-else-if="updates.phase === 'installing'">正在安装，即将重启…</p>
-                            <p v-else-if="updates.available">可用版本 {{ updates.available.version }}</p>
-                            <progress v-if="updates.phase === 'downloading'" :value="updateProgress" max="100" aria-label="更新下载进度"></progress>
-                        </div>
-                        <p v-if="updates.available?.body" class="update-notes muted">{{ updates.available.body }}</p>
-                        <p v-if="updates.error" class="error-message" role="alert">{{ updates.error }}</p>
-                        <div class="update-actions">
-                            <button type="button" class="button button-secondary" :disabled="updateBusy" @click="checkForUpdates()">检查更新</button>
-                            <button v-if="updates.available" type="button" class="button button-primary" :disabled="updateBusy || resourceBusy" @click="installUpdate">下载并重启</button>
+                    <section v-if="updates.current" class="settings-group" aria-labelledby="setup-updates-title">
+                        <h3 id="setup-updates-title" class="settings-caption">软件更新</h3>
+                        <div class="settings-card">
+                            <div class="settings-row">
+                                <div class="settings-label" aria-live="polite">
+                                    <p>当前版本 {{ updates.current }}</p>
+                                    <p v-if="updates.phase === 'checking'" class="settings-help">正在检查更新…</p>
+                                    <p v-else-if="updates.phase === 'current'" class="settings-help">已是最新版本</p>
+                                    <p v-else-if="updates.phase === 'downloading'" class="settings-help">正在下载{{ updateProgress === null ? '…' : ' ' + updateProgress + '%' }}</p>
+                                    <p v-else-if="updates.phase === 'installing'" class="settings-help">正在安装，即将重启…</p>
+                                    <p v-else-if="updates.available" class="settings-help">可用版本 {{ updates.available.version }}</p>
+                                </div>
+                                <button type="button" class="button button-secondary" :disabled="updateBusy" @click="checkForUpdates()">检查更新</button>
+                                <progress v-if="updates.phase === 'downloading'" :value="updateProgress" max="100" aria-label="更新下载进度"></progress>
+                                <p v-if="updates.available?.body" class="update-notes settings-help">{{ updates.available.body }}</p>
+                                <p v-if="updates.error" class="error-message" role="alert">{{ updates.error }}</p>
+                                <button v-if="updates.available" type="button" class="button button-primary" :disabled="updateBusy || resourceBusy" @click="installUpdate">下载并重启</button>
+                            </div>
                         </div>
                     </section>
-                    <button type="button" class="button button-primary full-width" @click="closeSettings" :disabled="desktopSettings.saving || autostartSettings.saving || resourceBusy || updateInstalling">完成</button>
                 </div>
             </section>
         </div>
