@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS attempts (
     first_input_ms REAL
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_word ON attempts(word_key, reviewed_at);
-CREATE TABLE IF NOT EXISTS ledger_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL, detail TEXT NOT NULL);
 """
 
 # Columns returned to clients, in order.
@@ -97,27 +96,10 @@ class Ledger:
         self.db = sqlite3.connect(self.path, check_same_thread=False, timeout=5)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
-        self.import_web_history()
 
     def close(self) -> None:
         with self.lock:
             self.db.close()
-
-    def import_web_history(self) -> None:
-        """Once, copy answers saved by the retired web app (`word_reviews`) into the log."""
-        with self.lock, self.db:
-            if self.db.execute("SELECT 1 FROM ledger_migrations WHERE name='web-history-v1'").fetchone():
-                return
-            imported = 0
-            if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='word_reviews'").fetchone():
-                imported = self.db.execute("""INSERT OR IGNORE INTO attempts
-                    (attempt_id,device_id,received_at,word_key,word,chinese_meaning,category,user_input,
-                     is_correct,rating,reviewed_at,duration_ms,first_input_ms)
-                    SELECT attempt_id,'web',received_at,word_key,word,chinese_meaning,category,user_input,
-                     is_correct,rating,reviewed_at,duration_ms,first_input_ms
-                    FROM word_reviews ORDER BY reviewed_at,id""").rowcount
-            self.db.execute("INSERT INTO ledger_migrations VALUES('web-history-v1',?,?)",
-                            (time_text(datetime.now(timezone.utc)), f"imported {imported} answers"))
 
     def sync(self, payload: Any) -> dict[str, Any]:
         """Stores uploaded answers, then returns the log after the client's cursor."""

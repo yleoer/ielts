@@ -42,13 +42,6 @@ impl Request {
     fn strict(&self, name: &str, default: i64, error: &str) -> ApiResult<i64> {
         self.query.get(name).map_or(Ok(default), |v| v.trim().parse().map_err(|_| ApiError::bad(error)))
     }
-
-    fn int(&self, name: &str, default: usize) -> usize {
-        match self.query.get(name).and_then(|v| v.parse::<i64>().ok()) {
-            Some(v) if v > 0 => v as usize,
-            _ => default,
-        }
-    }
 }
 
 fn percent_decode(text: &str) -> String {
@@ -228,13 +221,6 @@ impl App {
         if let Some(rest) = path.strip_prefix("/api/media/") {
             return if request.method == "GET" { self.media(rest) } else { Response::error(ApiError::NotFound) };
         }
-        if let Some(id) = path.strip_prefix("/api/memory/optimization/runs/").filter(|_| request.method == "GET") {
-            return match id.parse::<i64>().ok().map(|id| self.store.optimization_run(id)) {
-                Some(Ok(Some(record))) => Response::json(200, json!({"success": true, "data": record})),
-                Some(Err(error)) => Response::error(error),
-                _ => Response::error(ApiError::NotFound),
-            };
-        }
         match self.api(request) {
             Ok(mut value) => {
                 self.media.current().decorate(&mut value);
@@ -298,13 +284,7 @@ impl App {
                 Ok(json!({"success": true, "data": s.submit(&payload)?}))
             }
             ("GET", "/api/memory/optimization") => Ok(json!({"success": true, "data": s.optimization_status(&self.optimization)?})),
-            ("GET", "/api/memory/optimization/runs") => {
-                let before_id = request.strict("before_id", 0, "无效的记录游标")?;
-                if before_id < 0 {
-                    return Err(ApiError::bad("无效的记录游标"));
-                }
-                Ok(json!({"success": true, "data": s.optimization_history(before_id, request.int("limit", 20))?}))
-            }
+            ("GET", "/api/memory/optimization/runs") => Ok(json!({"success": true, "data": s.optimization_history()?})),
             ("GET", "/api/stats/overview") => Ok(json!({"success": true, "data": s.overview()?})),
             ("GET", "/api/stats/calendar") => Ok(json!({"success": true, "data": s.activity_calendar()?})),
             ("GET", "/api/stats/calendar-words") => Ok(json!({"success": true, "data": s.calendar_words(request.get("date"))?})),
@@ -320,14 +300,7 @@ impl App {
                 let data = s.vocabulary_words(request.get("dimension"), request.get("value"), status, offset as usize, limit as usize)?;
                 Ok(json!({"success": true, "data": data}))
             }
-            ("GET", "/api/stats/word-errors") => {
-                let before_id = request.strict("before_id", 0, "无效的分页参数")?;
-                let limit = request.strict("limit", 50, "无效的分页参数")?;
-                if before_id < 0 || !(1..=200).contains(&limit) {
-                    return Err(ApiError::bad("无效的分页参数"));
-                }
-                Ok(json!({"success": true, "data": s.word_errors(request.get("source_id"), before_id, limit as usize)?}))
-            }
+            ("GET", "/api/stats/word-errors") => Ok(json!({"success": true, "data": s.word_errors(request.get("source_id"))?})),
             ("GET", "/api/settings/server") => Ok(json!({"success": true, "data": self.server_settings()})),
             ("POST", "/api/settings/server") => {
                 let payload: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);

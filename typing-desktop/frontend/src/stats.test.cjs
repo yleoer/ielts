@@ -82,16 +82,46 @@ test('sync shows environment server settings as read-only while allowing synchro
     assert.equal(app.setup.visible, false);
 });
 
-test('sync refresh keeps existing statistics and chart containers visible while reloading', async () => {
-    let finishOverview;
-    const app = harness(() => new Promise(resolve => { finishOverview = resolve; }));
+const statsData = {
+    overview: { current_streak: 1, total_time_minutes: 0.4 },
+    calendar: { today: '2026-02-10', start_date: '2025-08-01', end_date: '2026-07-31', days: [
+        { date: '2026-02-10', practiced: 4, due_count: 2 }, { date: '2026-02-11', practiced: 0, due_count: 4 }] },
+    'recent-activity': { days: Array.from({ length: 30 }, (_, i) => ({
+        date: new Date(Date.UTC(2026, 0, 12 + i)).toISOString().slice(0, 10), words: 0, accuracy: null })) },
+    'vocabulary-progress': { overall: { learned: 5, mastered: 1 }, levels: [], topics: [] }
+};
+const statsGet = url => ({ data: { data: statsData[url.split('/').pop()] } });
+
+test('statistics load together and a refresh keeps the page mounted', async () => {
+    const pending = [];
+    const app = harness(url => new Promise(resolve => pending.push({ url, resolve })));
+    app.renderTrend = app.centerCalendar = () => {};
     app.loading = false;
-    app.loadCalendar = app.loadTrend = app.loadVocabulary = async () => {};
     const refresh = app.afterSync();
     assert.equal(app.loading, false, 'refresh must keep the existing chart container mounted');
-    finishOverview({ data: { data: { total_attempts: 7 } } });
+    assert.deepEqual(pending.map(item => item.url),
+        ['/api/stats/overview', '/api/stats/calendar', '/api/stats/recent-activity', '/api/stats/vocabulary-progress']);
+    for (const { url, resolve } of pending) resolve(statsGet(url));
     await refresh;
-    assert.equal(app.overview.total_attempts, 7);
+    assert.equal(app.today, '2026-02-10');
+    assert.equal(app.calendarFocusDate, '2026-02-10');
+    assert.equal(app.overviewCards[1].value, 5);
+});
+
+test('any failed statistics request shows one page error and retrying reloads everything', async () => {
+    let fail = true;
+    const app = harness(async url => {
+        if (fail && url.endsWith('/vocabulary-progress')) throw new Error('broken');
+        return statsGet(url);
+    });
+    app.renderTrend = app.centerCalendar = () => {};
+    await app.loadAllData();
+    assert.equal(app.loadError, true);
+    assert.equal(app.loading, false);
+    fail = false;
+    await app.loadAllData();
+    assert.equal(app.loadError, false);
+    assert.equal(app.vocabulary.overall.learned, 5);
 });
 
 test('calendar date detail shows every scheduled word and switches history without another request', async () => {
@@ -121,17 +151,18 @@ test('empty calendar dates do not open a dialog or request words', async () => {
     assert.equal(calls, 0);
 });
 
-test('calendar detail distinguishes empty results from failures and supports retry', async () => {
+test('calendar detail distinguishes empty results from failures, and reopening retries', async () => {
     let fail = true;
     const app = harness(async () => {
-        if (fail) throw new Error('offline');
+        if (fail) throw new Error('broken');
         return { data: { data: { practiced: [], due: [] } } };
     });
-    await app.openCalendarWords({ date: '2026-10-30', practiced: 0, due_count: 1 });
-    assert.match(app.detailModal.error, /重试/);
+    const day = { date: '2026-10-30', practiced: 0, due_count: 1 };
+    await app.openCalendarWords(day);
+    assert.match(app.detailModal.error, /无法加载/);
     assert.equal(app.detailModal.loading, false);
     fail = false;
-    await app.loadCalendarWords();
+    await app.openCalendarWords(day);
     assert.equal(app.detailModal.error, '');
     assert.equal(app.detailModal.items.length, 0);
 });
@@ -168,49 +199,48 @@ test('centered calendar covers all leap-year dates and marks the current month o
     assert.equal(app.calendarWeeks.flat().filter(Boolean).map(day => day.date).join(','), days.map(day => day.date).join(','));
 });
 
-test('top metrics count unique learned and mastered words and avoid false zeroes on failure', () => {
+test('top metrics count unique learned and mastered words and show short practice as under a minute', () => {
     const app = harness(async () => {});
     app.overview = { current_streak: 3, total_time_minutes: 125, total_words_practiced: 900 };
+    assert.equal(app.overviewCards[1].value, '—', 'no false zero before the vocabulary loads');
     app.vocabulary = { overall: { learned: 42, mastered: 12 } };
     assert.equal(app.overviewCards.map(card => card.label).join(','), '连续学习,已学习,已掌握,累计时长');
     assert.equal(app.overviewCards.map(card => card.value).join(','), '3,42,12,2.1');
-    app.vocabularyError = true;
-    assert.equal(app.overviewCards[1].value, '—');
+    app.overview = { total_time_minutes: 0.4 };
+    assert.deepEqual([app.overviewCards[3].value, app.overviewCards[3].unit], ['<1', '分钟']);
+    app.overview = { total_time_minutes: 0 };
+    assert.equal(app.overviewCards[3].value, 0);
 });
 
-test('calendar and recent activity load independently and use separate color scales', async () => {
-    const calls = [];
-    const days = Array.from({ length: 30 }, (_, i) => ({
-        date: new Date(Date.UTC(2026, 0, 12 + i)).toISOString().slice(0, 10), words: 0, accuracy: null
-    }));
-    const app = harness(async (url) => {
-        calls.push(url);
-        return { data: { data: url.endsWith('/calendar')
-        ? { today: '2026-02-10', start_date: '2025-08-01', end_date: '2026-07-31', days: [
-            { date: '2026-02-10', practiced: 4, due_count: 2 }, { date: '2026-02-11', practiced: 0, due_count: 4 }] }
-        : { start_date: '2026-01-12', end_date: '2026-02-10', days }
-        } };
-    });
+test('record times read as yesterday, today, tomorrow or a date without seconds', () => {
+    const app = harness(async () => {});
+    const now = Date.parse('2026-11-15T02:00:00Z'); // 10:00 in Beijing
+    assert.equal(app.formatDateTime('2026-11-14T13:05:09Z', now), '昨天 21:05');
+    assert.equal(app.formatDateTime('2026-11-15T13:34:51Z', now), '今天 21:34');
+    assert.equal(app.formatDateTime('2026-11-16T01:00:00Z', now), '明天 09:00');
+    assert.equal(app.formatDateTime('2026-11-20T01:00:00Z', now), '11月20日 09:00');
+    assert.equal(app.formatDateTime('2025-11-20T01:00:00Z', now), '2025年11月20日 09:00');
+});
+
+test('calendar and recent activity use separate color scales', async () => {
+    const app = harness(async url => statsGet(url));
     assert.equal(app.trendRangeLabel, '最近 30 天');
-    app.renderTrend = () => {};
-    await app.loadCalendar();
-    await app.loadTrend();
+    app.renderTrend = app.centerCalendar = () => {};
+    await app.loadAllData();
     assert.equal(app.calendarDayClass(app.calendar.days[0])[0], 'calendar-history-4');
     assert.equal(app.calendarDayClass(app.calendar.days[1])[0], 'calendar-due-4');
-    assert.equal(calls.join(','), '/api/stats/calendar,/api/stats/recent-activity');
     assert.equal(app.trendData.length, 30);
     assert.equal(app.trendRangeLabel, '最近 30 天 · 2026.01.12 — 2026.02.10');
     assert.equal(app.monthLabel, '2026 年 2 月');
-    assert.equal(app.calendarError, false);
-    assert.equal(app.trendError, false);
 });
 
 test('recent activity chart distinguishes months on the axis and keeps zero days without accuracy', () => {
     let option;
+    const container = {};
     const app = harness(async () => {}, {
-        document: { getElementById() { return {}; } }, echarts: {}
+        document: { getElementById() { return container; } }, echarts: {}
     });
-    app.trendChart = { isDisposed() { return false; }, setOption(value) { option = value; } };
+    app.trendChart = { getDom: () => container, setOption(value) { option = value; } };
     app.trendData = [
         { date: '2025-12-31', words: 2, accuracy: 50 },
         { date: '2026-01-01', words: 0, accuracy: null }
@@ -223,43 +253,38 @@ test('recent activity chart distinguishes months on the axis and keeps zero days
     assert.match(option.tooltip.formatter([{ dataIndex: 1 }]), /2026-01-01.*未练习/);
 });
 
-test('optimization history loads pages without replacing newer records', async () => {
+test('optimization history loads the status and every run at once', async () => {
+    const requests = [];
     const app = harness(async (url, options) => {
-        if (url.endsWith('/runs')) {
-            const older = options.params.before_id === 4;
-            return { data: { data: { items: [{ id: older ? 3 : 4 }], next_before_id: older ? null : 4 } } };
-        }
+        requests.push([url, options]);
+        if (url.endsWith('/runs')) return { data: { data: { items: [{ id: 4 }, { id: 3 }] } } };
         return { data: { data: { enabled: true, effective_reviews: 1400, minimum_reviews: 1000 } } };
     });
-    await app.loadOptimization();
+    await app.onOptimizationToggle({ target: { open: true } });
     assert.equal(app.optimization.status.effective_reviews, 1400);
-    assert.equal(app.optimization.items[0].id, 4);
-    await app.loadOptimization(true);
     assert.equal(app.optimization.items.map(item => item.id).join(','), '4,3');
-    assert.equal(app.optimization.nextBeforeId, null);
     assert.equal(app.optimization.loading, false);
+    assert.deepEqual(requests.map(([url, options]) => [url, options]), [['/api/memory/optimization', undefined], ['/api/memory/optimization/runs', undefined]]);
+    await app.onOptimizationToggle({ target: { open: true } });
+    assert.equal(requests.length, 2, 'reopening keeps loaded records');
 });
 
-test('failed history pagination preserves records and cursor for retry', async () => {
-    let fail = false;
-    const app = harness(async (url) => {
-        if (fail) throw new Error('offline');
-        return { data: { data: url.endsWith('/runs') ? { items: [{ id: 4 }], next_before_id: 4 } : {} } };
+test('a failed optimization load shows an error and opening the section again retries', async () => {
+    let fail = true;
+    const app = harness(async url => {
+        if (fail) throw new Error('broken');
+        return { data: { data: url.endsWith('/runs') ? { items: [{ id: 4 }] } : { enabled: true } } };
     });
-    await app.loadOptimization();
-    fail = true;
-    await app.loadOptimization(true);
-    assert.equal(app.optimization.items[0].id, 4);
-    assert.equal(app.optimization.nextBeforeId, 4);
-    assert.match(app.optimization.error, /重试/);
+    await app.onOptimizationToggle({ target: { open: true } });
+    assert.match(app.optimization.error, /无法加载/);
     assert.equal(app.optimization.loading, false);
     fail = false;
-    await app.loadOptimization();
+    await app.onOptimizationToggle({ target: { open: true } });
     assert.equal(app.optimization.error, '');
     assert.equal(app.optimization.items.length, 1);
 });
 
-test('vocabulary detail loads later pages and retries without losing the first page', async () => {
+test('vocabulary detail loads later pages and a failed page can be requested again', async () => {
     let fail = false;
     const offsets = [];
     const app = harness(async (url, { params }) => {
@@ -268,7 +293,7 @@ test('vocabulary detail loads later pages and retries without losing the first p
         assert.equal(params.value, '教育');
         assert.equal(params.status, 'all');
         offsets.push(params.offset);
-        if (fail) throw new Error('offline');
+        if (fail) throw new Error('broken');
         return { data: { data: { items: [{ word: params.offset ? 'second' : 'first' }], total: 2,
             next_offset: params.offset ? null : 1 } } };
     });
@@ -277,12 +302,12 @@ test('vocabulary detail loads later pages and retries without losing the first p
     await app.loadVocabularyWords(true);
     assert.equal(app.detailModal.items[0].word, 'first');
     assert.equal(app.detailModal.nextOffset, 1);
-    assert.equal(app.detailModal.retryAppend, true);
-    assert.match(app.detailModal.error, /重试/);
+    assert.match(app.detailModal.error, /无法加载/);
     fail = false;
-    await app.loadVocabularyWords(app.detailModal.retryAppend);
+    await app.loadVocabularyWords(true);
     assert.equal(app.detailModal.items.map(item => item.word).join(','), 'first,second');
     assert.equal(app.detailModal.nextOffset, null);
+    assert.equal(app.detailModal.error, '');
     assert.equal(offsets.join(','), '0,1,1');
 });
 
@@ -303,60 +328,44 @@ test('switching vocabulary filters resets paging and discards stale responses', 
     assert.equal(app.detailModal.loading, false);
 });
 
-test('empty CEFR levels do not request words and vocabulary failures remain independent', async () => {
+test('empty CEFR levels do not open a dialog or request words', async () => {
     let calls = 0;
-    const app = harness(async () => { calls++; throw new Error('offline'); });
+    const app = harness(async () => { calls++; });
     await app.openVocabularyWords('cefr', { total: 0 });
     assert.equal(calls, 0);
     assert.equal(app.detailModal.visible, false);
-    await app.loadVocabulary();
-    assert.equal(app.vocabularyError, true);
-    assert.equal(app.vocabularyLoading, false);
-    assert.equal(app.loadError, false);
 });
 
-test('word errors expand by source identity, paginate, retry and preserve the containing list', async () => {
-    let fail = false;
-    const cursors = [];
+test('word errors load every record once by source identity and keep the containing list', async () => {
+    const requests = [];
     const app = harness(async (url, { params }) => {
         assert.equal(url, '/api/stats/word-errors');
-        assert.equal(params.source_id, 'stable-source');
-        cursors.push(params.before_id);
-        if (fail) throw new Error('offline');
-        return { data: { data: { items: [{ id: params.before_id ? 3 : 8, user_input: 'wrong' }],
-            correct_attempts: 4, total_attempts: 6, next_before_id: params.before_id ? null : 8 } } };
+        requests.push(params);
+        return { data: { data: { items: [{ id: 8, user_input: 'wrong' }, { id: 3, user_input: 'wrnog' }],
+            correct_attempts: 4, total_attempts: 6 } } };
     });
-    const item = { id: 999, source_id: 'stable-source', word: 'same-spelling', total_attempts: 6 };
+    const item = { id: 999, source_id: 'stable-source', word: 'same-spelling', total_attempts: 5 };
     app.detailModal.items = [item];
     await app.toggleWordErrors(item);
     assert.equal(item.errorHistory.expanded, true);
+    assert.equal(item.errorHistory.items.map(row => row.id).join(','), '8,3');
     assert.equal(item.correct_attempts, 4);
     assert.equal(item.total_attempts, 6);
     await app.toggleWordErrors(item);
     await app.toggleWordErrors(item);
-    assert.equal(cursors.length, 1);
-    fail = true;
-    await app.loadWordErrors(item, true);
-    assert.equal(item.errorHistory.items[0].id, 8);
-    assert.equal(item.errorHistory.nextBeforeId, 8);
-    assert.equal(item.errorHistory.retryAppend, true);
-    fail = false;
-    await app.loadWordErrors(item, item.errorHistory.retryAppend);
-    assert.equal(item.errorHistory.items.map(row => row.id).join(','), '8,3');
-    assert.equal(item.errorHistory.nextBeforeId, null);
+    assert.deepEqual(requests.map(params => ({ ...params })), [{ source_id: 'stable-source' }]);
     assert.equal(app.detailModal.items[0], item);
-    assert.equal(cursors.join(','), '0,8,8');
 });
 
-test('word errors keep zero-history and request failure distinct, without mixing sources', async () => {
+test('word errors keep zero-history and failures apart, and expanding again retries', async () => {
     let fail = true;
-    const app = harness(async (url, { params }) => {
-        if (fail) throw new Error('offline');
-        return { data: { data: { items: [], correct_attempts: 0, total_attempts: 0, next_before_id: null } } };
+    const app = harness(async () => {
+        if (fail) throw new Error('broken');
+        return { data: { data: { items: [], correct_attempts: 0, total_attempts: 0 } } };
     });
     const first = { source_id: 'first', total_attempts: 1 }, second = { source_id: 'second', total_attempts: 1 };
     await app.toggleWordErrors(first);
-    assert.match(first.errorHistory.error, /重试/);
+    assert.match(first.errorHistory.error, /无法加载/);
     assert.equal(first.errorHistory.loaded, false);
     fail = false;
     await app.toggleWordErrors(second);
@@ -364,7 +373,8 @@ test('word errors keep zero-history and request failure distinct, without mixing
     assert.equal(second.errorHistory.items.length, 0);
     assert.equal(second.errorHistory.error, '');
     assert.equal(first.errorHistory.loaded, false);
-    await app.loadWordErrors(first);
+    await app.toggleWordErrors(first);
+    await app.toggleWordErrors(first);
     assert.equal(first.errorHistory.loaded, true);
     assert.equal(first.errorHistory.error, '');
 });

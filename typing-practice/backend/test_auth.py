@@ -31,10 +31,9 @@ class TokenTest(unittest.TestCase):
         ok = self.client.post("/api/sync", headers={"Authorization": "Bearer 测试-token"}, json={"device_id": "d"})
         self.assertEqual(ok.status_code, 200)
 
-    def test_token_comes_from_environment_and_old_password_still_protects(self):
+    def test_token_comes_from_environment(self):
         with patch("config.load_dotenv"), patch("config.default_anki_db_path", return_value=""):
-            for env, expected in (({}, ""), ({"ACCESS_PASSWORD": "old"}, "old"),
-                                  ({"ACCESS_TOKEN": " new ", "ACCESS_PASSWORD": "old"}, "new")):
+            for env, expected in (({}, ""), ({"ACCESS_TOKEN": " new "}, "new")):
                 with self.subTest(env=env), patch.dict("os.environ", env, clear=True):
                     self.assertEqual(load_config().access_token, expected)
 

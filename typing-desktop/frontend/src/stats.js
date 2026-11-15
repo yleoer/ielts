@@ -9,20 +9,14 @@ createApp({
             loadError: false,
             overview: {},
             calendar: null,
-            calendarLoading: false,
-            calendarError: false,
             calendarFocusDate: '',
-            optimization: { status: null, items: [], nextBeforeId: null, loading: false, error: '' },
+            optimization: { status: null, items: [], loading: false, error: '' },
             vocabulary: null,
-            vocabularyLoading: false,
-            vocabularyError: false,
             vocabularyFilters: [
                 { value: 'all', label: '全部' }, { value: 'new', label: '未开始' },
                 { value: 'learning', label: '学习中' }, { value: 'mastered', label: '已掌握' }
             ],
             today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
-            trendLoading: false,
-            trendError: false,
             trendData: [],
             trendChart: null,
             detailModal: {
@@ -47,8 +41,8 @@ createApp({
             const minutes = o.total_time_minutes || 0;
             const time = minutes >= 60
                 ? { value: (minutes / 60).toFixed(1), unit: '小时' }
-                : { value: Math.round(minutes), unit: '分钟' };
-            const totals = !this.vocabularyError && this.vocabulary?.overall;
+                : { value: minutes > 0 && minutes < 1 ? '<1' : Math.round(minutes), unit: '分钟' };
+            const totals = this.vocabulary?.overall;
             return [
                 { label: '连续学习', value: o.current_streak || 0, unit: '天' },
                 { label: '已学习', value: totals ? totals.learned : '—', unit: '词' },
@@ -107,17 +101,6 @@ createApp({
         document.addEventListener('visibilitychange', () => { if (document.hidden) this.stopWordAudio(); });
 
         window.addEventListener('resize', () => this.trendChart?.resize());
-        window.addEventListener('keydown', (event) => {
-            if (event.key === 'Tab' && this.detailModal.visible) {
-                const nodes = [...document.querySelectorAll('.detail-dialog button:not(:disabled), .detail-dialog [tabindex="0"]')];
-                const first = nodes[0], last = nodes[nodes.length - 1];
-                if (event.shiftKey && document.activeElement === first) {
-                    event.preventDefault(); last?.focus();
-                } else if (!event.shiftKey && document.activeElement === last) {
-                    event.preventDefault(); first?.focus();
-                }
-            }
-        });
     },
     methods: {
         ...workspaceControls.methods,
@@ -127,75 +110,45 @@ createApp({
         },
         async afterSync() { await this.loadAllData({ refresh: true }); },
         ...wordAudio,
+        // The core reads local SQLite in milliseconds, so the page loads and fails as a whole.
         async loadAllData({ refresh = false } = {}) {
             if (!refresh) this.loading = true;
             this.loadError = false;
             try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/overview`);
-                this.overview = response.data.data;
+                const get = async path => (await axios.get(`${this.apiBaseUrl}/stats/${path}`)).data.data;
+                const [overview, calendar, trend, vocabulary] = await Promise.all(
+                    [get('overview'), get('calendar'), get('recent-activity'), get('vocabulary-progress')]);
+                Object.assign(this, { overview, calendar, vocabulary, trendData: trend.days,
+                    today: calendar.today, calendarFocusDate: calendar.today });
             } catch (error) {
-                this.loading = false;
                 this.loadError = true;
                 return;
-            }
-
-            this.loading = false;
-            await this.$nextTick();
-            await Promise.allSettled([this.loadCalendar(), this.loadTrend(), this.loadVocabulary()]);
-        },
-
-        async loadCalendar() {
-            this.calendarLoading = true;
-            this.calendarError = false;
-            try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/calendar`);
-                this.calendar = response.data.data;
-                this.today = this.calendar.today;
-                this.calendarFocusDate = this.today;
-            } catch (error) {
-                this.calendarError = true;
             } finally {
-                this.calendarLoading = false;
+                this.loading = false;
             }
             await this.$nextTick();
             this.centerCalendar();
-        },
-
-        async loadTrend() {
-            this.trendLoading = true;
-            this.trendError = false;
-            try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/recent-activity`);
-                this.trendData = response.data.data.days;
-            } catch (error) {
-                this.trendError = true;
-            } finally {
-                this.trendLoading = false;
-            }
-            await this.$nextTick();
             this.renderTrend();
         },
 
         onOptimizationToggle(event) {
-            if (event.target.open && !this.optimization.status) this.loadOptimization();
+            if (event.target.open && !this.optimization.status) return this.loadOptimization();
         },
 
-        async loadOptimization(append = false) {
+        async loadOptimization() {
             const state = this.optimization;
-            if (state.loading || (append && !state.nextBeforeId)) return;
+            if (state.loading) return;
             state.loading = true;
             state.error = '';
             try {
-                const params = { limit: 10, before_id: append ? state.nextBeforeId : 0 };
-                const [status, history] = await Promise.all([
+                const [status, runs] = await Promise.all([
                     axios.get(`${this.apiBaseUrl}/memory/optimization`),
-                    axios.get(`${this.apiBaseUrl}/memory/optimization/runs`, { params })
+                    axios.get(`${this.apiBaseUrl}/memory/optimization/runs`)
                 ]);
                 state.status = status.data.data;
-                state.items = append ? [...state.items, ...history.data.data.items] : history.data.data.items;
-                state.nextBeforeId = history.data.data.next_before_id;
+                state.items = runs.data.data.items;
             } catch (error) {
-                state.error = '无法加载参数优化记录，请检查连接后重试。';
+                state.error = '无法加载参数优化记录。';
             } finally {
                 state.loading = false;
             }
@@ -207,7 +160,7 @@ createApp({
             if (status.effective_reviews < status.minimum_reviews) {
                 return `已积累 ${status.effective_reviews} / ${status.minimum_reviews} 条有效间隔复习，达到门槛后自动评估。`;
             }
-            return status.next_evaluation_at ? `下次评估：${this.formatDue(status.next_evaluation_at)}` : '已达到门槛，等待后台评估。';
+            return status.next_evaluation_at ? `下次评估：${this.formatDateTime(status.next_evaluation_at)}` : '已达到门槛，等待后台评估。';
         },
 
         optimizationOutcome(status) {
@@ -217,23 +170,6 @@ createApp({
 
         formatMetric(value) {
             return value == null ? '—' : value.toFixed(4);
-        },
-
-        formatDue(value) {
-            return value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '尚未安排';
-        },
-
-        async loadVocabulary() {
-            this.vocabularyLoading = true;
-            this.vocabularyError = false;
-            try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/vocabulary-progress`);
-                this.vocabulary = response.data.data;
-            } catch (error) {
-                this.vocabularyError = true;
-            } finally {
-                this.vocabularyLoading = false;
-            }
         },
 
         progressPercent(group, key) {
@@ -309,35 +245,25 @@ createApp({
 
         toggleWordErrors(item) {
             if (!item.total_attempts) return;
-            if (!item.errorHistory) {
-                item.errorHistory = { expanded: false, loaded: false, loading: false, error: '',
-                    items: [], nextBeforeId: null, retryAppend: false };
-            }
+            if (!item.errorHistory) item.errorHistory = { expanded: false, loaded: false, loading: false, error: '', items: [] };
             const history = item.errorHistory;
             history.expanded = !history.expanded;
+            // Collapsing and expanding again retries a failed load.
             if (history.expanded && !history.loaded && !history.loading) return this.loadWordErrors(item);
         },
 
-        async loadWordErrors(item, append = false) {
+        async loadWordErrors(item) {
             const history = item.errorHistory;
-            if (history.loading || (append && history.nextBeforeId == null)) return;
             history.loading = true;
             history.error = '';
             try {
-                const response = await axios.get(`${this.apiBaseUrl}/stats/word-errors`, {
-                    params: { source_id: item.source_id, before_id: append ? history.nextBeforeId : 0, limit: 50 }
-                });
-                const data = response.data.data;
-                const records = data.items.map(record => ({ ...record,
-                    inputSegments: this.highlightInput(record.word, record.user_input) }));
-                history.items = append ? [...history.items, ...records] : records;
-                history.nextBeforeId = data.next_before_id;
+                const data = (await axios.get(`${this.apiBaseUrl}/stats/word-errors`, { params: { source_id: item.source_id } })).data.data;
+                history.items = data.items.map(record => ({ ...record, inputSegments: this.highlightInput(record.word, record.user_input) }));
                 history.loaded = true;
                 item.correct_attempts = data.correct_attempts;
                 item.total_attempts = data.total_attempts;
             } catch (error) {
-                history.error = '无法加载答错记录，请检查连接后重试。';
-                history.retryAppend = append;
+                history.error = '无法加载答错记录。';
             } finally {
                 history.loading = false;
             }
@@ -346,7 +272,9 @@ createApp({
         renderTrend() {
             const container = document.getElementById('trend-chart');
             if (!container || this.trendEmpty) return;
-            if (!this.trendChart) {
+            // A failed load replaces the page, so a retry gets a fresh container.
+            if (this.trendChart?.getDom() !== container) {
+                this.trendChart?.dispose();
                 // ECharts owns a mutable object graph; Vue proxies break resize layout.
                 this.trendChart = Vue.markRaw(echarts.init(container));
             }
@@ -521,7 +449,7 @@ createApp({
                 }
                 modal.items = modal.calendarGroups[modal.calendarMode];
             } catch (error) {
-                modal.error = '无法加载这一天的单词，请检查连接后重试。';
+                modal.error = '无法加载这一天的单词。';
             } finally {
                 modal.loading = false;
             }
@@ -564,10 +492,7 @@ createApp({
                 modal.total = data.total;
                 modal.nextOffset = data.next_offset;
             } catch (error) {
-                if (modal.request === request) {
-                    modal.error = '无法加载单词，请检查连接后重试。';
-                    modal.retryAppend = append;
-                }
+                if (modal.request === request) modal.error = '无法加载单词。';
             } finally {
                 if (modal.request === request) modal.loading = false;
             }

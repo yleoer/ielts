@@ -60,7 +60,7 @@ python3 check_image.py yleoer/ielts-typing-practice:提交SHA --pull
 
 脚本使用镜像原本的 CMD / ENTRYPOINT 启动应用，不额外挂载源码，能发现 `ledger.py`、`auth.py` 等文件漏打包的问题。两份 Dockerfile 都自动复制后端 `*.py`，通过 `.dockerignore` 排除 `test_*.py`，并在构建时执行 `import app` 提前发现导入错误。
 
-每次检查创建随机命名的容器，使用 `--network none`，不映射端口、不挂载宿主目录。通过 `docker exec` 从容器内访问回环地址；作答日志写入 `/tmp/image-check/stats.db`，Anki 路径指向不存在的临时文件，`ACCESS_TOKEN` / `ACCESS_PASSWORD` 为空，Anki 定时复制关闭，不读取生产 `.env`。
+每次检查创建随机命名的容器，使用 `--network none`，不映射端口、不挂载宿主目录。通过 `docker exec` 从容器内访问回环地址；作答日志写入 `/tmp/image-check/stats.db`，Anki 路径指向不存在的临时文件，`ACCESS_TOKEN` 为空，Anki 定时复制关闭，不读取生产 `.env`。
 
 检查项包括：
 

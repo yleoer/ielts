@@ -43,9 +43,9 @@ curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://127.0.0.1:8080/api/voc
 
 本版本移除了网页练习、统计页、插图接口和服务端 FSRS。在实际部署目录完成以下准备：
 
-1. 在 `.env` 中设置 `ACCESS_TOKEN`（建议使用新的长随机值），并在各桌面端配置相同令牌。未设置时沿用旧的 `ACCESS_PASSWORD`，不会因升级而开放访问。
+1. 在 `.env` 中设置 `ACCESS_TOKEN`（建议使用新的长随机值），并在各桌面端配置相同令牌。未设置时不鉴权。
 2. 同步最新版 `docker-compose.yml`，或在自有 Compose 文件中为 `typing-practice` 服务传入 `ACCESS_TOKEN`。`anki-media` 挂载与 `ANKI_MEDIA_DIR`、全部 `FSRS_*` 变量已不再使用，可以删除；保留也会被忽略。`data/anki-media/` 目录可在确认不再需要后自行清理。
-3. 保留 `data/stats/`。首次启动时，`stats.db` 中网页版的 `word_reviews` 会一次性导入作答日志（迁移记录 `web-history-v1`），桌面端首次同步后即可得到原有记忆与统计。旧表原样保留，不会删除；`fsrs-optimization/` 与 `.access-secret` 不再使用。
+3. 保留 `data/stats/`。网页版历史已在早期版本导入作答日志，旧表原样保留但不再读取；`fsrs-optimization/` 与 `.access-secret` 不再使用。
 4. 等待目标版本镜像构建完成，再设置 `.env` 中的 `TYPING_PRACTICE_IMAGE_TAG`。自动部署会填写提交 SHA；手动部署可填写已发布的 SHA 或 `latest`。
 
 在包含 Compose 文件和 `.env` 的目录中执行：
@@ -66,8 +66,7 @@ GitHub Actions 自动部署仅修改镜像标签、拉取镜像和重建练习�
 
 - `/api/vocab` 返回 503：缓存数据库不存在或不可读，检查同步目录与挂载；同步延迟通常只是初始等待时间未过。
 - 词数为 0：检查 Anki 中是否已导入并同步 Word Atlas 牌组，以及 `ANKI_DECK_NAME` / `ANKI_DECK_ID`。
-- 401：桌面端令牌与 `ACCESS_TOKEN`（或旧 `ACCESS_PASSWORD`）不一致。
-- 历史未出现在桌面端：确认 `STATS_DB_PATH` 指向原 `stats.db`，并检查 `ledger_migrations` 表中的 `web-history-v1` 记录（`detail` 含导入条数）。
+- 401：桌面端令牌与 `ACCESS_TOKEN` 不一致。
 
 ## 相关文档
 

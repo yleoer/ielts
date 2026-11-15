@@ -30,9 +30,8 @@ services:
       TZ: "${TZ:-Asia/Shanghai}"
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8080
-      # 桌面端访问令牌；未设置时沿用旧的 ACCESS_PASSWORD
+      # 桌面端访问令牌；为空则不鉴权
       ACCESS_TOKEN: "${ACCESS_TOKEN:-}"
-      ACCESS_PASSWORD: "${ACCESS_PASSWORD:-}"
       ANKI_DB_PATH: /app/anki-cache/collection.anki2
       ANKI_SYNC_SOURCE_DIR: /app/anki-sync
       ANKI_SYNC_TARGET: /app/anki-cache/collection.anki2
