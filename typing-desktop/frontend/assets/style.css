@@ -159,6 +159,8 @@ ul { margin: 0; padding: 0; list-style: none; }
 .loading-skeleton span { height: 12px; border-radius: 999px; background: var(--soft); }
 .loading-skeleton span:nth-child(2) { width: 75%; }
 .loading-skeleton span:nth-child(3) { width: 90%; }
+/* The results sheet takes focus only so the keyboard can scroll it; no ring on the container. */
+.results-sheet:focus { outline: none; }
 .result-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
 .result-heading h2 { font-size: 22px; }
 .result-heading .state-icon { width: 24px; height: 24px; }
