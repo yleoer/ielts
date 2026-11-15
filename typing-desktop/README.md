@@ -82,6 +82,18 @@ node typing-desktop\scripts\cdp.mjs eval "document.title"
 node typing-desktop\scripts\cdp.mjs shot practice.png
 ```
 
+### 在 Linux 上开发调试
+
+发布只面向 Windows，但 Linux 上也能编译运行，用来检查页面。Ubuntu 需先安装 Tauri 2 的系统依赖（WebKitGTK、托盘用的 appindicator 等）：
+
+```bash
+sudo apt install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+python3 typing-desktop/scripts/build_frontend.py
+cd typing-desktop && CIJIAN_DATA_DIR=/tmp/cijian-dev cargo run -p cijian
+```
+
+Linux 上页面地址是 `cijian://localhost/`，渲染引擎为 WebKitGTK，与 Windows 的 WebView2（Chromium）在字体和细节上略有差异；`CIJIAN_DEVTOOLS_PORT` 只对 WebView2 生效。前端接口地址必须写成相对路径 `/api`：Axios 遇到 `cijian:` 开头的绝对地址会直接报 `Unsupported protocol`，请求不会发出。
+
 ## FSRS 对照基准
 
 在仓库根目录用 py-fsrs 和 `scripts/srs_reference.py`（原网页版 `srs.py`，仅作参考实现）生成 Rust 实现的比对数据（输出可复现；依赖见 `scripts/requirements.txt`，`.venv` 已带）：

@@ -84,7 +84,7 @@ test('resource installation refreshes URLs without replacing the active question
     h.context.axios.get = async () => ({ data: { data: { phase: 'ready', id: 'package', installed: true, busy: false } } });
     let requests = 0;
     h.context.axios.post = async (url, payload) => {
-        assert.equal(url, 'http://test/api/resources/urls');
+        assert.equal(url, '/api/resources/urls');
         assert.deepEqual(Array.from(payload.ids), [41]);
         requests++;
         return { data: { data: [{ id: 41, illustration_url: '/api/media/41/illustration?v=new', audio_urls: {} }] } };
@@ -103,7 +103,7 @@ test('settings load resources without reading the server and pause practice unti
     h.app.clockStartedAt = 0;
     h.tick(1000);
     h.context.axios.get = async url => {
-        assert.equal(url, 'http://test/api/resources/status');
+        assert.equal(url, '/api/resources/status');
         return { data: { data: { installed: false, phase: 'idle', busy: false } } };
     };
     await h.app.openSettings();
@@ -184,7 +184,7 @@ test('an interrupted local import can be cancelled', async () => {
     h.context.axios.get = async () => ({ data: { data: { phase: 'idle', busy: false } } });
     h.app.resources.status = { phase: 'uploading', id: 'interrupted', busy: true };
     await h.app.cancelResourceUpload();
-    assert.equal(calls[0], 'http://test/api/resources/cancel?id=interrupted');
+    assert.equal(calls[0], '/api/resources/cancel?id=interrupted');
     assert.equal(h.app.resourceBusy, false);
 });
 
@@ -205,10 +205,10 @@ test('resource settings upload in chunks without requiring server settings', asy
     assert.equal(h.app.resources.status.installed, true);
     assert.equal(target.value, '');
     assert.deepEqual(calls, [
-        'http://test/api/resources/upload',
-        'http://test/api/resources/chunk?id=package&offset=0',
-        'http://test/api/resources/chunk?id=package&offset=4',
-        'http://test/api/resources/finish?id=package'
+        '/api/resources/upload',
+        '/api/resources/chunk?id=package&offset=0',
+        '/api/resources/chunk?id=package&offset=4',
+        '/api/resources/finish?id=package'
     ]);
 });
 
