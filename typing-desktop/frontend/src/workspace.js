@@ -61,9 +61,9 @@ const workspaceControls = {
             window.__TAURI__.event.listen('cijian-window-hidden', () => {
                 this.stopWordAudio?.();
                 this.pauseClock?.();
-                this.saveDraftSession?.();
+                this.closeResults?.();
             });
-            window.__TAURI__.event.listen('cijian-window-shown', () => this.resumeClock?.());
+            window.__TAURI__.event.listen('cijian-window-shown', () => { this.resumeClock?.(); this.checkPlan?.(); });
         },
         handleDesktopShortcut(event) {
             const ctrl = event.ctrlKey || event.metaKey;
@@ -131,7 +131,6 @@ const workspaceControls = {
                     if (event.event === 'Started') this.updates.total = event.data.contentLength || 0;
                     if (event.event === 'Progress') this.updates.downloaded += event.data.chunkLength;
                 });
-                this.saveDraftSession?.();
                 this.updates.phase = 'installing';
                 // On Windows the updater exits this process and the installer restarts it.
                 await this.updates.available.install();
@@ -364,6 +363,17 @@ const workspaceControls = {
             }
         },
 
+        // Beijing time without seconds: 今天 / 明天 / 昨天 21:34, otherwise the date (with the year when it differs).
+        formatDateTime(value, now = Date.now()) {
+            const time = new Date(value);
+            const zone = { timeZone: 'Asia/Shanghai' };
+            const dayOf = offset => new Date(now + offset * 86400000).toLocaleDateString('zh-CN', zone);
+            const named = { [dayOf(-1)]: '昨天', [dayOf(0)]: '今天', [dayOf(1)]: '明天' }[time.toLocaleDateString('zh-CN', zone)];
+            const year = date => date.toLocaleDateString('zh-CN', { ...zone, year: 'numeric' });
+            const date = named || time.toLocaleDateString('zh-CN', { ...zone, month: 'long', day: 'numeric',
+                ...(year(time) === year(new Date(now)) ? {} : { year: 'numeric' }) });
+            return `${date} ${time.toLocaleTimeString('zh-CN', { ...zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`;
+        },
         formatSyncTime(value) {
             return value ? new Date(value).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' }) : '暂无';
         },

@@ -45,9 +45,9 @@ Highlights:
 
 - Chinese meaning prompt with English spelling input.
 - Automatic Again/Hard/Good/Easy grades from correctness and 6/20-second thresholds.
-- Draft and pending-answer recovery, with idempotent submissions across retries.
+- Each answer is saved locally right away; a failed save can be retried in place without counting twice.
 - Same-session mistake review that does not affect historical statistics.
-- Next-review time and optional free practice when nothing is due.
+- When nothing is due: next-review time with a countdown, a Start button once words are due, and optional free practice.
 - Automatic background parameter optimization after 1,000 effective reviews, followed by monthly evaluations.
 - Offline practice; syncs at startup, every 10 minutes and on demand.
 

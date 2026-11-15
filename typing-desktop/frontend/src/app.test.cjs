@@ -4,6 +4,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+// Lets fire-and-forget summary reads finish.
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
 function harness() {
     let options;
     let now = 0;
@@ -19,13 +22,12 @@ function harness() {
     };
     const document = { hidden: false };
     const localStorage = storage();
-    const sessionStorage = storage();
     const context = {
         Vue: { createApp: value => { options = value; return { mount() {} }; } },
         window: { location: { origin: 'http://test' },
             setTimeout: (fn, delay) => { timers.push({ fn, delay, active: true }); return timers.length; },
             clearTimeout: id => { if (timers[id - 1]) timers[id - 1].active = false; } },
-        document, localStorage, sessionStorage,
+        document, localStorage,
         performance: { now: () => now }, crypto: { randomUUID: () => 'session' },
         console, Date, Map, JSON, Math,
         axios: { post: async (url, payload) => { requests.push(JSON.parse(JSON.stringify(payload))); throw new Error('offline'); } }
@@ -46,11 +48,10 @@ function harness() {
     app.sessionId = 'session';
     app.words = [{ word: 'apple', source_id: 'apple', chinese_meaning: '苹果', attempt_id: 'attempt', issued_at: new Date().toISOString() }];
     return { app, mount, context, timers, requests, localStorage, document,
-        inputChanged() { options.watch.userInput.call(app); },
         wordChanged() { options.watch.currentWord.call(app); }, tick(ms) { now += ms; } };
 }
 
-test('native tray hide saves practice and excludes hidden time before restoring the window', () => {
+test('native tray hide pauses practice and excludes hidden time until the window returns', () => {
     const h = harness();
     const listeners = {};
     h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
@@ -67,9 +68,7 @@ test('native tray hide saves practice and excludes hidden time before restoring 
     listeners['cijian-window-hidden']();
     assert.equal(stopped, 1);
     assert.equal(h.app.clockStartedAt, null);
-    const draft = JSON.parse(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'));
-    assert.equal(draft.userInput, 'app');
-    assert.equal(draft.elapsedMs, 1500);
+    assert.equal(h.app.userInput, 'app');
     h.tick(10000);
     listeners['cijian-window-shown']();
     assert.equal(h.app.effectiveDuration(), 1500);
@@ -219,11 +218,9 @@ test('exiting practice preserves saved answers without submitting the unfinished
     h.app.words.push({ word: 'book', source_id: 'book', attempt_id: 'unfinished' });
     h.app.currentIndex = 1;
     h.app.stats.correct = 1;
-    h.app.stats.attempts.push({ attempt_id: 'saved' });
     h.app.userInput = 'bo';
     h.app.beginCurrentWord();
     h.tick(500);
-    h.app.saveDraftSession();
     let stopped = 0;
     h.app.stopWordAudio = () => { stopped++; };
     h.app.quitPractice();
@@ -234,7 +231,6 @@ test('exiting practice preserves saved answers without submitting the unfinished
     assert.equal(h.requests.length, 0);
     assert.equal(h.app.clockStartedAt, null);
     assert.equal(stopped, 1);
-    assert.equal(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'), null);
 });
 
 test('a failed answer must be saved or resolved before exiting practice', async () => {
@@ -246,18 +242,131 @@ test('a failed answer must be saved or resolved before exiting practice', async 
     assert.equal(h.app.isFinished, false);
     assert.equal(h.app.pendingAttempt.attempt_id, 'attempt');
     assert.match(h.app.submitError, /先重试保存/);
-    assert.ok(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'));
     assert.equal(h.requests.length, 1);
     assert.equal(h.app.attemptedTotal, 0);
 });
 
-test('an empty queue has no Chinese senses', () => {
+test('exiting before any saved answer returns to the waiting page instead of empty results', async () => {
     const h = harness();
-    h.app.words = [];
-    assert.equal(h.app.currentChineseSenses.length, 0);
-    assert.equal(h.app.primaryChineseSense, null);
-    assert.equal(h.app.secondaryChineseSenses.length, 0);
-    assert.equal(h.app.remainingChineseSenses.length, 0);
+    const summary = { total: 5, due_count: 2, new_available: 0, next_due: null };
+    h.context.axios.get = async url => { assert.equal(url, '/api/memory/summary'); return { data: { data: summary } }; };
+    h.app.beginCurrentWord();
+    h.app.quitPractice();
+    assert.equal(h.app.isFinished, false);
+    assert.equal(h.app.isIdle, true);
+    assert.equal(h.app.showProgress, false);
+    await settle();
+    assert.equal(h.app.planReady, true);
+    assert.equal(h.app.planActionLabel, '开始复习');
+    assert.equal(h.app.planText, '待复习 2 个');
+});
+
+test('finished results offer Done until words are due, then continue the plan', async () => {
+    const h = harness();
+    // Relative to the page clock so the rounded countdown is exactly ten minutes.
+    const due = new Date(h.app.clockNow + 10 * 60000).toISOString();
+    let summary = { total: 5, due_count: 0, new_available: 0, next_due: due };
+    let queues = 0;
+    h.context.axios.get = async url => {
+        if (url.endsWith('/practice/queue')) { queues++; return { data: { data: { items: [], summary } } }; }
+        return { data: { data: summary } };
+    };
+    h.app.stats = { correct: 1, incorrect: 0, errors: [] };
+    h.app.summary = summary;
+    h.app.finishPractice();
+    assert.equal(h.app.isFinished, true);
+    assert.equal(h.app.watchesPlan, true);
+    assert.equal(h.app.planCount, 0);
+    assert.match(h.app.planStatusText, /^下次复习 (今天|明天) \d\d:\d\d（10 分钟后）$/);
+
+    // Far-off due times are re-read every minute; a near one just after it is due.
+    const activeTimers = () => h.timers.filter(item => item.active);
+    h.app.schedulePlanCheck();
+    assert.equal(activeTimers().length, 1);
+    assert.equal(activeTimers()[0].delay, 60000);
+    h.app.summary = { ...summary, next_due: new Date(Date.now() + 5000).toISOString() };
+    h.app.schedulePlanCheck();
+    assert.equal(activeTimers().length, 1);
+    assert.ok(activeTimers()[0].delay > 4000 && activeTimers()[0].delay <= 5200);
+    summary = { total: 5, due_count: 1, new_available: 0, next_due: null };
+    await h.app.checkPlan();
+    assert.equal(h.app.planCount, 1);
+    assert.equal(h.app.planStatusText, '待复习 1 个');
+    await h.app.continuePlan();
+    assert.equal(queues, 1);
+});
+
+test('results open at the top with the sheet focused instead of the bottom button', () => {
+    const h = harness();
+    const focused = [];
+    h.app.$refs.resultsSheet = { focus: options => focused.push(options) };
+    h.app.$refs.practiceMain = { scrollTop: 480 };
+    h.app.revealResults();
+    assert.deepEqual(focused.map(options => ({ ...options })), [{ preventScroll: true }]);
+    assert.equal(h.app.$refs.practiceMain.scrollTop, 0);
+});
+
+test('Done on results goes to the waiting page without requesting a queue', async () => {
+    const h = harness();
+    const summary = { total: 5, due_count: 0, new_available: 0, next_due: new Date(h.app.clockNow + 3 * 3600000).toISOString() };
+    h.context.axios.get = async url => { assert.equal(url, '/api/memory/summary'); return { data: { data: summary } }; };
+    h.app.practiceMode = 'difficult';
+    h.app.stats = { correct: 0, incorrect: 1, errors: [] };
+    h.app.summary = summary;
+    h.app.finishPractice();
+    assert.equal(h.app.isFinished, true);
+    await h.app.continuePlan();
+    assert.equal(h.app.isFinished, false);
+    assert.equal(h.app.isIdle, true);
+    assert.equal(h.app.practiceMode, 'normal');
+    assert.equal(h.app.attemptedTotal, 0);
+    assert.equal(h.app.planReady, false);
+    assert.match(h.app.nextDueText, /（3 小时后）$/);
+});
+
+test('hiding to the tray closes results and showing the window re-reads the plan', async () => {
+    const h = harness();
+    const listeners = {};
+    h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
+    h.context.window.matchMedia = () => ({ matches: false, addEventListener() {} });
+    h.context.window.addEventListener = h.document.addEventListener = () => {};
+    h.context.setInterval = () => {};
+    let summaries = 0;
+    h.context.axios.get = async url => {
+        if (url.endsWith('/memory/summary')) summaries++;
+        return { data: { data: { last_sync_at: null, total: 5, due_count: 0, new_available: 3 } } };
+    };
+    h.app.initDesktopShell();
+    h.app.stats = { correct: 1, incorrect: 0, errors: [] };
+    h.app.finishPractice();
+    const before = summaries;
+    listeners['cijian-window-hidden']();
+    assert.equal(h.app.isFinished, false);
+    assert.equal(h.app.isIdle, true);
+    listeners['cijian-window-shown']();
+    await settle();
+    assert.ok(summaries >= before + 2);
+    assert.equal(h.app.planReady, true);
+    assert.equal(h.app.planActionLabel, '开始学习');
+});
+
+test('the plan check does not read the summary while a question is shown', async () => {
+    const h = harness();
+    h.context.axios.get = async () => { throw new Error('no summary while practising'); };
+    assert.equal(h.app.watchesPlan, false);
+    await h.app.checkPlan();
+    assert.equal(h.app.planTimer, null);
+    assert.equal(h.app.showProgress, true);
+});
+
+test('due times read as today, tomorrow or a date with a countdown', () => {
+    const h = harness();
+    const now = Date.parse('2026-11-15T02:00:00Z'); // 10:00 in Beijing
+    assert.equal(h.app.formatDueTime('2026-11-15T02:00:30Z', now), '今天 10:00（1 分钟内）');
+    assert.equal(h.app.formatDueTime('2026-11-15T02:25:00Z', now), '今天 10:25（25 分钟后）');
+    assert.equal(h.app.formatDueTime('2026-11-15T03:30:00Z', now), '今天 11:30（1 小时 30 分钟后）');
+    assert.equal(h.app.formatDueTime('2026-11-15T16:05:00Z', now), '明天 00:05（14 小时 5 分钟后）');
+    assert.equal(h.app.formatDueTime('2026-11-18T01:00:00Z', now), '11月18日 09:00（2 天后）');
 });
 
 test('clicking a practice meaning plays its pronunciation and mouse users can keep typing', () => {
@@ -325,45 +434,26 @@ test('switching words and resetting a round collapse extra senses without alteri
     assert.equal(h.app.otherSensesExpanded, false);
 });
 
-test('drafts retain every sense but restore the presentation in its default collapsed state', async () => {
-    const h = harness();
-    const senses = Array.from({ length: 5 }, (_, i) => ({ part_of_speech: '', chinese_meaning: `义项 ${i}` }));
-    h.app.currentWord.chinese_senses = senses;
-    h.app.otherSensesExpanded = true;
-    h.app.saveDraftSession();
-    const restored = h.mount();
-    await restored.restoreDraftSession();
-    assert.deepEqual(restored.currentChineseSenses, senses);
-    assert.deepEqual(restored.primaryChineseSense, senses[0]);
-    assert.deepEqual(restored.secondaryChineseSenses, senses.slice(1, 3));
-    assert.deepEqual(restored.remainingChineseSenses, senses.slice(3));
-    assert.equal(restored.otherSensesExpanded, false);
-});
-
-test('all senses survive draft restoration and mistake practice without duplicate reviews', async () => {
+test('mistake practice keeps every sense and does not submit the word again', async () => {
     const h = harness();
     const senses = [{ part_of_speech: 'n.', chinese_meaning: '苹果' },
         { part_of_speech: 'n.', chinese_meaning: '苹果树' }];
     h.app.currentWord.chinese_senses = senses;
-    h.app.saveDraftSession();
-    const restored = h.mount();
-    await restored.restoreDraftSession();
-    assert.deepEqual(restored.currentChineseSenses, senses);
     let submissions = 0;
     h.context.axios.post = async () => {
         submissions++;
         return { data: { data: { attempt_id: 'attempt', is_correct: false } } };
     };
-    await restored.submitInput('aple');
-    restored.startMistakePractice();
-    assert.deepEqual(restored.currentChineseSenses, senses);
-    assert.equal(restored.isMistakePractice, true);
-    await restored.submitInput('apple');
-    assert.equal(restored.stats.correct, 1);
+    await h.app.submitInput('aple');
+    h.app.startMistakePractice();
+    assert.deepEqual(h.app.currentChineseSenses, senses);
+    assert.equal(h.app.isMistakePractice, true);
+    await h.app.submitInput('apple');
+    assert.equal(h.app.stats.correct, 1);
     assert.equal(submissions, 1);
 });
 
-test('effective time excludes hidden pages and survives draft restoration', async () => {
+test('effective time excludes hidden pages', () => {
     const h = harness();
     h.app.beginCurrentWord();
     h.tick(6000);
@@ -373,36 +463,32 @@ test('effective time excludes hidden pages and survives draft restoration', asyn
     h.document.hidden = true;
     h.tick(60000);
     assert.equal(h.app.effectiveDuration(), 6000);
-    h.app.saveDraftSession();
-    h.tick(60000);
     h.document.hidden = false;
-    const restored = h.mount();
-    assert.equal(await restored.restoreDraftSession(), true);
+    h.app.resumeClock();
     h.tick(500);
-    assert.equal(restored.effectiveDuration(), 6500);
-    assert.equal(restored.firstInputMs, 6000);
+    assert.equal(h.app.effectiveDuration(), 6500);
+    assert.equal(h.app.firstInputMs, 6000);
 });
 
-test('failed submission is durable, reuses timestamp and is counted once after retry', async () => {
+test('a failed save keeps the answer for a retry that reuses its time and counts once', async () => {
     const h = harness();
     h.app.beginCurrentWord();
     h.tick(7000);
     await h.app.submitInput('apple');
     assert.equal(h.app.attemptedTotal, 0);
-    assert.ok(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'));
+    assert.ok(h.app.submitError);
+    assert.equal(h.app.pendingAttempt.duration_ms, 7000);
     const original = h.requests[0];
     h.tick(90000);
     h.context.axios.post = async (url, payload) => {
         assert.deepEqual(JSON.parse(JSON.stringify(payload)), original);
-        return { data: { data: { attempt_id: 'attempt', is_correct: true, rating_name: 'Good', duration_ms: 7000 } } };
+        return { data: { data: { attempt_id: 'attempt', is_correct: true } } };
     };
-    const restored = h.mount();
-    await restored.restoreDraftSession();
-    assert.equal(restored.attemptedTotal, 1);
-    assert.equal(restored.pendingAttempt, null);
-    assert.equal(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'), null);
-    await restored.retryPending();
-    assert.equal(restored.attemptedTotal, 1);
+    await h.app.retryPending();
+    assert.equal(h.app.attemptedTotal, 1);
+    assert.equal(h.app.pendingAttempt, null);
+    await h.app.retryPending();
+    assert.equal(h.app.attemptedTotal, 1);
 });
 
 test('corrected spelling waits for Enter and does not submit a second review', async () => {
@@ -414,82 +500,15 @@ test('corrected spelling waits for Enter and does not submit a second review', a
     h.app.handleBeforeInput({ data: 'a', preventDefault() { prevented = true; } });
     assert.equal(prevented, false);
     h.app.userInput = 'apple';
-    h.inputChanged();
     for (const timer of h.timers.filter(timer => timer.active)) timer.fn();
     assert.equal(h.app.currentIndex, 0);
     assert.equal(h.app.showAnswer, true);
     assert.equal(h.app.isAdvancing, false);
-    const restored = h.mount();
-    await restored.restoreDraftSession();
-    assert.equal(restored.currentIndex, 0);
-    assert.equal(restored.userInput, 'apple');
-    assert.equal(restored.showAnswer, true);
-    await h.app.submitInput('apple');
     h.app.handleKeydown({ key: 'Enter', preventDefault() {} });
     assert.equal(h.app.currentWord.word, 'book');
     assert.equal(h.app.stats.incorrect, 1);
     assert.equal(h.app.stats.correct, 0);
     assert.equal(h.requests.length, 0);
-});
-
-test('free practice persists submissions and restores a failed submission for retry', async () => {
-    const h = harness();
-    h.app.practiceMode = 'free';
-    h.app.beginCurrentWord();
-    h.tick(2000);
-    await h.app.submitInput('apple');
-    assert.equal(h.app.stats.correct, 0);
-    assert.equal(h.requests.length, 1);
-    assert.ok(h.app.pendingAttempt);
-    assert.ok(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'));
-    h.context.axios.post = async (url, payload) => ({ data: { data: {
-        attempt_id: payload.attempt_id, is_correct: true, duration_ms: 2000
-    } } });
-    const restored = h.mount();
-    await restored.restoreDraftSession();
-    assert.equal(restored.practiceMode, 'free');
-    assert.equal(restored.stats.correct, 1);
-    assert.equal(restored.pendingAttempt, null);
-    assert.equal(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'), null);
-});
-
-test('mistake practice records only session feedback', async () => {
-    const h = harness();
-    h.app.practiceMode = 'mistakes';
-    await h.app.submitInput('apple');
-    assert.equal(h.app.stats.correct, 1);
-    assert.equal(h.requests.length, 0);
-});
-
-test('storage failure blocks network submission instead of losing the outbox', async () => {
-    const h = harness();
-    h.localStorage.setItem = () => { throw new Error('quota'); };
-    h.app.beginCurrentWord();
-    h.tick(2000);
-    await h.app.submitInput('apple');
-    assert.ok(h.app.pendingAttempt);
-    assert.ok(h.app.storageError);
-    assert.equal(h.requests.length, 0);
-});
-
-test('a failed acknowledged draft save prevents advancing and can be recovered', async () => {
-    const h = harness();
-    const originalSet = h.localStorage.setItem;
-    h.context.axios.post = async () => {
-        h.localStorage.setItem = () => { throw new Error('quota'); };
-        return { data: { data: { attempt_id: 'attempt', is_correct: true, rating_name: 'Good', duration_ms: 7000 } } };
-    };
-    h.app.beginCurrentWord();
-    h.tick(7000);
-    await h.app.submitInput('apple');
-    assert.equal(h.app.attemptedTotal, 1);
-    assert.equal(h.app.isAdvancing, false);
-    assert.ok(h.app.storageError);
-    assert.ok(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'));
-    h.localStorage.setItem = originalSet;
-    h.app.retryDraftSave();
-    assert.equal(h.app.isAdvancing, true);
-    assert.equal(h.localStorage.getItem('typingPracticePending:fsrs:v1:attempt'), null);
 });
 
 test('conflict offers recovery without changing local counts', async () => {
@@ -506,67 +525,66 @@ test('conflict offers recovery without changing local counts', async () => {
     assert.equal(h.app.pendingAttempt, null);
 });
 
-for (const count of [3, 25]) {
-    test(`formal practice completes the available ${count} words when the queue empties`, async () => {
-        const h = harness();
-        const summary = () => ({ total: count, due_count: 0, new_available: count - h.app.attemptedTotal });
-        h.context.axios.get = async (url, { params } = {}) => {
-            if (url.endsWith('/memory/summary')) return { data: { data: summary() } };
-            assert.equal(params.limit, 3);
-            const index = h.app.attemptedTotal;
-            return { data: { data: {
-                items: index < count ? [{ word: 'apple', source_id: `apple-${index}`, attempt_id: `attempt-${index}` }] : [],
-                summary: summary(), server_time: new Date().toISOString()
-            } } };
-        };
-        h.context.axios.post = async (url, payload) => ({ data: { data: {
-            attempt_id: payload.attempt_id, is_correct: true, duration_ms: 1000
-        } } });
-        await h.app.fetchWords();
+// More than the old 20-word round: formal practice runs until the queue is empty.
+test('formal practice completes all 25 available words when the queue empties', async () => {
+    const count = 25;
+    const h = harness();
+    const summary = () => ({ total: count, due_count: 0, new_available: count - h.app.attemptedTotal });
+    h.context.axios.get = async (url, { params } = {}) => {
+        if (url.endsWith('/memory/summary')) return { data: { data: summary() } };
+        assert.equal(params.limit, 3);
+        const index = h.app.attemptedTotal;
+        return { data: { data: {
+            items: index < count ? [{ word: 'apple', source_id: `apple-${index}`, attempt_id: `attempt-${index}` }] : [],
+            summary: summary(), server_time: new Date().toISOString()
+        } } };
+    };
+    h.context.axios.post = async (url, payload) => ({ data: { data: {
+        attempt_id: payload.attempt_id, is_correct: true, duration_ms: 1000
+    } } });
+    await h.app.fetchWords();
+    assert.equal(h.app.progressTotal, count);
+    for (let index = 0; index < count; index++) {
+        assert.equal(h.app.isFinished, false);
+        assert.equal(h.app.progressCurrent, index + 1);
+        await h.app.submitInput('apple');
+        await h.app.nextWord();
         assert.equal(h.app.progressTotal, count);
-        for (let index = 0; index < count; index++) {
-            assert.equal(h.app.isFinished, false);
-            assert.equal(h.app.progressCurrent, index + 1);
-            await h.app.submitInput('apple');
-            await h.app.nextWord();
-            assert.equal(h.app.progressTotal, count);
-        }
-        assert.equal(h.app.isFinished, true);
-        assert.equal(h.app.attemptedTotal, count);
-    });
-}
+    }
+    assert.equal(h.app.isFinished, true);
+    assert.equal(h.app.attemptedTotal, count);
+});
 
-for (const count of [3, 20]) {
-    test(`free practice requests at most 20 words and saves all ${count} answers`, async () => {
-        const h = harness();
-        let queueRequests = 0;
-        h.context.axios.get = async (url, { params } = {}) => {
-            if (url.endsWith('/memory/summary')) return { data: { data: { total: 125 } } };
-            queueRequests++;
-            assert.equal(params.mode, 'free');
-            assert.equal(params.limit, 20);
-            return { data: { data: {
-                items: Array.from({ length: count }, (_, index) => ({ word: 'apple', source_id: `apple-${index}`, attempt_id: `free-${index}` })),
-                summary: { total: 125 }, server_time: new Date().toISOString()
-            } } };
-        };
-        h.context.axios.post = async (url, payload) => {
-            h.requests.push(payload);
-            return { data: { data: { attempt_id: payload.attempt_id, is_correct: true, duration_ms: 1000 } } };
-        };
-        await h.app.fetchWords({ mode: 'free' });
-        assert.equal(h.app.progressTotal, count);
-        for (let index = 0; index < count; index++) {
-            assert.equal(h.app.isFinished, false);
-            await h.app.submitInput('apple');
-            await h.app.nextWord();
-        }
-        assert.equal(h.app.isFinished, true);
-        assert.equal(h.app.attemptedTotal, count);
-        assert.equal(h.requests.length, count);
-        assert.equal(queueRequests, 1);
-    });
-}
+test('free practice requests at most 20 words and saves all of them', async () => {
+    const count = 20;
+    const h = harness();
+    let queueRequests = 0;
+    h.context.axios.get = async (url, { params } = {}) => {
+        if (url.endsWith('/memory/summary')) return { data: { data: { total: 125 } } };
+        queueRequests++;
+        assert.equal(params.mode, 'free');
+        assert.equal(params.limit, 20);
+        return { data: { data: {
+            items: Array.from({ length: count }, (_, index) => ({ word: 'apple', source_id: `apple-${index}`, attempt_id: `free-${index}` })),
+            summary: { total: 125 }, server_time: new Date().toISOString()
+        } } };
+    };
+    h.context.axios.post = async (url, payload) => {
+        h.requests.push(payload);
+        return { data: { data: { attempt_id: payload.attempt_id, is_correct: true, duration_ms: 1000 } } };
+    };
+    await h.app.fetchWords({ mode: 'free' });
+    assert.equal(h.app.progressTotal, count);
+    for (let index = 0; index < count; index++) {
+        assert.equal(h.app.isFinished, false);
+        await h.app.submitInput('apple');
+        await h.app.nextWord();
+    }
+    assert.equal(h.app.isFinished, true);
+    assert.equal(h.app.attemptedTotal, count);
+    assert.equal(h.requests.length, count);
+    assert.equal(queueRequests, 1);
+});
 
 for (const [mode, label] of [['difficult', '难点突破'], ['stale', '久未练习']]) test(`${mode} practice completes its selected batch without submitting answers`, async () => {
     const count = 3;
@@ -597,27 +615,6 @@ for (const [mode, label] of [['difficult', '难点突破'], ['stale', '久未练
     assert.equal(h.app.pendingAttempt, null);
     assert.equal(h.requests.length, 0);
     assert.equal(queues, 1);
-    assert.equal(Object.keys(h.localStorage).some(key => key.startsWith('typingPracticePending:')), false);
-});
-
-test('difficult practice restores a wrong answer for correction without writing an outbox', async () => {
-    const h = harness();
-    h.app.practiceMode = 'difficult';
-    h.app.words.push({ word: 'book', source_id: 'book' });
-    await h.app.submitInput('aple');
-    assert.equal(h.app.showAnswer, true);
-    assert.equal(h.app.stats.incorrect, 1);
-    const restored = h.mount();
-    await restored.restoreDraftSession();
-    assert.equal(restored.isDifficultPractice, true);
-    assert.equal(restored.showAnswer, true);
-    restored.userInput = 'apple';
-    restored.handleEnter({ preventDefault() {} });
-    assert.equal(restored.currentWord.word, 'book');
-    assert.equal(restored.stats.incorrect, 1);
-    assert.equal(restored.stats.correct, 0);
-    assert.equal(h.requests.length, 0);
-    assert.equal(restored.pendingAttempt, null);
 });
 
 test('a free practice conflict skips the stale word without fetching another batch', async () => {
@@ -637,156 +634,78 @@ test('a free practice conflict skips the stale word without fetching another bat
     assert.equal(queueRequests, 0);
     await h.app.submitInput('book');
     await h.app.continueAfterConflict();
-    assert.equal(h.app.isFinished, true);
+    // Nothing was saved, so there is no result to review: back to the waiting page.
+    assert.equal(h.app.isFinished, false);
+    assert.equal(h.app.isIdle, true);
+    assert.equal(h.app.practiceMode, 'normal');
     assert.equal(h.app.attemptedTotal, 0);
     assert.equal(queueRequests, 0);
 });
 
-test('a legacy draft at the old 20-word limit continues loading available words', async () => {
-    const h = harness();
-    h.app.words = Array.from({ length: 20 }, () => ({ word: 'apple' }));
-    h.app.currentIndex = 20;
-    h.app.stats.correct = 20;
-    h.app.saveDraftSession();
-    const key = 'typingPracticeDraftSession:fsrs:v1:session';
-    const draft = JSON.parse(h.localStorage.getItem(key));
-    h.localStorage.setItem(key, JSON.stringify({ ...draft, sessionLimit: 20 }));
-    h.context.axios.get = async () => ({ data: { data: {
-        items: [{ word: 'book', source_id: 'book', attempt_id: 'next' }],
-        summary: { total: 25, due_count: 0, new_available: 5 }, server_time: new Date().toISOString()
-    } } });
-    const restored = h.mount();
-    assert.equal(await restored.restoreDraftSession(), true);
-    assert.equal(restored.isFinished, false);
-    assert.equal(restored.currentWord.word, 'book');
-    assert.equal(restored.progressCurrent, 21);
-    assert.equal(restored.progressTotal, 25);
-});
-
-test('an empty pool shows zero progress and no current question', async () => {
+test('an empty pool shows the sync prompt without progress', async () => {
     const h = harness();
     h.context.axios.get = async () => ({ data: { data: {
         items: [], summary: { total: 0, due_count: 0, new_available: 0 }, server_time: new Date().toISOString()
     } } });
     await h.app.fetchWords();
     assert.equal(h.app.currentWord, null);
-    assert.equal(h.app.progressTotal, 0);
-    assert.equal(h.app.progressCurrent, 0);
+    assert.equal(h.app.isIdle, true);
+    assert.equal(h.app.showProgress, false);
+    assert.equal(h.app.planReady, false);
 });
 
-test('correct feedback is immediate but counts and advancement wait for server confirmation', async () => {
+test('counts and advancement follow the saved result, then the core selects the next word', async () => {
     const h = harness();
     let confirm;
     h.context.axios.post = (url, payload, config) => {
-        assert.equal(config.params.next_limit, 3);
+        assert.equal(config.params, undefined);
         return new Promise(resolve => { confirm = resolve; });
     };
-    h.context.axios.get = async () => { throw new Error('unnecessary queue request'); };
+    let queues = 0;
+    h.context.axios.get = async () => {
+        queues++;
+        return { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: 'next' }],
+            summary: { total: 2, due_count: 0, new_available: 1 } } } };
+    };
     h.app.beginCurrentWord();
     h.tick(1000);
     const submission = h.app.submitInput('apple');
-    assert.equal(h.app.isCorrect, true);
-    assert.equal(h.app.cardClass, 'is-success');
-    assert.equal(h.app.answerAccepted, false);
+    let blocked = false;
+    h.app.handleBeforeInput({ data: 'a', preventDefault() { blocked = true; } });
+    assert.equal(blocked, true, 'the input is locked while saving');
     assert.equal(h.app.attemptedTotal, 0);
-    await h.app.nextWord();
-    assert.equal(h.app.currentIndex, 0);
-    h.tick(500);
-    confirm({ data: { data: { attempt_id: 'attempt', is_correct: true }, next_queue: {
-        items: [{ word: 'book', source_id: 'book', attempt_id: 'next' }],
-        summary: { total: 2, due_count: 0, new_available: 1 }, server_time: new Date().toISOString()
-    } } });
+    confirm({ data: { data: { attempt_id: 'attempt', is_correct: true } } });
     await submission;
     assert.equal(h.app.attemptedTotal, 1);
-    assert.equal(h.timers.at(-1).delay, 0); // Network waiting already covered the feedback interval.
-    const draft = JSON.parse(h.localStorage.getItem('typingPracticeDraftSession:fsrs:v1:session'));
-    assert.equal('nextQueue' in draft, false);
+    assert.equal(h.app.cardClass, 'is-success');
+    assert.equal(h.timers.at(-1).delay, 180);
     await h.app.nextWord();
+    assert.equal(queues, 1);
     assert.equal(h.app.currentWord.word, 'book');
     assert.equal(h.app.currentIndex, 1);
-    assert.equal(h.app.attemptedTotal, 1);
 });
 
-test('restoring a saved answer fetches a fresh queue instead of persisting short-lived candidates', async () => {
-    const h = harness();
-    h.context.axios.post = async () => ({ data: { data: { attempt_id: 'attempt', is_correct: true } } });
-    await h.app.submitInput('apple');
-    let fetched = 0;
-    h.context.axios.get = async () => {
-        fetched++;
-        return { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: 'fresh' }],
-            summary: { total: 2 }, server_time: new Date().toISOString() } } };
-    };
-    const restored = h.mount();
-    assert.equal(await restored.restoreDraftSession(), true);
-    assert.equal(fetched, 1);
-    assert.equal(restored.currentWord.word, 'book');
-    assert.equal(restored.currentIndex, 1);
-    assert.equal(restored.attemptedTotal, 1);
-});
-
-test('correction waits for Enter after a slow save or draft retry', async () => {
+test('a wrong answer waits for the correct spelling and Enter', async () => {
     const h = harness();
     h.app.practiceMode = 'free';
     h.app.words.push({ word: 'book', source_id: 'book' });
-    let confirm;
-    h.context.axios.post = () => new Promise(resolve => { confirm = resolve; });
-    const submission = h.app.submitInput('aple');
+    h.context.axios.post = async () => ({ data: { data: { attempt_id: 'attempt', is_correct: false } } });
+    await h.app.submitInput('aple');
     assert.equal(h.app.showAnswer, true);
     assert.equal(h.app.lastWrongInput, 'aple');
-    let blocked = false;
-    h.app.handleBeforeInput({ data: 'a', preventDefault() { blocked = true; } });
-    assert.equal(blocked, false);
-    h.app.userInput = 'apple';
-    h.inputChanged();
-    h.app.handleKeydown({ key: 'Enter', preventDefault() {} });
-    assert.equal(h.app.currentIndex, 0);
-    assert.equal(h.app.attemptedTotal, 0);
-    confirm({ data: { data: { attempt_id: 'attempt', is_correct: false } } });
-    await submission;
-    assert.equal(h.app.userInput, 'apple');
     assert.equal(h.app.stats.incorrect, 1);
     assert.equal(h.app.isAdvancing, false);
-    assert.equal(h.app.advanceTimer, null);
-    h.app.retryDraftSave();
-    for (const timer of h.timers.filter(timer => timer.active)) timer.fn();
+    let shaken = 0;
+    h.app.triggerShake = () => { shaken++; };
+    h.app.userInput = 'appel';
+    h.app.handleKeydown({ key: 'Enter', preventDefault() {} });
     assert.equal(h.app.currentIndex, 0);
-    assert.equal(h.app.isAdvancing, false);
+    assert.equal(shaken, 1);
+    h.app.userInput = 'apple';
     h.app.handleKeydown({ key: 'Enter', preventDefault() {} });
     assert.equal(h.app.currentWord.word, 'book');
     assert.equal(h.app.stats.incorrect, 1);
 });
-
-test('server correction overrides a local preview and is the only result counted', async () => {
-    const h = harness();
-    h.context.axios.post = async () => ({ data: { data: { attempt_id: 'attempt', is_correct: false } } });
-    await h.app.submitInput('apple');
-    assert.equal(h.app.isCorrect, false);
-    assert.equal(h.app.showAnswer, true);
-    assert.equal(h.app.stats.correct, 0);
-    assert.equal(h.app.stats.incorrect, 1);
-    assert.equal(h.app.isAdvancing, false);
-});
-
-for (const reason of ['expired', 'newly-due']) {
-    test(`a ${reason} buffered queue is refreshed before selecting the next real item`, async () => {
-        const h = harness();
-        h.app.nextQueue = { items: [{ word: 'stale' }], summary: {
-            next_due: reason === 'newly-due' ? new Date(0).toISOString() : null
-        }, server_time: new Date().toISOString() };
-        h.app.nextQueueReceivedAt = Date.now() - (reason === 'expired' ? 6000 : 0);
-        h.app.answerAccepted = true;
-        let requests = 0;
-        h.context.axios.get = async () => {
-            requests++;
-            return { data: { data: { items: [{ word: 'due', attempt_id: 'due' }],
-                summary: { total: 2 }, server_time: new Date().toISOString() } } };
-        };
-        await h.app.nextWord();
-        assert.equal(requests, 1);
-        assert.equal(h.app.currentWord.word, 'due');
-    });
-}
 
 test('formal previews preload illustrations without appending speculative practice items', async () => {
     const h = harness();

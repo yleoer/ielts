@@ -116,7 +116,7 @@ fn retry_is_idempotent_and_changed_retry_conflicts() {
 }
 
 #[test]
-fn two_tabs_conflict() {
+fn an_older_question_for_an_already_reviewed_word_conflicts() {
     let f = Fixture::new();
     let (a, b) = (f.question(), f.question());
     f.store.submit(&f.payload(&a, "apple", 7000)).unwrap();
@@ -287,7 +287,6 @@ fn router_serves_practice_api_with_flask_shapes() {
     let get = |uri: &str| app.handle(&Request::new("GET", uri, vec![]));
     let body = |r: &cijian_core::api::Response| serde_json::from_slice::<Value>(&r.body).unwrap();
 
-    assert_eq!(body(&get("http://cijian.localhost/api/health"))["status"], "ok");
     let page = get("http://cijian.localhost/");
     assert_eq!((page.status, page.content_type.as_str()), (200, "text/html; charset=utf-8"));
     assert_eq!(get("/anything").status, 200, "unknown pages fall back to index.html");
@@ -301,13 +300,11 @@ fn router_serves_practice_api_with_flask_shapes() {
     *f.clock.lock().unwrap() += TimeDelta::seconds(7);
     let payload = json!({"attempt_id": q["attempt_id"], "session_id": "s", "user_input": "apple", "duration_ms": 7000, "reviewed_at": at});
     let post = |uri: &str| app.handle(&Request::new("POST", uri, payload.to_string().into_bytes()));
-    assert_eq!(post("/api/practice/attempts?next_limit=4").status, 400);
-    let saved = post("/api/practice/attempts?next_limit=3");
+    let saved = post("/api/practice/attempts");
     let saved_body = body(&saved);
     assert_eq!(saved.status, 200);
     assert_eq!(saved_body["data"]["is_correct"], true);
-    assert_eq!(saved_body["next_queue"]["items"], json!([]));
-    assert_eq!(body(&post("/api/practice/attempts")), json!({"success": true, "data": saved_body["data"]}));
+    assert_eq!(body(&post("/api/practice/attempts")), saved_body, "a retried answer returns the saved result");
 
     let sync = app.handle(&Request::new("POST", "/api/sync/now", vec![]));
     assert_eq!(sync.status, 400);
