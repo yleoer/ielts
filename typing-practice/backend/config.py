@@ -70,6 +70,5 @@ def load_config() -> Config:
             deck_id=int(_env("ANKI_DECK_ID") or anki.get("deck_id") or DEFAULT_DECK_ID),
         ),
         db_path=_env("STATS_DB_PATH") or stats.get("db_path") or "data/stats.db",
-        # ACCESS_PASSWORD is the old web login; honour it so an upgrade never opens the server.
-        access_token=_env("ACCESS_TOKEN") or _env("ACCESS_PASSWORD"),
+        access_token=_env("ACCESS_TOKEN"),
     )

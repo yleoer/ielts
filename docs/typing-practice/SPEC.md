@@ -8,7 +8,7 @@
 | --- | --- |
 | `app.py` | 路由、错误处理、后台复制并检查 Anki 数据库、Waitress 启动入口 |
 | `anki.py` | 只读解析 Word Atlas 22 字段笔记，生成词库快照 |
-| `ledger.py` | 作答日志表、上传校验、去重与分页、网页版历史导入 |
+| `ledger.py` | 作答日志表、上传校验、去重与分页 |
 | `vocabulary.py` | 持久化最近成功词库快照、已发现的已学 SourceId 和新增词批次 |
 | `auth.py` | Bearer 访问令牌 |
 | `sync.py` | 选择并复制最新的 `collection.anki2` 及 SQLite 附属文件 |
@@ -58,11 +58,11 @@
 
 ## 访问令牌
 
-除 `/api/health` 外需要 `Authorization: Bearer <ACCESS_TOKEN>`，否则返回 401（`code: authentication_required`）。`ACCESS_TOKEN` 为空时沿用旧的 `ACCESS_PASSWORD`，两者都为空则不校验。
+除 `/api/health` 外需要 `Authorization: Bearer <ACCESS_TOKEN>`，否则返回 401（`code: authentication_required`）。`ACCESS_TOKEN` 为空时不校验。
 
 ## 数据与迁移
 
-作答日志保存在 `STATS_DB_PATH`（沿用旧统计库路径）。首次启动时，若同一数据库中存在网页版的 `word_reviews` 表，按 `reviewed_at` 顺序一次性导入 `attempts`（`device_id` 为 `web`），并在 `ledger_migrations` 记录 `web-history-v1`；之后不再导入。旧网页版的表原样保留，不会删除。
+作答日志保存在 `STATS_DB_PATH`（沿用旧统计库路径）。网页版历史已在早期版本一次性导入 `attempts`（`device_id` 为 `web`），导入代码已移除；旧网页版的 `word_reviews` 与 `ledger_migrations` 表原样保留，服务不再读取。
 
 词库数据同样保存在 `STATS_DB_PATH`：`vocabulary_snapshot` 保存最新成功快照及检查时间，`anki_learned_words` 保存曾经发现过的已学 SourceId，`vocabulary_sync_history` 保存新增批次。
 

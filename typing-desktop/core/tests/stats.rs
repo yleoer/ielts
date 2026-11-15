@@ -272,30 +272,26 @@ fn invalid_filters_and_paging_are_rejected() {
                   "dimension=cefr&value=B2&limit=0", "dimension=cefr&value=B2&limit=201"] {
         assert_eq!(env.get(&format!("/api/stats/vocabulary-words?{query}")).0, 400, "{query}");
     }
-    for query in ["", "source_id=", "source_id=abandon&before_id=-1", "source_id=abandon&before_id=bad",
-                  "source_id=abandon&limit=0", "source_id=abandon&limit=201", "source_id=abandon&limit=bad"] {
+    for query in ["", "source_id="] {
         assert_eq!(env.get(&format!("/api/stats/word-errors?{query}")).0, 400, "{query}");
     }
 }
 
 #[test]
-fn word_errors_page_by_review_id_per_source() {
+fn word_errors_list_wrong_answers_newest_first_per_source() {
     let env = vocabulary_env();
     let correct_only = env.data("/api/stats/word-errors?source_id=word-ab");
-    assert_eq!(correct_only, json!({"items": [], "correct_attempts": 0, "total_attempts": 0, "next_before_id": null}));
+    assert_eq!(correct_only, json!({"items": [], "correct_attempts": 0, "total_attempts": 0}));
     for answer in ["abndon", "abandon", "", "abando"] {
         env.review("abandon", answer);
     }
     let before = env.fingerprint();
-    let first = env.data("/api/stats/word-errors?source_id=abandon&limit=2");
-    assert_eq!((first["correct_attempts"].as_i64(), first["total_attempts"].as_i64()), (Some(1), Some(4)));
-    let inputs = |v: &Value| v["items"].as_array().unwrap().iter().map(|r| r["user_input"].as_str().unwrap().to_string()).collect::<Vec<_>>();
-    assert_eq!(inputs(&first), ["abando", ""]);
-    let keys: std::collections::BTreeSet<&str> = first["items"][0].as_object().unwrap().keys().map(String::as_str).collect();
+    let errors = env.data("/api/stats/word-errors?source_id=abandon");
+    assert_eq!((errors["correct_attempts"].as_i64(), errors["total_attempts"].as_i64()), (Some(1), Some(4)));
+    let inputs: Vec<&str> = errors["items"].as_array().unwrap().iter().map(|r| r["user_input"].as_str().unwrap()).collect();
+    assert_eq!(inputs, ["abando", "", "abndon"]);
+    let keys: std::collections::BTreeSet<&str> = errors["items"][0].as_object().unwrap().keys().map(String::as_str).collect();
     assert_eq!(keys, ["id", "reviewed_at", "user_input", "word"].into());
-    let second = env.data(&format!("/api/stats/word-errors?source_id=abandon&limit=2&before_id={}", first["next_before_id"]));
-    assert_eq!(inputs(&second), ["abndon"]);
-    assert!(second["next_before_id"].is_null());
     let scheduled = env.data("/api/stats/calendar-words?date=2026-10-29")["due"][0].clone();
     assert_eq!((scheduled["correct_attempts"].as_i64(), scheduled["total_attempts"].as_i64()), (Some(1), Some(4)));
     assert_eq!(env.fingerprint(), before);

@@ -286,13 +286,10 @@ impl Store {
         Ok(status)
     }
 
-    pub fn optimization_history(&self, before_id: i64, limit: usize) -> ApiResult<Value> {
-        let limit = limit.clamp(1, 100);
-        let rows = query_objects(&self.lock().db, "SELECT * FROM fsrs_optimization_runs WHERE (?=0 OR id < ?)
-            ORDER BY id DESC LIMIT ?", &[&before_id, &before_id, &(limit as i64 + 1)])?;
-        let next = if rows.len() > limit { rows[limit - 1]["id"].clone() } else { Value::Null };
-        let items = rows.into_iter().take(limit).map(record).collect::<ApiResult<Vec<_>>>()?;
-        Ok(json!({"items": items, "next_before_id": next}))
+    /// Every run, newest first: at most one a month, so the list stays short.
+    pub fn optimization_history(&self) -> ApiResult<Value> {
+        let rows = query_objects(&self.lock().db, "SELECT * FROM fsrs_optimization_runs ORDER BY id DESC", &[])?;
+        Ok(json!({"items": rows.into_iter().map(record).collect::<ApiResult<Vec<_>>>()?}))
     }
 
     pub fn optimization_run(&self, run_id: i64) -> ApiResult<Option<Value>> {

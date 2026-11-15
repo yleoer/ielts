@@ -207,27 +207,6 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.client.post("/api/sync", data="nope", content_type="text/plain").status_code, 400)
         self.assertEqual(self.sync()["attempts"], [])
 
-    def test_web_history_is_imported_once_as_the_initial_log(self):
-        self.state.close()
-        path = self.root / "web.db"
-        with closing(sqlite3.connect(path)) as db:
-            db.execute("""CREATE TABLE word_reviews (id INTEGER PRIMARY KEY, attempt_id TEXT UNIQUE, word_key TEXT, word TEXT,
-                chinese_meaning TEXT, category TEXT, user_input TEXT, is_correct INTEGER, rating INTEGER, reviewed_at TEXT,
-                received_at TEXT, duration_ms REAL, first_input_ms REAL)""")
-            for row_id, at in ((1, "2026-10-02T00:00:00.000000Z"), (2, "2026-10-01T00:00:00.000000Z")):
-                db.execute("INSERT INTO word_reviews VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (row_id, f"web-{row_id}",
-                           "word-atlas:abandon", "abandon", "放弃", "思维", "abandon", 1, 3, at, at, 7000, None))
-            db.commit()
-        config = make_config(self.root, str(self.collection))
-        config.db_path = str(path)
-        for _ in range(2):
-            app = create_app(config, start_background_tasks=False)
-            data = app.test_client().post("/api/sync", json={"device_id": "d"}).json["data"]
-            app.extensions["cijian_state"].close()
-            self.assertEqual([row["attempt_id"] for row in data["attempts"]], ["web-2", "web-1"])
-        with closing(sqlite3.connect(path)) as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM word_reviews").fetchone()[0], 2, "old tables are kept")
-
 
 if __name__ == "__main__":
     unittest.main()

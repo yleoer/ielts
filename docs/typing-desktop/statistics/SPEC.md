@@ -55,13 +55,13 @@ GET /api/stats/overview 仅返回累计作答次数、当前连续学习天数�
 
 ## 单词答错记录接口
 
-`GET /api/stats/word-errors?source_id=...&before_id=0&limit=50` 按稳定 SourceId 读取词间作答日志，返回 `{items,correct_attempts,total_attempts,next_before_id}`，两个 attempts 字段为全部作答的正确/总次数；items 仅含 `is_correct=0` 的逐次记录，每项包含 `id,word,user_input,reviewed_at`，保留当时答案与原始输入，按 id 倒序排列。前端仅显示时间和输入；word 用于定位输入的错写、多写与漏写位置，不另行展示正确答案或错误类型。默认每页 50 条，最多 200 条；有后续记录时 next_before_id 为本页最后一条 id，否则为 null。游标只限制分页记录，不改变答对/总次数；相同词面、不同 SourceId 不混用历史。同一提交幂等重试不增加次数，订正和即时错词重练不计入。
+`GET /api/stats/word-errors?source_id=...` 按稳定 SourceId 读取词间作答日志，返回 `{items,correct_attempts,total_attempts}`，两个 attempts 字段为全部作答的正确/总次数；items 仅含 `is_correct=0` 的逐次记录，每项包含 `id,word,user_input,reviewed_at`，保留当时答案与原始输入，按 id 倒序一次全部返回，不分页。前端仅显示时间和输入；word 用于定位输入的错写、多写与漏写位置，不另行展示正确答案或错误类型。相同词面、不同 SourceId 不混用历史。同一提交幂等重试不增加次数，订正和即时错词重练不计入。
 
-source_id 不可为空，before_id 必须为非负整数，limit 为 1–200，非法参数返回 400。没有作答历史或只有正确作答时返回空 items 与对应计数；数据查询只读。`/api/stats/calendar-words` 的两组单词同样包含 `correct_attempts/total_attempts`，使所有单词明细弹窗展示一致。
+source_id 不可为空，否则返回 400。没有作答历史或只有正确作答时返回空 items 与对应计数；数据查询只读。`/api/stats/calendar-words` 的两组单词同样包含 `correct_attempts/total_attempts`，使所有单词明细弹窗展示一致。
 
 ## 错误分类
 
-word_reviews 不包含 error_type，作答响应与逐次答错接口均不携带错误分类。网页版历史经同步服务器的作答日志导入，只带日志字段，不含错误分类。
+word_reviews 不包含 error_type，作答响应与逐次答错接口均不携带错误分类。早期导入同步服务器的网页版历史只带日志字段，不含错误分类。
 
 答错记录接口同时去掉已不使用的总错误次数和单次耗时字段；原始作答日志中的 duration_ms 继续用于有效时长与 FSRS 参数优化。
 
@@ -71,4 +71,4 @@ word_reviews 不包含 error_type，作答响应与逐次答错接口均不携�
 
 `fsrs_optimization_runs` 保存所有运行、启用、拒绝、跳过、失败、中断及配置变更结果，包含训练范围、快照 ID、数据量、验证指标、原用/候选权重和配置版本。`fsrs_optimizer_state` 保存进度、下次评估时间和当前启用指针；`srs_configs` 保存启用的调度配置。
 
-只读 API 均返回标准 `{success:true,data:...}`：`GET /api/memory/optimization` 返回配置与进度；`GET /api/memory/optimization/runs?before_id=0&limit=20` 返回 `{items,next_before_id}`（每页最多 100 条，非法游标返回 400）；`GET /api/memory/optimization/runs/<id>` 返回完整记录（不存在返回 404）。应用启动时检查一次，后台检查周期默认 24 小时，进度反映最近一次检查；首次门槛与月度计划在下一次日常检查中触发。详见 [FSRS 实施说明](../SRS-PLAN.md)。
+只读 API 均返回标准 `{success:true,data:...}`：`GET /api/memory/optimization` 返回配置与进度；`GET /api/memory/optimization/runs` 按 ID 倒序返回全部记录 `{items}`（每月最多评估一次，不分页）。应用启动时检查一次，后台检查周期默认 24 小时，进度反映最近一次检查；首次门槛与月度计划在下一次日常检查中触发。详见 [FSRS 实施说明](../SRS-PLAN.md)。

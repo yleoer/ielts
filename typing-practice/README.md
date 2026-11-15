@@ -37,13 +37,13 @@ $env:ACCESS_TOKEN = '自己的令牌'
 | `ANKI_DB_PATH` | 读取的 `collection.anki2`；留空时查找 `%APPDATA%\Anki2` 下的配置文件 |
 | `ANKI_DECK_NAME` / `ANKI_DECK_ID` | 词库牌组 |
 | `STATS_DB_PATH` | 作答日志、词库快照及新增历史数据库，沿用旧统计库路径，默认 `data/stats.db` |
-| `ACCESS_TOKEN` | 访问令牌；留空时沿用旧的 `ACCESS_PASSWORD`，两者都为空则不校验 |
+| `ACCESS_TOKEN` | 访问令牌；留空时不校验 |
 | `ANKI_SYNC_SOURCE_DIR` / `ANKI_SYNC_TARGET` | 同时设置才启用定时复制 Anki 数据库 |
 | `ANKI_SYNC_INTERVAL_SECONDS` / `ANKI_SYNC_INITIAL_WAIT_SECONDS` / `ANKI_SYNC_STABLE_SECONDS` | 检查间隔（默认 3600，即 1 小时）、后台首次等待（默认 60）、复制前源文件稳定等待（默认 2） |
 
 ## 访问令牌
 
-除 `/api/health` 外，请求需带 `Authorization: Bearer <ACCESS_TOKEN>`，否则返回 401（`code: authentication_required`）。`ACCESS_TOKEN` 为空时使用旧的 `ACCESS_PASSWORD`，升级后不会意外开放；两者都为空时不校验，启动日志会给出警告。原网页登录页与 Cookie 凭证已移除，`.access-secret` 不再使用。公网部署应通过 HTTPS 访问。
+除 `/api/health` 外，请求需带 `Authorization: Bearer <ACCESS_TOKEN>`，否则返回 401（`code: authentication_required`）。`ACCESS_TOKEN` 为空时不校验，启动日志会给出警告。原网页登录页与 Cookie 凭证已移除，`.access-secret` 不再使用。公网部署应通过 HTTPS 访问。
 
 桌面端首次启动时填写本服务的地址和 `ACCESS_TOKEN`（也可用 `CIJIAN_SERVER_URL` / `CIJIAN_SERVER_TOKEN` 预先指定），见 [typing-desktop/README.md](../typing-desktop/README.md)。
 
@@ -74,10 +74,6 @@ $headers = @{ Authorization = "Bearer $env:ACCESS_TOKEN" }
 ```
 
 `/api/health` 应返回 `status: ok`。`/api/vocab` 返回 503 表示尚无成功检查的 Anki 快照；有缓存时检查 `last_anki_sync_at` 确认新鲜度。词数为 0 时检查 `ANKI_DECK_NAME`、`ANKI_DECK_ID` 是否与数据库中的牌组一致。
-
-## 网页版历史
-
-首次启动时，若 `STATS_DB_PATH` 中存在网页版的 `word_reviews` 表，会一次性导入作答日志（设备 `web`，迁移记录 `web-history-v1`），桌面端同步后按日志重放得到记忆状态。旧表原样保留，不会删除。
 
 ## 本地测试
 
