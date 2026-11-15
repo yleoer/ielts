@@ -13,9 +13,7 @@ use crate::media_install::MediaManager;
 use std::sync::{Arc, RwLock};
 
 use crate::remote::{sync_all, HttpRemote, Remote, ServerConfig};
-use crate::store::{Store, FREE_PRACTICE_LIMIT};
-
-const MAX_LIMIT: usize = 100;
+use crate::store::Store;
 
 pub struct Request {
     pub method: String,
@@ -288,17 +286,6 @@ impl App {
         }
         let s = &self.store;
         match (request.method.as_str(), request.path.as_str()) {
-            ("GET", "/api/health") => Ok(json!({"success": true, "status": "ok"})),
-            ("GET", "/api/config") => {
-                let config = s.memory_config();
-                Ok(json!({
-                "success": true, "anki_available": true,
-                "anki_path": self.remote().map(|r| r.label()),
-                "deck_name": "Word Atlas", "total_learned": s.learned_count(),
-                "default_limit": FREE_PRACTICE_LIMIT, "max_limit": MAX_LIMIT,
-                "easy_seconds": config.easy_seconds, "hard_seconds": config.hard_seconds,
-                }))
-            }
             ("GET", "/api/memory/summary") => Ok(json!({"success": true, "data": s.summary()?})),
             ("GET", "/api/practice/queue") => {
                 let mode = request.query.get("mode").map_or("scheduled", String::as_str);
@@ -307,23 +294,8 @@ impl App {
                 Ok(json!({"success": true, "data": s.queue(request.get("session_id"), limit, mode)?}))
             }
             ("POST", "/api/practice/attempts") => {
-                let next_limit = match request.query.get("next_limit").map(|v| v.parse::<usize>()) {
-                    None => 0,
-                    Some(Ok(v)) if v <= 3 => v,
-                    _ => return Err(ApiError::bad("next_limit 必须在 0–3 之间")),
-                };
                 let payload: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
-                let result = s.submit(&payload)?;
-                let mut response = json!({"success": true, "data": result});
-                if next_limit > 0 {
-                    let session = payload["session_id"].as_str().unwrap_or_default();
-                    // The answer is committed; a follow-up selection failure falls back to GET /queue.
-                    match s.queue(session, Some(next_limit), "scheduled") {
-                        Ok(next) => response["next_queue"] = next,
-                        Err(error) => eprintln!("could not select the next practice item: {error}"),
-                    }
-                }
-                Ok(response)
+                Ok(json!({"success": true, "data": s.submit(&payload)?}))
             }
             ("GET", "/api/memory/optimization") => Ok(json!({"success": true, "data": s.optimization_status(&self.optimization)?})),
             ("GET", "/api/memory/optimization/runs") => {

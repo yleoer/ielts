@@ -28,7 +28,6 @@ function harness() {
     app.$nextTick = fn => fn?.();
     for (const [name, fn] of Object.entries(context.controls.methods)) app[name] = fn.bind(app);
     for (const [name, fn] of Object.entries(context.controls.computed)) Object.defineProperty(app, name, { get: fn.bind(app) });
-    app.saveDraftSession = () => calls.push('draft');
     return { app, update, calls, api: context.window.__TAURI__ };
 }
 
@@ -52,7 +51,7 @@ test('no newer version is reported as current, and an old update handle is relea
     assert.deepEqual(calls, ['close']);
 });
 
-test('downloads with progress, saves the practice draft, then installs with restart', async () => {
+test('downloads with progress, then installs with restart', async () => {
     const { app, update, calls } = harness();
     await app.initUpdates();
     update.install = async () => {
@@ -62,7 +61,7 @@ test('downloads with progress, saves the practice draft, then installs with rest
         calls.push('install');
     };
     await app.installUpdate();
-    assert.deepEqual(calls, ['download', 'draft', 'install']);
+    assert.deepEqual(calls, ['download', 'install']);
 });
 
 test('a failed download leaves the app running and can be retried', async () => {
@@ -75,7 +74,7 @@ test('a failed download leaves the app running and can be retried', async () => 
     assert.deepEqual(calls, []);
     update.download = async () => calls.push('download');
     await app.installUpdate();
-    assert.deepEqual(calls, ['download', 'draft', 'install']);
+    assert.deepEqual(calls, ['download', 'install']);
 });
 
 test('automatic check errors stay quiet; a manual check reports a recoverable error', async () => {

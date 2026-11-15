@@ -20,7 +20,7 @@ use cijian_core::optimize::{evaluate_with_fsrs_rs, OptimizationConfig};
 use cijian_core::remote::{sync_all, ServerConfig};
 use cijian_core::srs::MemoryConfig;
 use cijian_core::store::Store;
-use tauri::http::{header::CONTENT_TYPE, Response};
+use tauri::http::{header::{CACHE_CONTROL, CONTENT_TYPE}, Response};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 const SCHEME: &str = "cijian";
@@ -138,7 +138,13 @@ fn main() {
                     None => (404, "text/plain".into(), b"not found".to_vec()),
                 }
             };
-            Response::builder().status(status).header(CONTENT_TYPE, content_type).body(body).unwrap()
+            let mut response = Response::builder().status(status).header(CONTENT_TYPE, content_type);
+            // WebKitGTK treats non-HTTP subresources as fresh forever, so a repeated GET such as
+            // the plan summary would be served from its memory cache. Media URLs are versioned.
+            if req.path.starts_with("/api/") && !req.path.starts_with("/api/media/") {
+                response = response.header(CACHE_CONTROL, "no-store");
+            }
+            response.body(body).unwrap()
         })
         .setup(|app| {
             let state = Arc::new(open_app(app.handle())?);
