@@ -1,7 +1,6 @@
 """Check a built image with its default command in a disposable Docker container.
 
 Only the Python standard library and a working Docker CLI are needed on the host.
-This script also works over SSH: python3 - IMAGE --pull < check_image.py.
 """
 
 from __future__ import annotations
@@ -124,7 +123,7 @@ def main() -> int:
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
     if not shutil.which("docker"):
-        parser.exit(1, "Docker CLI is missing. Run this check on a Docker host or via SSH.\n")
+        parser.exit(1, "Docker CLI is missing. Run this check on a host with Docker.\n")
 
     platform = ["--platform", args.platform] if args.platform else []
     name = "typing-practice-check-" + uuid4().hex[:12]
