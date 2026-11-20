@@ -93,6 +93,8 @@ jobs:
     env:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      # Optional; an unset secret keeps the default SSH port.
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
 
@@ -113,6 +115,7 @@ jobs:
         with:
           host: ${{ env.DEPLOY_HOST }}
           username: ${{ env.DEPLOY_USER }}
+          port: ${{ env.DEPLOY_PORT }}
           key: ${{ env.DEPLOY_SSH_KEY }}
           envs: DEPLOY_APP_DIR
           script: |

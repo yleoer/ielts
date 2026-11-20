@@ -13,9 +13,10 @@
 ## 测试环境
 
 - Python 单元测试在本机执行，不使用单独的测试环境配置文件。
-- 镜像构建和冒烟检查统一通过 SSH 在测试机 `typetest` 执行。复用 `typing-practice/scripts/check_image.py`，不另建 SSH 版测试逻辑或测试配置文件；测试机只需 Docker 和 Python 3，不需要安装应用依赖。
-- 开始镜像测试前，先执行 `ssh -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 typetest true`。连接失败时，立即报告 SSH 原始错误并停止镜像测试流程；不得自动换主机、改为本机测试或以历史结果代替本次验证。连接成功后再检查 Python / Docker、传输文件和构建镜像。
-- 镜像检查使用独立临时容器，不挂载生产数据、不占用服务端口、不修改部署目录或重启现有服务。测试临时目录和容器在完成后清理。
+- 镜像构建和冒烟检查在本机 Docker 执行，复用 `typing-practice/scripts/check_image.py`，不另建测试逻辑或测试配置文件；镜像检查只需 Docker 和 Python 3，不需要安装应用依赖。命令见 `docs/typing-practice/IMAGE-CHECK.md`。
+- 开始镜像测试前，先执行 `docker info` 确认 Docker 可用。不可用时立即报告原始错误并停止镜像测试流程；不得以源码测试或历史结果代替本次验证。
+- 构建使用 `docker build --network host`：本机 DNS 走代理，默认网络下构建容器无法解析软件源。
+- 镜像检查使用独立临时容器，不挂载生产数据、不占用服务端口、不修改部署目录或重启现有服务。完成后清理本次的容器和临时镜像标签，不清理共享构建缓存。
 - Python 测试优先使用仓库根目录的 `.venv`；没有虚拟环境时使用本机 Python，并按对应项目的依赖文件安装依赖。
 - 当前 Python 测试不需要 gcc；Python 内置 `sqlite3` 可直接使用。
 
@@ -46,7 +47,7 @@ python -m unittest discover -s typing-practice/backend -p 'test_*.py'
 ## typing-practice 验证范围
 
 - 按上述范围运行本机单元测试，最终说明执行了哪些测试；不以用例数量作为覆盖充分的依据。
-- 新增/删除后端模块、改变导入/依赖、修改 Dockerfile、`.dockerignore`、镜像打包范围或启动/部署配置，以及发布前，还需在 `typetest` 构建并检查实际镜像；缺少运行条件时说明已尝试的命令与缺失项，不能用源码测试通过代替镜像验证。
+- 新增/删除后端模块、改变导入/依赖、修改 Dockerfile、`.dockerignore`、镜像打包范围或启动/部署配置，以及发布前，还需在本机 Docker 构建并检查实际镜像；缺少运行条件时说明已尝试的命令与缺失项，不能用源码测试通过代替镜像验证。
 - 只改工作流编排或验证文档且镜像内容、依赖和启动方式未变化时，核对工作流语法与命令，复用本轮已通过的镜像验证，不重复构建；最终说明复用情况。
-- GitHub Actions 不运行独立测试任务；单元测试在本机执行，Docker 镜像检查在 `typetest` 执行。
+- GitHub Actions 不运行独立测试任务；单元测试和 Docker 镜像检查都在本机执行。
 - 涉及 SQLite 读取、Anki 数据库读取、统计存储时，必须在本地 Python 测试或服务环境中验证。

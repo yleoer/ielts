@@ -1,60 +1,58 @@
 # 镜像验证
 
-本机 Python 测试验证源码逻辑，Docker 冒烟检查验证实际镜像的文件、依赖与启动行为。发布前两者都要执行，日常改动按 [测试范围](TESTING.md) 选择验证项。镜像检查统一在 SSH 测试机 `typetest` 执行，使用 `typing-practice/scripts/check_image.py`；GitHub Actions 不执行独立测试任务。
+本机 Python 测试验证源码逻辑，Docker 冒烟检查验证实际镜像的文件、依赖与启动行为。发布前两者都要执行，日常改动按 [测试范围](TESTING.md) 选择验证项。镜像检查在本机 Docker 执行，使用 `typing-practice/scripts/check_image.py`；GitHub Actions 不执行独立测试任务。
 
 `check_image.py` 是手动 Docker 镜像检查入口，与 CI 无关，继续保留。它负责临时容器的启动、HTTP 检查、失败日志和清理；Dockerfile 的 `import app` 只检查构建时导入，不能替代实际启动与接口验证。
 
-## 两个环境如何配合
+## 需要的环境
 
-| 位置 | 需要安装 | 验证内容 |
-| --- | --- | --- |
-| 本机 Windows | 仓库 `.venv` 与应用依赖 | Python 单元测试、SQLite / Anki 业务逻辑 |
-| `typetest` 测试机 | Docker、Python 3.9+、可用的 SSH 登录 | 构建 Linux 镜像、检查实际镜像 |
+| 验证内容 | 需要安装 |
+| --- | --- |
+| Python 单元测试、SQLite / Anki 业务逻辑 | 仓库 `.venv` 与应用依赖 |
+| 构建 Linux 镜像、检查实际镜像 | Docker（当前用户可直接运行 `docker`）、Python 3.9+ |
 
-测试机的 Python 只执行标准库检查脚本，应用始终使用镜像内的 Python 3.12 和依赖。因此主机 Python 版本和目录结构可以不同；不用复制本机 `.venv`、安装应用依赖或维护 `.env.test`。默认使用测试机原生架构，跨架构检查需 Docker 主机已配置 QEMU。
+检查脚本只用 Python 标准库，应用始终使用镜像内的 Python 3.12 和依赖，因此不用为镜像检查安装应用依赖或维护 `.env.test`。默认只验证本机原生架构（当前为 AMD64），跨架构检查需 Docker 已配置 QEMU。
 
-## 连接检查
+## Docker 检查
 
-每次开始镜像测试前，在 Windows 仓库根目录先执行：
+每次开始镜像测试前，先确认 Docker 可用：
 
-```powershell
-ssh -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 typetest true
-if ($LASTEXITCODE -ne 0) { throw '无法通过 SSH 连接 typetest，停止镜像测试。' }
-
-ssh -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 typetest 'python3 --version && docker info >/dev/null'
-if ($LASTEXITCODE -ne 0) { throw 'typetest 的 Python 或 Docker 就绪检查失败，停止镜像测试。' }
+```bash
+docker info >/dev/null && python3 --version
 ```
 
-SSH 使用非交互模式、10 秒连接超时且只尝试一次。失败时先报告 SSH 原始错误并停止镜像流程，不自动切换主机、改用本机 Docker 或把历史结果当作本次验证成功。检查通过后再传输文件、拉取或构建镜像。
+失败时报告原始错误并停止镜像流程，不用源码测试或历史结果代替本次验证。
 
 ## 本机单元测试
 
 在仓库根目录运行；日常改动的定向命令见 [测试范围](TESTING.md)：
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s typing-practice/backend -p 'test_*.py'
+```bash
+.venv/bin/python -m unittest discover -s typing-practice/backend -p 'test_*.py'
 ```
 
-## 通过 SSH 检查已发布镜像
+## 检查当前源码
 
-先完成上述连接检查，再在 Windows 仓库根目录执行以下 PowerShell 命令。把镜像摘要换成待验证的真实值；也可使用提交 SHA 标签，避免使用可能变化的 `latest`：
-
-```powershell
-$image = 'yleoer/ielts-typing-practice@sha256:替换为真实摘要'
-Get-Content -Raw -Encoding utf8 typing-practice/scripts/check_image.py |
-    ssh -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 typetest "python3 - '$image' --pull"
-if ($LASTEXITCODE -ne 0) { throw '镜像验证失败，停止发布' }
-```
-
-脚本通过标准输入发送到测试机，不需要让测试机的仓库、分支或配置与本机保持同步。使用 `--pull` 时由 Docker 主机联网拉取镜像；检查容器自身没有外网。
-
-也可把脚本复制到 `typetest` 后执行：
+在仓库根目录构建 CI 使用的正式 Dockerfile，用唯一的临时标签检查，结束后删除该标签：
 
 ```bash
-python3 check_image.py yleoer/ielts-typing-practice:提交SHA --pull
+tag="ielts-typing-practice:check-$(date +%s)"
+docker build --network host -f typing-practice/backend/Dockerfile -t "$tag" typing-practice \
+  && python3 typing-practice/scripts/check_image.py "$tag"
+docker image rm "$tag"
 ```
 
-未发布的修改应在连接检查通过后，把当前源码复制到 `typetest` 的独立临时目录，再按 [本地构建说明](LOCAL-BUILD.md) 构建并验证。只发送应用源码和构建文件，不发送 `.env`、`.venv`、Anki 或作答日志数据库。使用唯一临时镜像标签，完成后清理此次创建的目录与镜像。
+`--network host` 只作用于构建步骤：本机 DNS 走本地代理（`127.0.0.53` → `127.0.0.1:1053`），默认 bridge 网络里的构建容器访问不到，`apt-get update` 会报 `Temporary failure resolving 'deb.debian.org'`。检查容器仍由脚本设为 `--network none`。构建缓存是共享的，不需要清理。
+
+## 检查已发布镜像
+
+把镜像摘要换成待验证的真实值；也可使用提交 SHA 标签，避免使用可能变化的 `latest`：
+
+```bash
+python3 typing-practice/scripts/check_image.py 'yleoer/ielts-typing-practice@sha256:替换为真实摘要' --pull
+```
+
+使用 `--pull` 时由 Docker 联网拉取镜像；检查容器自身没有外网。检查完成后可用 `docker image rm` 删除拉取的镜像。
 
 ## 检查范围与隔离
 
@@ -74,8 +72,8 @@ python3 check_image.py yleoer/ielts-typing-practice:提交SHA --pull
 
 失败返回非零退出码并输出容器末尾日志。成功或失败都会尝试删除本次容器；清理失败也返回非零码并给出容器名。检查不会自动修改部署标签或重启已有服务。
 
-这套检查不验证真实 Word Atlas 牌组、反向代理、令牌配置或生产目录权限。需要验证这些内容时，在测试机使用脱敏数据和独立目录做集成检查，发布后按 [Docker 部署](DOCKER-DEPLOY.md) 检查词库接口。
+这套检查不验证真实 Word Atlas 牌组、反向代理、令牌配置或生产目录权限。需要验证这些内容时，在本机使用脱敏数据和独立目录做集成检查，发布后按 [Docker 部署](DOCKER-DEPLOY.md) 检查词库接口。
 
 ## 发布顺序
 
-发布前完成本机单元测试，先确认 `typetest` 可连接且 Python / Docker 可用，再在该机构建当前源码并执行镜像检查，通过后再推送。GitHub Actions 构建并推送 AMD64 / ARM64 的 `latest` 和提交 SHA 镜像，随后执行 SSH 部署；工作流没有独立测试门禁。`typetest` 默认只验证其原生架构，不能据此认定另一架构已经验证。部署后的健康检查与回滚继续保留。
+发布前完成本机单元测试，确认 Docker 可用，再在本机构建当前源码并执行镜像检查，通过后再推送。GitHub Actions 构建并推送 AMD64 / ARM64 的 `latest` 和提交 SHA 镜像，随后执行 SSH 部署；工作流没有独立测试门禁。本机默认只验证原生架构，不能据此认定另一架构已经验证。部署后的健康检查与回滚继续保留。
