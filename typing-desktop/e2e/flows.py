@@ -136,7 +136,16 @@ class Session:
             self.practice(lambda c: c['finished'] or c['word'] != s['word'] or c['showAnswer'], 5, 'answer accepted')
 
 
-def practice_round(t: Session):
+def until(predicate, timeout):
+    end = time.time() + timeout
+    while not predicate():
+        if time.time() > end:
+            return False
+        time.sleep(0.25)
+    return True
+
+
+def practice_round(t: Session, mock):
     # A smaller window makes five mistakes overflow the results page.
     t.call('POST', t.path + '/window/rect', {'width': 960, 'height': 640})
     t.ready()
@@ -150,6 +159,8 @@ def practice_round(t: Session):
             and s['status'].startswith('5 次作答已保存 · 下次复习 今天') and s['status'].endswith('（1 分钟内）'), s)
     t.check('results list all five mistakes with only mistake practice and Done', s['mistakes'] == 5 and s['buttons'] == ['错词重练', '完成'], s)
     t.check('long results open at the top with the sheet focused', s['overflow'] > 0 and s['scrollTop'] == 0 and s['focused'] == 'RESULTS', s)
+    # Saved answers go up right away, not with the next once-a-minute sync.
+    t.check('answers reach the server right after saving', until(lambda: len(mock.log) >= 5, 5), len(mock.log))
     t.shot('practice-results')
     t.keys(SPACE)
     s = t.practice(lambda s: s['scrollTop'] > 0 or not s['finished'], 3, 'space scrolls')
@@ -213,8 +224,8 @@ def stats_page(t: Session):
 def extra_modes_and_sync(t: Session, mock):
     t.click_button('难点突破')
     s = t.answer_until_finished()
-    t.check('difficult results are untracked and offer Done', s['heading'] == '难点突破完成'
-            and s['status'].startswith('本轮练习不计入记忆与统计') and s['buttons'] == ['完成'], s)
+    t.check('difficult answers are saved and the results offer Done', s['heading'] == '难点突破完成'
+            and s['status'].startswith('5 次作答已保存') and s['buttons'] == ['完成'], s)
     t.click_button('完成')
     t.practice(lambda s: s['idle'], 5, 'idle after difficult')
     t.click_button('久未练习')
@@ -230,11 +241,14 @@ def extra_modes_and_sync(t: Session, mock):
     t.call('POST', t.path + '/window/rect', {'width': 760, 'height': 560})
     t.shot('practice-narrow-new-word')
     t.keys(ENTER)
-    t.answer('candle')
-    t.practice(lambda s: s['finished'], 10, 'candle results')
+    t.practice(lambda s: s['word'] == 'candle', 10, 'candle')
+    # The other computer learns candle meanwhile; the next sync replaces the stale question.
+    mock.answer_elsewhere('candle')
+    s = t.practice(lambda s: s['word'] != 'candle', 90, 'candle answered elsewhere')
+    t.check('an answer merged from another device replaces the word on screen', s['idle'] and s['heading'] == '暂无待复习', s)
     # Opening statistics again must show fresh numbers, not WebKit's cached responses.
     s = open_stats(t, 6)
-    t.check('statistics refresh after more practice', s['overall'] == '6 / 0 / 6', s)
+    t.check('statistics refresh after merged answers', s['overall'] == '6 / 0 / 6', s)
     t.keys(CONTROL, '1')
     t.practice(lambda s: s['idle'], 15, 'practice waiting page')
 
@@ -256,7 +270,7 @@ def close_to_tray(t: Session):
 def run(base: str, app: str, mock, shots: Path) -> int:
     t = Session(base, app, shots)
     try:
-        for flow in (practice_round, stats_page, lambda t: extra_modes_and_sync(t, mock), close_to_tray):
+        for flow in (lambda t: practice_round(t, mock), stats_page, lambda t: extra_modes_and_sync(t, mock), close_to_tray):
             flow(t)
     except Exception as error:  # noqa: BLE001 - report, keep the screenshot, still clean up
         print(f'ERROR {error}')

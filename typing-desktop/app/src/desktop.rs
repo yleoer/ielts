@@ -87,6 +87,10 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
 }
 
 pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
+    // Coming back to the window fetches answers made meanwhile on other devices.
+    if let WindowEvent::Focused(true) = event {
+        window.state::<crate::SyncNudge>().send();
+    }
     if let WindowEvent::CloseRequested { api, .. } = event {
         if window.label() == "main"
             && window
@@ -116,6 +120,7 @@ fn show_window(handle: &AppHandle) {
         } else if let Err(error) = window.emit("cijian-window-shown", ()) {
             eprintln!("cijian: could not notify window restore: {error}");
         }
+        handle.state::<crate::SyncNudge>().send();
     }
 }
 

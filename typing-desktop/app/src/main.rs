@@ -3,7 +3,8 @@
 //! 现有前端按 `location.origin + "/api"` 调用接口，因此无需改动 JS。
 //! 页面与脚本来自内嵌的 `dist/`；接口、插图与音频由本地 SQLite 与媒体清单提供。
 //! 后台线程每天检查一次是否需要优化 FSRS 参数（见 `cijian_core::optimize`）；
-//! 配置了同步服务器时，启动后及每隔一段时间自动同步作答日志（见 `cijian_core::remote`）；
+//! 配置了同步服务器时，启动后及每隔一段时间完整同步（词库与作答日志），每次保存作答、
+//! 窗口恢复或获得焦点后立即只交换作答日志（见 `cijian_core::remote`）；
 //! 未配置时页面在首次启动时要求填写服务器地址与访问令牌（保存到数据目录的 `server.json`）。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -13,15 +14,17 @@ mod desktop;
 mod tray_indicator;
 
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use cijian_core::api::{App, AppConfig, Request, ServerSource};
 use cijian_core::optimize::{evaluate_with_fsrs_rs, OptimizationConfig};
-use cijian_core::remote::{sync_all, ServerConfig};
+use cijian_core::remote::{sync_all, sync_answers, ServerConfig};
 use cijian_core::srs::MemoryConfig;
 use cijian_core::store::Store;
 use tauri::http::{header::{CACHE_CONTROL, CONTENT_TYPE}, Response};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const SCHEME: &str = "cijian";
 
@@ -86,19 +89,57 @@ fn start_optimizer(app: Arc<App>) {
     }
 }
 
-/// Syncs at startup and then every `CIJIAN_SYNC_MINUTES` (default 10) while a server
-/// is configured. Failures, e.g. while offline, are only logged; practice keeps working.
-fn start_sync(app: Arc<App>, handle: tauri::AppHandle) {
+/// Asks the sync thread for an answers-only exchange: after each saved answer, so other
+/// devices get it right away, and when the window comes back, to show their answers.
+pub struct SyncNudge(Sender<()>);
+
+impl SyncNudge {
+    pub fn send(&self) {
+        // The receiver lives as long as the sync thread; without it there is nothing to wake.
+        let _ = self.0.send(());
+    }
+}
+
+/// Full sync (vocabulary and answers) at startup and every `CIJIAN_SYNC_MINUTES` (default 10),
+/// answers only after each nudge. The interval follows the wall clock, so a computer waking from
+/// sleep catches up within a minute. Failures, e.g. while offline, are only logged.
+fn start_sync(app: Arc<App>, handle: tauri::AppHandle, nudges: Receiver<()>) {
     let minutes = std::env::var("CIJIAN_SYNC_MINUTES").ok().and_then(|v| v.parse::<u64>().ok()).filter(|m| *m > 0).unwrap_or(10);
-    let spawned = std::thread::Builder::new().name("log-sync".into()).spawn(move || loop {
-        if let Some(remote) = app.remote() {
-            match sync_all(&app.store, remote.as_ref()) {
-                Ok(status) => eprintln!("cijian: {}", status["message"].as_str().unwrap_or_default()),
+    let interval = Duration::from_secs(minutes * 60);
+    let spawned = std::thread::Builder::new().name("log-sync".into()).spawn(move || {
+        let mut last_full: Option<SystemTime> = None;
+        loop {
+            // A clock set backwards also makes the full sync due.
+            let since = last_full.and_then(|at| at.elapsed().ok());
+            let full = since.is_none_or(|since| since >= interval);
+            if full {
+                last_full = Some(SystemTime::now());
+            } else {
+                // Monotonic waits may not count time asleep, so recheck the clock every minute.
+                let wait = (interval - since.unwrap_or_default()).min(Duration::from_secs(60));
+                match nudges.recv_timeout(wait) {
+                    // Answers saved meanwhile go up together.
+                    Ok(()) => while nudges.try_recv().is_ok() {},
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => return,
+                }
+            }
+            let Some(remote) = app.remote() else { continue };
+            let result = if full { sync_all(&app.store, remote.as_ref()) } else { sync_answers(&app.store, remote.as_ref()) };
+            match result {
+                Ok(status) => {
+                    eprintln!("cijian: {}", status["message"].as_str().unwrap_or_default());
+                    // Another device may have answered the word on screen; the page replaces it.
+                    if status["merged_attempts"].as_u64().is_some_and(|n| n > 0) {
+                        if let Err(error) = handle.emit("cijian-answers-merged", ()) {
+                            eprintln!("cijian: could not notify merged answers: {error}");
+                        }
+                    }
+                }
                 Err(error) => eprintln!("cijian: sync skipped: {error}"),
             }
             desktop::refresh(&handle);
         }
-        std::thread::sleep(std::time::Duration::from_secs(minutes * 60));
     });
     if let Err(error) = spawned {
         eprintln!("cijian: could not start sync: {error}");
@@ -120,6 +161,9 @@ fn main() {
             let (status, content_type, body) = if req.path.starts_with("/api/") {
                 let app = handle.state::<Arc<App>>();
                 let r = app.handle(&req);
+                if r.status < 300 && req.path == "/api/practice/attempts" {
+                    handle.state::<SyncNudge>().send();
+                }
                 if r.status < 300 && matches!(req.path.as_str(),
                     "/api/practice/attempts" | "/api/sync/now" | "/api/settings/server" |
                     "/api/memory/summary" | "/api/practice/queue") {
@@ -151,6 +195,8 @@ fn main() {
             let settings_path = state.config.server_file.as_ref().unwrap().with_file_name("desktop.json");
             app.manage(desktop::DesktopSettings::load(settings_path));
             app.manage(state.clone());
+            let (nudge, nudges) = mpsc::channel();
+            app.manage(SyncNudge(nudge));
             desktop::setup(app.handle())?;
             // Windows WebView2 maps custom schemes to http://<scheme>.localhost.
             let url = if cfg!(windows) { "http://cijian.localhost/" } else { "cijian://localhost/" };
@@ -168,7 +214,7 @@ fn main() {
             }
             window.build()?;
             start_optimizer(state.clone());
-            start_sync(state, app.handle().clone());
+            start_sync(state, app.handle().clone(), nudges);
             Ok(())
         })
         .run(tauri::generate_context!())
