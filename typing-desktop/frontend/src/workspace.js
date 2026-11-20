@@ -11,6 +11,8 @@ const workspaceControls = {
             desktopSettings: { loaded: false, saving: false, closeToTray: true, savedCloseToTray: true, error: '' },
             autostartSettings: { loaded: false, saving: false, enabled: false, savedEnabled: false, error: '' },
             setup: { visible: false },
+            // Hidden in the tray; the practice timer stays paused even if the page reloads a word.
+            windowHidden: false,
             // The sync panel owns the server form, including first-run connection.
             serverSettings: { loaded: false, required: false, editing: false, url: '', savedUrl: '', token: '', hasToken: false, editable: true, saving: false, error: '' },
         };
@@ -59,11 +61,14 @@ const workspaceControls = {
             document.addEventListener('contextmenu', event => event.preventDefault());
             window.addEventListener('keydown', event => this.handleDesktopShortcut(event), true);
             window.__TAURI__.event.listen('cijian-window-hidden', () => {
+                this.windowHidden = true;
                 this.stopWordAudio?.();
                 this.pauseClock?.();
                 this.closeResults?.();
             });
-            window.__TAURI__.event.listen('cijian-window-shown', () => { this.resumeClock?.(); this.checkPlan?.(); });
+            window.__TAURI__.event.listen('cijian-window-shown', () => { this.windowHidden = false; this.resumeClock?.(); this.checkPlan?.(); });
+            // A background sync merged answers from another device.
+            window.__TAURI__.event.listen('cijian-answers-merged', () => { this.refreshSyncSummary(); return this.afterSync(); });
         },
         handleDesktopShortcut(event) {
             const ctrl = event.ctrlKey || event.metaKey;

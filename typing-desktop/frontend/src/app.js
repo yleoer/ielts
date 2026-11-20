@@ -33,13 +33,12 @@ const practiceApp = {
         isMistakePractice() { return this.practiceMode === 'mistakes'; },
         isDifficultPractice() { return this.practiceMode === 'difficult'; },
         isStalePractice() { return this.practiceMode === 'stale'; },
-        isUntrackedPractice() { return this.isMistakePractice || this.isDifficultPractice || this.isStalePractice; },
         isFormalPractice() { return this.practiceMode === 'normal'; },
         titlebarNote() {
             if (this.isMistakePractice) return '错词重练 · 不计入记忆与统计';
-            if (this.isDifficultPractice) return '难点突破 · 最多 20 个 · 不计入记忆与统计';
-            if (this.isStalePractice) return '久未练习 · 最多 20 个 · 不计入记忆与统计';
-            if (!this.isFormalPractice) return '自由练习 · 最多 20 个 · 计入记忆与统计';
+            if (this.isDifficultPractice) return '难点突破 · 最多 20 个';
+            if (this.isStalePractice) return '久未练习 · 最多 20 个';
+            if (!this.isFormalPractice) return '自由练习 · 最多 20 个';
             return this.summary ? `待复习 ${this.summary.due_count || 0} 个 · 新词 ${this.summary.new_available || 0} 个` : '';
         },
         // The waiting page: no question, nothing loading or failing, no unsaved answer.
@@ -229,7 +228,7 @@ const practiceApp = {
             }
         },
         resumeClock() {
-            if (this.clockStartedAt === null && !document.hidden && !this.syncModal.visible && !this.setup.visible && this.currentWord && !this.pendingAttempt && !this.answerAccepted && !this.showAnswer && !this.isFinished) this.clockStartedAt = performance.now();
+            if (this.clockStartedAt === null && !document.hidden && !this.windowHidden && !this.syncModal.visible && !this.setup.visible && this.currentWord && !this.pendingAttempt && !this.answerAccepted && !this.showAnswer && !this.isFinished) this.clockStartedAt = performance.now();
         },
         pauseClock() {
             if (this.clockStartedAt !== null) {
@@ -274,7 +273,8 @@ const practiceApp = {
         async submitInput(input) {
             if (!this.currentWord || this.pendingAttempt || this.isChecking || this.answerAccepted || this.showAnswer) return;
             this.pauseClock();
-            if (this.isUntrackedPractice) {
+            // Mistake practice retypes this round's errors; every other mode saves its first answer.
+            if (this.isMistakePractice) {
                 this.acceptAnswer({ is_correct: Boolean(input) && this.answerCandidates(this.currentWord.word).includes(this.normalizeAnswer(input)) }, input);
                 return;
             }
@@ -522,8 +522,11 @@ const practiceApp = {
             await this.loadNextWord();
         },
 
+        // Synced answers from another device may already have reviewed the word on screen:
+        // show the core's current pick unless typing has started (a stale submit then conflicts).
         async afterSync() {
-            await this.refreshSummary();
+            if (this.currentWord && this.isFormalPractice && !this.isFinished && !this.userInput && !this.answerAccepted) await this.refreshPageData();
+            else await this.refreshSummary();
         },
     },
     async mounted() {
