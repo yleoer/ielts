@@ -32,4 +32,4 @@ Installers are published on GitHub Releases. See [desktop/README.md](desktop/REA
 
 ## Deck
 
-`deck/` builds the 7,298-word Anki deck from a local Word Atlas checkout with `genanki` (one English-to-Chinese card per word, with illustrations and UK/US audio) and exports the desktop media pack. See [Word Atlas deck](docs/deck/word-atlas.md).
+`deck/` builds the 7,298-word Anki deck from a local [Word Atlas](https://github.com/designfuchen/word-atlas) checkout with `genanki` (one English-to-Chinese card per word, with illustrations and UK/US audio) and exports the desktop media pack. See [Word Atlas deck](docs/deck/word-atlas.md).

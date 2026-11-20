@@ -8,9 +8,17 @@ use cijian_core::media_install::MediaManager;
 use serde_json::{json, Value};
 
 fn package(image: &[u8]) -> Vec<u8> {
+    versioned(image, json!("2026.11.19"))
+}
+
+/// A one-word package whose manifest carries `version` (`null` for a pre-versioning package).
+fn versioned(image: &[u8], version: Value) -> Vec<u8> {
     let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let manifest = json!({"format": 1, "words": {"library": {"illustration": {
+    let mut manifest = json!({"format": 1, "words": {"library": {"illustration": {
         "file": "wa_library_img.webp"}}}});
+    if !version.is_null() {
+        manifest["version"] = version;
+    }
     for (name, body) in [
         ("manifest.json", manifest.to_string().into_bytes()),
         ("CONTENT_LICENSE.md", b"CC BY 4.0".to_vec()),
@@ -198,4 +206,45 @@ fn accepts_resource_packages_with_extra_personal_notes() {
         manager.current().read("library", "illustration").unwrap().1,
         b"image"
     );
+}
+
+#[test]
+fn imports_need_a_version_no_older_than_the_installed_package() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = MediaManager::new(Some(dir.path()));
+    let image = |m: &Arc<MediaManager>| m.current().read("library", "illustration").unwrap().1;
+    let error = upload(&manager, &versioned(b"legacy", Value::Null)).unwrap_err().to_string();
+    assert!(error.contains("缺少版本号"), "{error}");
+    assert_eq!(manager.status()["installed"], false);
+    assert!(upload(&manager, &versioned(b"bad", json!("2026-11-19"))).is_err(), "only dotted numbers are versions");
+
+    upload(&manager, &versioned(b"november", json!("2026.11.19"))).unwrap();
+    assert_eq!(manager.status()["version"], "2026.11.19");
+    let error = upload(&manager, &versioned(b"october", json!("2026.10.30"))).unwrap_err().to_string();
+    assert!(error.contains("低于已安装的 2026.11.19"), "{error}");
+    assert_eq!(manager.status()["phase"], "error");
+    assert_eq!(image(&manager), b"november", "the installed package stays active");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().filter(|e| e.as_ref().unwrap().path().extension().is_some_and(|x| x == "zip")).count(), 1,
+               "the rejected ZIP is removed");
+
+    upload(&manager, &versioned(b"rebuilt", json!("2026.11.19"))).unwrap();
+    assert_eq!(image(&manager), b"rebuilt", "the same version can be reinstalled");
+    upload(&manager, &versioned(b"second build", json!("2026.11.19.2"))).unwrap();
+    upload(&manager, &versioned(b"december", json!("2026.12.1"))).unwrap();
+    assert_eq!(MediaManager::new(Some(dir.path())).status()["version"], "2026.12.1", "the version survives a restart");
+}
+
+#[test]
+fn a_package_installed_before_versioning_keeps_working_until_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    // Write the install record directly, as an older app did, since imports now need a version.
+    std::fs::write(dir.path().join("old.zip"), versioned(b"legacy", Value::Null)).unwrap();
+    std::fs::write(dir.path().join("active.json"), "\"old.zip\"").unwrap();
+    let manager = MediaManager::new(Some(dir.path()));
+    let status = manager.status();
+    assert_eq!((status["installed"].clone(), status["version"].clone()), (json!(true), Value::Null));
+    assert_eq!(manager.current().read("library", "illustration").unwrap().1, b"legacy");
+    upload(&manager, &versioned(b"any", json!("2026.1.1"))).unwrap();
+    assert_eq!(manager.status()["version"], "2026.1.1");
+    assert!(!dir.path().join("old.zip").exists());
 }

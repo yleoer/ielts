@@ -27,7 +27,7 @@
 - **统计**：`core/src/stats.rs` 移植 `stats.py`、`activity.py`、`vocabulary.py` 及 `memory.py` 的日历与词库查询：概览与连续天数、近 30 天、学习日历（前 6 个月至后 5 个月，北京时间）、日历单日词表、词库进度与分组明细、单词错误记录，均为只读查询，路径、参数校验与 JSON 与 Flask 一致。
 - **存储**：`core/src/store.rs` 移植 `memory.py` 的出题、提交与汇总，本地 SQLite 沿用 `srs_configs`、`word_memory`、`practice_items`、`word_reviews` 结构，另有 `vocabulary`（词库快照）、`sync_history`（服务器新增词历史缓存）、`sync_state`（设备 ID、服务端游标、本机上次同步时间及服务器上次检查 Anki 时间）与 `synced_attempts`（服务端已有的作答）。`practice_items` 只在本地使用，不同步。
 - **词库**：服务端 `GET /api/vocab` 返回 JSON 快照（全部词条 + `learned` + 插图文件名，`AnkiReader.snapshot()`）。桌面端必须连接服务器，没有离线导入词库的方式；已同步的词库和作答保存在本地，断网时照常练习。
-- **媒体**：个人自用，插图与英、美单词读音（不含例句朗读）单独分发为 `cijian-media.zip`。服务器配置位于同步面板，资源 ZIP 在设置中导入或更换；没有下载功能。`media.rs` 按 SourceId 直接读取 ZIP，`media_install.rs` 管理分块复制与切换；不逐文件校验 SHA，不做成员扫描、多实例锁、后台安装线程或旧散文件兼容。保留基本解析和失败保留原包，详见 [独立媒体资源包](MEDIA.md)。
+- **媒体**：个人自用，插图与英、美单词读音（不含例句朗读）单独分发为 `cijian-media.zip`。服务器配置位于同步面板，资源 ZIP 在设置中导入或更换；没有下载功能。`media.rs` 按 SourceId 直接读取 ZIP，`media_install.rs` 管理分块复制与切换，并拒绝缺少版本号或比已安装更旧的包；不逐文件校验 SHA，不做成员扫描、多实例锁、后台安装线程或旧散文件兼容。保留基本解析和失败保留原包，详见 [独立媒体资源包](MEDIA.md)。
 
 ## 同步
 

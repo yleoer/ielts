@@ -108,6 +108,6 @@ FSRS 开关、目标保留率和优化参数属于客户端个人调度设置，
 
 ## 授权与设计
 
-原始词库、插画与录音：**Word Atlas contributors — [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**。导出中应用本地词形与用法修订，增加 HTML 排版及目标词强调；4 个改词头的词另外提供 Microsoft Zira Desktop 合成美音与例句录音，来源见修订目录。源项目说明内容由 AI 生成、未经逐条人工审校。Fraunces 使用 SIL OFL 1.1，完整许可随包提供。
+原始词库、插画与录音来自 [Word Atlas](https://github.com/designfuchen/word-atlas)：**Word Atlas contributors — [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**。导出中应用本地词形与用法修订，增加 HTML 排版及目标词强调；4 个改词头的词另外提供 Microsoft Zira Desktop 合成美音与例句录音，来源见修订目录。源项目说明内容由 AI 生成、未经逐条人工审校。Fraunces 使用 SIL OFL 1.1，完整许可随包提供。
 
 前端参考 [Impeccable](https://github.com/pbakaus/impeccable) 的设计规范。卡片设计约定见 [word-atlas-surface.md](word-atlas-surface.md)，实现说明见 [DESIGN.md](../../deck/templates/word-atlas/DESIGN.md)。

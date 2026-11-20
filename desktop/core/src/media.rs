@@ -24,14 +24,24 @@ struct Asset {
 #[derive(Deserialize)]
 struct Manifest {
     format: u32,
+    /// Release version such as `2026.11.19`; packages built before versioning have none.
+    version: Option<String>,
     words: HashMap<String, HashMap<String, Asset>>,
+}
+
+/// Dotted release version (`2026.11.19`, optionally `.2` for a second build that day),
+/// compared segment by segment as numbers.
+pub fn parse_version(text: &str) -> Option<Vec<u32>> {
+    text.split('.').map(|part| part.parse().ok().filter(|_| part.bytes().all(|b| b.is_ascii_digit()))).collect()
 }
 
 #[derive(Default)]
 pub struct Media {
     words: HashMap<String, HashMap<String, Asset>>,
     archive: Option<Mutex<zip::ZipArchive<File>>>,
-    version: String,
+    /// Installation id (the ZIP's file stem); also the media URL cache key.
+    install_id: String,
+    version: Option<String>,
 }
 
 impl Media {
@@ -40,7 +50,10 @@ impl Media {
             let mut archive = zip::ZipArchive::new(File::open(path)?)?;
             let mut manifest: Manifest = serde_json::from_reader(archive.by_name("manifest.json")?)?;
             if manifest.format != 1 {
-                return Err("不支持的资源包版本".into());
+                return Err("不支持的资源包格式".into());
+            }
+            if manifest.version.as_deref().is_some_and(|v| parse_version(v).is_none()) {
+                return Err("资源包版本号格式无效".into());
             }
             for assets in manifest.words.values_mut() {
                 assets.retain(|kind, _| KINDS.iter().any(|(known, _)| kind == known));
@@ -48,14 +61,19 @@ impl Media {
             Ok(Self {
                 words: manifest.words,
                 archive: Some(Mutex::new(archive)),
-                version: path.file_stem().unwrap().to_string_lossy().into_owned(),
+                install_id: path.file_stem().unwrap().to_string_lossy().into_owned(),
+                version: manifest.version,
             })
         };
         load().map_err(|e| ApiError::Unavailable(format!("无法读取资源包：{e}")))
     }
 
-    pub fn version(&self) -> &str {
-        &self.version
+    pub fn install_id(&self) -> &str {
+        &self.install_id
+    }
+
+    pub fn version(&self) -> Option<&str> {
+        self.version.as_deref()
     }
 
     pub fn counts(&self) -> Value {
@@ -120,7 +138,7 @@ impl Media {
                     let assets = self.words.get(source);
                     let url = |kind: &str, route: &str| -> String {
                         assets.and_then(|a| a.get(kind)).map_or(String::new(), |_| {
-                            format!("/api/media/source/{source}/{route}?v={}", self.version)
+                            format!("/api/media/source/{source}/{route}?v={}", self.install_id)
                         })
                     };
                     let illustration = url("illustration", "illustration");

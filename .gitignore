@@ -19,6 +19,9 @@ env/
 # Generated Anki exports
 deck/anki_export/
 
+# Desktop media packs (~300 MB, published as GitHub Release assets)
+cijian-media*.zip
+
 # Runtime databases
 **/.access-secret
 server/backend/data/*.db

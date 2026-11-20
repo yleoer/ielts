@@ -32,7 +32,7 @@ English README: [README.md](README.md)
 
 ## 牌组
 
-`deck/` 用本地 Word Atlas 词库与 `genanki` 生成 7,298 词的 Anki 牌组（每词一张英→汉卡，带插画与英美发音），并导出桌面端的插图与读音资源包。见 [Word Atlas 牌组](docs/deck/word-atlas.md) 和 [本地修订表](deck/data/word-atlas-revisions/README.md)。
+`deck/` 用本地 [Word Atlas](https://github.com/designfuchen/word-atlas) 词库与 `genanki` 生成 7,298 词的 Anki 牌组（每词一张英→汉卡，带插画与英美发音），并导出桌面端的插图与读音资源包。见 [Word Atlas 牌组](docs/deck/word-atlas.md) 和 [本地修订表](deck/data/word-atlas-revisions/README.md)。
 
 ## 文档
 

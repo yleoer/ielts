@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::error::{ApiError, ApiResult};
-use crate::media::Media;
+use crate::media::{parse_version, Media};
 
 pub const CHUNK_SIZE: usize = 4 * 1024 * 1024;
 
@@ -84,9 +84,10 @@ impl MediaManager {
 
     pub fn status(&self) -> Value {
         let job = self.job.lock().unwrap();
-        let counts = self.current().counts();
+        let current = self.current();
+        let counts = current.counts();
         json!({"installed": counts["files"].as_u64().unwrap_or(0) > 0, "counts": counts,
-            "phase": job.phase, "id": job.id,
+            "version": current.version(), "phase": job.phase, "id": job.id,
             "done": job.done, "total": job.total, "error": job.error,
             "busy": job.busy()})
     }
@@ -171,24 +172,42 @@ impl MediaManager {
         }
     }
 
+    /// New imports need a version no older than the installed one; the same version may be reinstalled.
+    /// A package installed before versioning keeps working and accepts any versioned replacement.
+    fn check_version(&self, media: &Media) -> ApiResult<()> {
+        let version = media
+            .version()
+            .ok_or_else(|| ApiError::bad("资源包缺少版本号，请从 GitHub Releases 下载新版资源包"))?;
+        if let Some(installed) = self.current().version() {
+            if parse_version(version) < parse_version(installed) {
+                return Err(ApiError::bad(format!("资源包版本 {version} 低于已安装的 {installed}，未导入")));
+            }
+        }
+        Ok(())
+    }
+
     fn install(&self, path: &Path, id: &str) -> ApiResult<()> {
         let root = self.root.as_ref().unwrap();
         let name = format!("{id}.zip");
         let target = root.join(&name);
         std::fs::rename(path, &target).map_err(failure)?;
-        // An unreadable package is removed; the active one stays in place.
-        let media = Arc::new(Media::load_package(&target).inspect_err(|_| {
-            let _ = std::fs::remove_file(&target);
-        })?);
+        // An unreadable, unversioned or older package is removed; the active one stays in place.
+        let media = Arc::new(
+            Media::load_package(&target)
+                .and_then(|media| self.check_version(&media).map(|()| media))
+                .inspect_err(|_| {
+                    let _ = std::fs::remove_file(&target);
+                })?,
+        );
         let pointer = root.join("active.json");
         let temporary = root.join("active.json.tmp");
         std::fs::write(&temporary, serde_json::to_vec(&name).unwrap()).map_err(failure)?;
         std::fs::rename(temporary, pointer).map_err(failure)?;
         let previous = std::mem::replace(&mut *self.current.write().unwrap(), media);
-        let previous_version = previous.version().to_string();
+        let previous_id = previous.install_id().to_string();
         drop(previous);
-        if !previous_version.is_empty() {
-            let _ = std::fs::remove_file(root.join(format!("{previous_version}.zip")));
+        if !previous_id.is_empty() {
+            let _ = std::fs::remove_file(root.join(format!("{previous_id}.zip")));
         }
         self.job.lock().unwrap().phase = "ready";
         Ok(())

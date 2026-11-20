@@ -1,6 +1,6 @@
 # 独立媒体资源包
 
-这是个人自用项目。插图和音频单独分发为 `cijian-media.zip`，不随桌面安装包。服务器地址和令牌直接在“同步”面板配置，资源 ZIP 在“设置 → 插图与音频”中导入或更换。没有资源包也能先练习文字，不提供网络下载功能。
+这是个人自用项目。插图和音频单独分发为 `cijian-media.zip`，不随桌面安装包，发布在 GitHub Releases 的 `media-<版本>` 标签下（约 300MB）。服务器地址和令牌直接在“同步”面板配置，资源 ZIP 在“设置 → 插图与音频”中导入或更换。没有资源包也能先练习文字，不提供网络下载功能。
 
 同步服务器只提供词库和作答日志。资源按 Word Atlas 的稳定 `SourceId` 定位，导入不会修改学习记录。练习的中文释义、显示后的英文答案与错题回顾，以及统计词库/日历明细中的单词可点击播放读音：先英音，结束后间隔 500 毫秒再播美音。可播放文字不显示下划线或悬停读音提示。只在点击时读取音频，再次点击重新播放；缺少一种口音时只播已有口音，无读音时不提供播放。切题、关闭统计明细、隐藏或离开页面时停止。
 
@@ -12,7 +12,15 @@
 .\.venv\Scripts\python.exe -X utf8 deck/scripts/export_desktop_media.py --source D:/me/word-atlas-main
 ```
 
-默认只生成 `desktop/media/cijian-media.zip`，可用 `--output` 指定目录。源项目需要 `data/word-atlas.json`、`dist/atlas/index.json`、`dist/atlas/img/`、`dist/atlas/audio/{uk,us}/` 和 `CONTENT_LICENSE.md`。导出复用 Anki 生成器的选择与命名规则，不需要 genanki 或生成 APKG。
+默认只生成 `desktop/media/cijian-media.zip`（已被 Git 忽略），可用 `--output` 指定目录。`--version` 指定资源包版本，默认当天日期，例如 `2026.11.19`；同一天需要再出一版时用 `2026.11.19.2`。
+
+没有 Word Atlas 源项目、只需给已有资源包换版本号时，用 `--repack` 原样复制全部条目，只改清单里的版本：
+
+```bash
+.venv/bin/python -X utf8 deck/scripts/export_desktop_media.py --repack cijian-media.zip --version 2026.11.19
+```
+
+源项目需要 `data/word-atlas.json`、`dist/atlas/index.json`、`dist/atlas/img/`、`dist/atlas/audio/{uk,us}/` 和 `CONTENT_LICENSE.md`。导出复用 Anki 生成器的选择与命名规则，不需要 genanki 或生成 APKG。
 
 完整数据保留 7,298 个 SourceId，应用 [本地修订表](../../deck/data/word-atlas-revisions/README.md) 后包含 21,890 个媒体：插图 7,298、美音 7,298、英音 7,294。4 个词头改写影响读音，使用新的美音并省略旧英音；其他拼写变体复用原读音，所有资源继续按原 SourceId 定位。不打包日常或雅思例句朗读。缺少某类媒体时省略该项。ZIP 使用固定时间戳与排序，临时文件组装完成后替换成品；再次导出直接重建，不做哈希缓存，不生成 `.sha256` 文件。
 
@@ -20,11 +28,12 @@
 
 ## 清单与授权
 
-ZIP 包含 `manifest.json`、媒体和 `CONTENT_LICENSE.md`、`ATTRIBUTION.txt`。清单只记录资源类型及文件名，不含逐文件 SHA：
+ZIP 包含 `manifest.json`、媒体和 `CONTENT_LICENSE.md`、`ATTRIBUTION.txt`。清单记录资源包版本、资源类型及文件名，不含逐文件 SHA：
 
 ```json
 {
   "format": 1,
+  "version": "2026.11.19",
   "words": {
     "library": {
       "illustration": {"file": "wa_library_img.webp"},
@@ -34,7 +43,30 @@ ZIP 包含 `manifest.json`、媒体和 `CONTENT_LICENSE.md`、`ATTRIBUTION.txt`�
 }
 ```
 
-仅使用 `illustration`、`audio_uk`、`audio_us`；导入旧包时忽略额外的例句音频，不生成对应 URL，也不计入安装数量。资源署名为 **Word Atlas contributors — CC BY 4.0**；内容不改写，只改文件名。
+仅使用 `illustration`、`audio_uk`、`audio_us`；导入旧包时忽略额外的例句音频，不生成对应 URL，也不计入安装数量。单词、插图与录音来自 [Word Atlas](https://github.com/designfuchen/word-atlas)，资源署名为 **Word Atlas contributors — CC BY 4.0**；内容不改写，只改文件名。
+
+## 版本
+
+`version` 是点分数字，逐段按数值比较（`2026.11.19` < `2026.11.19.2` < `2026.12.1`）。导入时：
+
+- 清单缺少版本号的包拒绝导入，提示从 GitHub Releases 下载新版；格式不对（如 `2026-11-19`）视为无法读取。
+- 版本低于已安装的包时拒绝，提示两个版本号，已安装的包保持启用；同版本可以重新导入。
+- 版本校验之前导入的旧包没有版本号，照常使用，设置里显示“未标注版本”，之后可换成任何带版本的包。
+
+设置“插图与音频”显示已安装的插图、音频数量及版本（来自 `/api/resources/status` 的 `version`）。版本只用于防止误装回旧包，不参与媒体 URL 的缓存键，缓存键仍是每次安装的 UUID。
+
+旧版桌面端（0.5.0 及以前）忽略清单中的 `version`，也能导入带版本的新包。
+
+## 发布
+
+资源包作为 Release 附件上传，不进 Git 仓库：
+
+```bash
+gh release create media-2026.11.19 desktop/media/cijian-media.zip --latest=false \
+  --title '资源包 2026.11.19' --notes '桌面端“设置 → 插图与音频”导入，无需解压。'
+```
+
+必须带 `--latest=false`：桌面端自动更新读取 `releases/latest/download/latest.json`，资源包 Release 成为“最新版”会使检查更新失败。`media-*` 标签不触发任何工作流。换新版时发布新的标签，旧的 Release 可以删除。
 
 ## 导入与读取
 

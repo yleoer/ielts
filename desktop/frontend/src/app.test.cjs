@@ -168,6 +168,15 @@ test('settings load resources without reading the server and pause practice unti
     assert.equal(h.app.clockStartedAt, 6000);
 });
 
+test('settings show the installed resource version, or mark a package built before versioning', () => {
+    const h = harness();
+    const counts = { files: 21890, kinds: { illustration: 7298 } };
+    h.app.resources.status = { installed: true, counts, version: '2026.11.19' };
+    assert.equal(h.app.resourceSummaryText, `已安装 ${(7298).toLocaleString()} 张插图、${(14592).toLocaleString()} 段音频 · 版本 2026.11.19`);
+    h.app.resources.status = { installed: true, counts, version: null };
+    assert.match(h.app.resourceSummaryText, / · 未标注版本$/);
+});
+
 test('autostart reads system state and saves each toggle independently of the server', async () => {
     const h = harness();
     let systemEnabled = true;
