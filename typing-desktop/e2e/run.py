@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -89,6 +90,14 @@ class MockServer:
     def add_word(self, text, senses):
         """Simulates a word learned in Anki; the app picks it up on its next background sync."""
         self.words.append(word(len(self.words), text, senses))
+
+    def answer_elsewhere(self, text):
+        """Simulates another computer answering `text` correctly (Good) just now."""
+        entry = next(item for item in self.words if item['word'] == text)
+        self.log.append({'attempt_id': f'other-device-{text}', 'word_key': f'word-atlas:{text}', 'word': text,
+                         'chinese_meaning': entry['chinese_meaning'], 'category': entry['category'], 'user_input': text,
+                         'is_correct': True, 'rating': 3, 'reviewed_at': datetime.now(timezone.utc).isoformat(),
+                         'duration_ms': 8000, 'first_input_ms': 1000})
 
 
 def free_port() -> int:

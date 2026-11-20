@@ -149,7 +149,7 @@ pub(crate) fn word_order(a: &Map<String, Value>, b: &Map<String, Value>) -> Orde
         .then_with(|| text(a, "source_id").cmp(text(b, "source_id")))
 }
 
-fn word_key(word: &Map<String, Value>) -> String {
+pub(crate) fn word_key(word: &Map<String, Value>) -> String {
     format!("word-atlas:{}", text(word, "source_id").trim())
 }
 

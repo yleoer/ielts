@@ -125,14 +125,26 @@ impl Remote for HttpRemote {
     }
 }
 
-/// Full sync: refresh the vocabulary, upload unsent answers, merge the server log.
+/// Full sync: refresh the vocabulary, then exchange the answer log.
 /// Network calls run without holding the store lock, so practice continues.
 pub fn sync_all(store: &Store, remote: &dyn Remote) -> ApiResult<Value> {
+    sync(store, remote, true)
+}
+
+/// Exchanges only the answer log, skipping the vocabulary download; the app runs it
+/// right after each saved answer and when its window comes back.
+pub fn sync_answers(store: &Store, remote: &dyn Remote) -> ApiResult<Value> {
+    sync(store, remote, false)
+}
+
+fn sync(store: &Store, remote: &dyn Remote, vocabulary: bool) -> ApiResult<Value> {
     let failed = |e: String| ApiError::BadRequest(e);
     // Manual and background syncs must not interleave their cursor updates.
     let _running = store.sync_running.try_lock().map_err(|_| failed("正在同步，请稍候".into()))?;
-    let snapshot = remote.vocab().map_err(failed)?;
-    store.import_server_vocabulary(&snapshot)?;
+    if vocabulary {
+        let snapshot = remote.vocab().map_err(failed)?;
+        store.import_server_vocabulary(&snapshot)?;
+    }
     let device_id = store.device_id()?;
     let mut cursor = store.sync_cursor()?;
     let (mut uploaded, mut merged) = (0, 0);
@@ -150,7 +162,8 @@ pub fn sync_all(store: &Store, remote: &dyn Remote) -> ApiResult<Value> {
             break;
         }
     }
-    let message = format!("词库已更新；上传 {uploaded} 条作答，合并其他设备 {merged} 条");
+    let log = format!("上传 {uploaded} 条作答，合并其他设备 {merged} 条");
+    let message = if vocabulary { format!("词库已更新；{log}") } else { log };
     Ok(json!({"success": true, "message": message,
               "uploaded_attempts": uploaded, "merged_attempts": merged}))
 }

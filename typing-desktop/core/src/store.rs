@@ -356,6 +356,23 @@ pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<V
         Ok(Self::plan(&inner.db, &words, &states, self.now())?.1)
     }
 
+    /// Difficult: words answered wrong at least once, by smoothed error rate then error count
+    /// (the statistics page order). Stale: practiced words, least recently answered first.
+    fn history_picks(db: &Connection, words: &[(String, &Word)], mode: &str) -> ApiResult<Vec<String>> {
+        if mode == "difficult" {
+            let mut items: Vec<_> = words.iter().map(|(_, word)| word.data.clone()).collect();
+            crate::stats::with_attempt_counts(db, &mut items)?;
+            items.retain(|word| word["total_attempts"].as_i64() > word["correct_attempts"].as_i64());
+            items.sort_by(crate::stats::word_order);
+            return Ok(items.iter().map(crate::stats::word_key).collect());
+        }
+        let mut stmt = db.prepare("SELECT word_key,MAX(reviewed_at) FROM word_reviews GROUP BY word_key")?;
+        let last: HashMap<String, String> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+        let mut keys: Vec<_> = words.iter().map(|(k, _)| k.clone()).filter(|k| last.contains_key(k)).collect();
+        keys.sort_by(|a, b| last[a].cmp(&last[b]));
+        Ok(keys)
+    }
+
     pub fn queue(&self, session_id: &str, limit: Option<usize>, mode: &str) -> ApiResult<Value> {
         if !(1..=100).contains(&session_id.chars().count()) {
             return Err(ApiError::bad("需要有效的 session_id"));
@@ -367,38 +384,21 @@ pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<V
         let mut guard = self.lock();
         let inner = &mut *guard;
         let words = pool_by_key(&inner.vocabulary)?;
-        if mode == "difficult" || mode == "stale" {
-            // Review-only modes never issue tickets or change the stored schedule.
-            let mut items: Vec<_> = words.iter().map(|(_, word)| word.data.clone()).collect();
-            crate::stats::with_attempt_counts(&inner.db, &mut items)?;
-            if mode == "difficult" {
-                items.retain(|word| word["total_attempts"].as_i64().unwrap() > word["correct_attempts"].as_i64().unwrap());
-                items.sort_by(crate::stats::word_order);
-            } else {
-                let mut stmt = inner.db.prepare("SELECT word_key,MAX(reviewed_at) FROM word_reviews GROUP BY word_key")?;
-                let last: HashMap<String, String> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
-                items.retain_mut(|word| {
-                    let key = format!("word-atlas:{}", word["source_id"].as_str().unwrap_or_default().trim());
-                    last.get(&key).map(|at| word.insert("last_reviewed_at".into(), at.clone().into())).is_some()
-                });
-                items.sort_by(|a, b| a["last_reviewed_at"].as_str().cmp(&b["last_reviewed_at"].as_str()));
-            }
-            items.truncate(limit.unwrap_or(FREE_PRACTICE_LIMIT).clamp(1, FREE_PRACTICE_LIMIT));
-            let states = memory_rows(&inner.db)?;
-            let summary = Self::plan(&inner.db, &words, &states, now)?.1;
-            return Ok(json!({"items": items, "summary": summary, "server_time": time_text(now)}));
-        }
         let tx = inner.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let states = memory_rows(&tx)?;
-        let (mut keys, summary) = Self::plan(&tx, &words, &states, now)?;
+        let (plan, summary) = Self::plan(&tx, &words, &states, now)?;
         tx.execute("DELETE FROM practice_items WHERE issued_at < ?", [time_text(now - TimeDelta::days(7))])?;
-        let free = mode == "free";
-        if free {
-            // Free practice samples the whole pool, including cards not yet due.
-            keys = words.iter().map(|(k, _)| k.clone()).collect();
-            keys.shuffle(&mut rand::rng());
-        }
-        let (maximum, default) = if free { (FREE_PRACTICE_LIMIT, FREE_PRACTICE_LIMIT) } else { (100, 1) };
+        // Extra modes may review cards that are not yet due (see `submit`).
+        let keys = match mode {
+            "scheduled" => plan,
+            "free" => {
+                let mut keys: Vec<_> = words.iter().map(|(k, _)| k.clone()).collect();
+                keys.shuffle(&mut rand::rng());
+                keys
+            }
+            _ => Self::history_picks(&tx, &words, mode)?,
+        };
+        let (maximum, default) = if mode == "scheduled" { (100, 1) } else { (FREE_PRACTICE_LIMIT, FREE_PRACTICE_LIMIT) };
         let item_limit = limit.unwrap_or(default).clamp(1, maximum);
         let lookup: HashMap<&str, &Word> = words.iter().map(|(k, w)| (k.as_str(), *w)).collect();
         let mut items = vec![];
@@ -511,7 +511,7 @@ pub(crate) fn describe_row(srs: &Srs, row: &MemoryRow, now: Time) -> ApiResult<V
                 if card.last_review.is_some_and(|last| reviewed <= last) {
                     return Err(ApiError::conflict("作答时间必须晚于上次复习，请重新获取题目"));
                 }
-                if mode != "free" && reviewed < card.due {
+                if mode == "scheduled" && reviewed < card.due {
                     return Err(ApiError::conflict("这个词尚未到期，请重新获取题目"));
                 }
                 if row.config_version != active.version {

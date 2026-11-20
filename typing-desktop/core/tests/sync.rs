@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::TimeDelta;
 use cijian_core::fsrs::{Card, Rating};
-use cijian_core::remote::{sync_all, Remote};
+use cijian_core::remote::{sync_all, sync_answers, Remote};
 use cijian_core::srs::{fuzz_sample, MemoryConfig, Srs};
 use cijian_core::time::parse_time;
 use common::{at, word, Env};
@@ -139,6 +139,21 @@ fn repeated_sync_uploads_nothing_new_and_merges_nothing() {
     let keys: std::collections::BTreeSet<&str> = uploaded.as_object().unwrap().keys().map(String::as_str).collect();
     assert_eq!(keys, ["attempt_id", "category", "chinese_meaning", "duration_ms", "first_input_ms", "is_correct", "rating",
                       "reviewed_at", "user_input", "word", "word_key"].into());
+}
+
+#[test]
+fn answer_sync_exchanges_the_log_without_touching_the_vocabulary() {
+    let remote = server(500);
+    let (a, b) = (device(), device());
+    a.review("apple", "apple");
+    remote.words.lock().unwrap().push(word("cherry", 3, true));
+    let sent = sync_answers(a.store(), remote.as_ref()).unwrap();
+    assert_eq!((sent["uploaded_attempts"].as_u64(), sent["merged_attempts"].as_u64()), (Some(1), Some(0)));
+    assert_eq!(sent["message"], "上传 1 条作答，合并其他设备 0 条");
+    let received = sync_answers(b.store(), remote.as_ref()).unwrap();
+    assert_eq!(received["merged_attempts"], 1);
+    assert_eq!(card(&a, "apple"), card(&b, "apple"));
+    assert_eq!((a.store().learned_count(), b.store().learned_count()), (2, 2), "the new server word waits for a full sync");
 }
 
 #[test]

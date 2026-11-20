@@ -76,6 +76,57 @@ test('native tray hide pauses practice and excludes hidden time until the window
     assert.equal(h.app.effectiveDuration(), 2000);
 });
 
+test('merged answers from another device replace an untouched formal word, never typed input or results', async () => {
+    const h = harness();
+    const listeners = {};
+    h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
+    h.context.window.matchMedia = () => ({ matches: false, addEventListener() {} });
+    h.context.window.addEventListener = h.document.addEventListener = () => {};
+    h.context.setInterval = () => {};
+    let queues = 0;
+    h.context.axios.get = async url => {
+        if (!url.endsWith('/practice/queue')) return { data: { data: { last_sync_at: null, total: 2 } } };
+        queues++;
+        return { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: `book-${queues}` }], summary: { total: 2 } } } };
+    };
+    h.app.initDesktopShell();
+    h.app.userInput = 'app';
+    await listeners['cijian-answers-merged']();
+    assert.equal(h.app.currentWord.word, 'apple', 'typing has started');
+    assert.equal(h.app.userInput, 'app');
+    h.app.userInput = '';
+    await listeners['cijian-answers-merged']();
+    assert.equal(h.app.currentWord.attempt_id, 'book-1');
+    await h.app.quitPractice();
+    h.app.stats.correct = 1;
+    h.app.finishPractice({ abandoned: true });
+    await listeners['cijian-answers-merged']();
+    assert.equal(h.app.isFinished, true, 'results stay until dismissed');
+    assert.equal(queues, 1);
+});
+
+test('a word reloaded while hidden in the tray starts timing only when the window returns', async () => {
+    const h = harness();
+    const listeners = {};
+    h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
+    h.context.window.matchMedia = () => ({ matches: false, addEventListener() {} });
+    h.context.window.addEventListener = h.document.addEventListener = () => {};
+    h.context.setInterval = () => {};
+    h.context.axios.get = async url => url.endsWith('/practice/queue')
+        ? { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: 'book' }], summary: { total: 2 } } } }
+        : { data: { data: { last_sync_at: null, total: 2 } } };
+    h.app.initDesktopShell();
+    h.app.beginCurrentWord();
+    listeners['cijian-window-hidden']();
+    await listeners['cijian-answers-merged']();
+    assert.equal(h.app.currentWord.word, 'book');
+    assert.equal(h.app.clockStartedAt, null);
+    h.tick(60000);
+    listeners['cijian-window-shown']();
+    h.tick(800);
+    assert.equal(h.app.effectiveDuration(), 800);
+});
+
 test('resource installation refreshes URLs without replacing the active question or typed answer', async () => {
     const h = harness();
     h.app.words[0].id = 41;
@@ -586,10 +637,9 @@ test('free practice requests at most 20 words and saves all of them', async () =
     assert.equal(queueRequests, 1);
 });
 
-for (const [mode, label] of [['difficult', '难点突破'], ['stale', '久未练习']]) test(`${mode} practice completes its selected batch without submitting answers`, async () => {
+for (const [mode, label] of [['difficult', '难点突破'], ['stale', '久未练习']]) test(`${mode} practice saves every answer of its selected batch`, async () => {
     const count = 3;
     const h = harness();
-    h.context.confirm = () => { throw new Error('review-only practice must not ask for confirmation'); };
     let queues = 0;
     h.context.axios.get = async (url, { params } = {}) => {
         if (url.endsWith('/memory/summary')) return { data: { data: { total: 125 } } };
@@ -597,14 +647,17 @@ for (const [mode, label] of [['difficult', '难点突破'], ['stale', '久未练
         assert.equal(params.mode, mode);
         assert.equal(params.limit, 20);
         return { data: { data: {
-            items: Array.from({ length: count }, (_, index) => ({ word: 'apple', source_id: `apple-${index}` })),
+            items: Array.from({ length: count }, (_, index) => ({ word: 'apple', source_id: `apple-${index}`, attempt_id: `${mode}-${index}` })),
             summary: { total: 125 }
         } } };
     };
+    h.context.axios.post = async (url, payload) => {
+        h.requests.push(payload);
+        return { data: { data: { attempt_id: payload.attempt_id, is_correct: true, duration_ms: 1000 } } };
+    };
     await (mode === 'stale' ? h.app.startStalePractice() : h.app.startDifficultPractice());
     assert.equal(h.app.practiceMode, mode);
-    assert.equal(h.app.isUntrackedPractice, true);
-    assert.match(h.app.titlebarNote, new RegExp(`${label}.*不计入记忆与统计`));
+    assert.equal(h.app.titlebarNote, `${label} · 最多 20 个`);
     assert.equal(h.app.progressTotal, count);
     for (let index = 0; index < count; index++) {
         await h.app.submitInput('apple');
@@ -612,8 +665,7 @@ for (const [mode, label] of [['difficult', '难点突破'], ['stale', '久未练
     }
     assert.equal(h.app.isFinished, true);
     assert.equal(h.app.attemptedTotal, count);
-    assert.equal(h.app.pendingAttempt, null);
-    assert.equal(h.requests.length, 0);
+    assert.deepEqual(h.requests.map(request => request.attempt_id), [`${mode}-0`, `${mode}-1`, `${mode}-2`]);
     assert.equal(queues, 1);
 });
 

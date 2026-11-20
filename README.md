@@ -49,7 +49,7 @@ Highlights:
 - Same-session mistake review that does not affect historical statistics.
 - When nothing is due: next-review time with a countdown, a Start button once words are due, and optional free practice.
 - Automatic background parameter optimization after 1,000 effective reviews, followed by monthly evaluations.
-- Offline practice; syncs at startup, every 10 minutes and on demand.
+- Offline practice; each saved answer uploads right away, the window fetches other computers' answers when it comes back, and a full sync (vocabulary included) runs at startup, every 10 minutes and on demand.
 
 Key paths:
 
