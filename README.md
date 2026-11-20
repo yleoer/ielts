@@ -1,96 +1,35 @@
-# My IELTS Tools
+# 词间 (Cijian)
 
-Personal IELTS vocabulary tooling built around Anki.
+Read the Chinese meaning and the illustration, type the English word. 词间 is a Windows desktop app that schedules reviews with the FSRS memory model and reminds you when words are due. The vocabulary comes from the Word Atlas Anki deck, and answers from the office and home computers are merged through a small self-hosted sync server.
 
-This repository contains three related projects:
-
-- `apkg-generator`: builds an IELTS vocabulary Anki package from local word data, audio, and optional AI-enriched fields.
-- `typing-desktop`: the 词间 desktop app (Tauri + Rust) for spelling practice, FSRS scheduling and learning statistics.
-- `typing-practice`: a minimal sync server that serves the Anki vocabulary snapshot and the shared answer log for the desktop app.
+![Practice](docs/desktop/screenshots/practice.png)
 
 中文说明: [README.zh-CN.md](README.zh-CN.md)
 
-## Why This Exists
+## Repository Layout
 
-I use Anki as the source of truth for IELTS vocabulary. This repo keeps the surrounding workflow in one place: generate a deck, sync it to a server, practice spelling in the desktop app, and review learning statistics.
+| Directory | Contents |
+| --- | --- |
+| [`desktop/`](desktop/README.md) | The 词间 desktop app (Tauri 2 + Rust + Vue): spelling practice, FSRS scheduling, learning statistics. The main project. |
+| [`server/`](server/README.md) | Sync server (Flask + SQLite): serves the Word Atlas snapshot read from Anki and merges the answer log of every computer. |
+| `deck/` | Word Atlas Anki deck generator, entry revisions and the desktop media pack export. The deck is stable and rarely changes. |
+| [`docs/`](docs/README.md) | Design, testing, deployment and deck notes (in Chinese). |
 
-The code is intentionally self-hostable and low ceremony. The desktop app works offline; the sync server is deployed with Docker Compose and a prebuilt Docker image.
+## Desktop App
 
-## Projects
+- Chinese meaning and illustration as the prompt, English spelling as the answer; grades come from correctness and time, and FSRS schedules the next review.
+- The waiting page shows the next review time; the tray icon turns orange shortly before words are due and red when they are.
+- Free practice, difficult words and least-recently-practiced words all count toward memory and statistics; retyping this round's mistakes does not.
+- A one-year calendar, a 30-day trend, CEFR level and topic progress, and per-word mistake history.
+- Works offline; each saved answer uploads right away, the window fetches the other computer's answers when it comes back, and a full sync runs at startup and every 10 minutes.
+- After 1,000 effective reviews, FSRS parameters are evaluated monthly in the background and only adopted when validation error improves.
 
-### APKG Generator
+Installers are published on GitHub Releases. See [desktop/README.md](desktop/README.md) (Chinese) for usage and development.
 
-Creates an Anki deck package from the vocabulary assets under `apkg-generator/`.
+## Sync Server
 
-The [Word Atlas deck](docs/apkg-generator/word-atlas.md) exports all 7,298 words as 7,298 English-to-Chinese cards with illustrations and offline audio, using the local `genanki` source. Both generators create one English-to-Chinese card per word.
+`GET /api/vocab` returns the vocabulary snapshot read from Anki, `POST /api/sync` stores and pages the append-only answer log, and a background job copies `collection.anki2` from anki-sync-server. Access uses a bearer token. It runs with Docker Compose and is built and deployed by GitHub Actions on merges to master.
 
-Use it when the source vocabulary or card content changes and a new importable deck is needed.
+## Deck
 
-Key paths:
-
-- `apkg-generator/scripts/generate_anki_import.py`
-- `apkg-generator/data/`
-- `apkg-generator/anki_export/`
-
-Docs:
-
-- [APKG generator notes](docs/apkg-generator/README.md)
-- [Anki card design notes](docs/apkg-generator/anki-card-template.md)
-
-### Typing Desktop (词间)
-
-Runs spelling practice and learning statistics on the desktop. Scheduling (a Rust port of py-fsrs 6.3.2), statistics, parameter optimization, pages and illustrations all run locally on SQLite; answers sync through the server and every device replays the merged log.
-
-Highlights:
-
-- Chinese meaning prompt with English spelling input.
-- Automatic Again/Hard/Good/Easy grades from correctness and 6/20-second thresholds.
-- Each answer is saved locally right away; a failed save can be retried in place without counting twice.
-- Same-session mistake review that does not affect historical statistics.
-- When nothing is due: next-review time with a countdown, a Start button once words are due, and optional free practice.
-- Automatic background parameter optimization after 1,000 effective reviews, followed by monthly evaluations.
-- Offline practice; each saved answer uploads right away, the window fetches other computers' answers when it comes back, and a full sync (vocabulary included) runs at startup, every 10 minutes and on demand.
-
-Key paths:
-
-- `typing-desktop/core/`
-- `typing-desktop/app/`
-- `typing-desktop/frontend/`
-
-Docs:
-
-- [Desktop README](typing-desktop/README.md)
-- [Desktop design](docs/typing-desktop/DESIGN.md)
-- [Frontend notes](docs/typing-desktop/FRONTEND.md)
-- [Word selection](docs/typing-desktop/WORD-SELECTION.md)
-- [FSRS and optimization](docs/typing-desktop/SRS-PLAN.md)
-- [Statistics summary](docs/typing-desktop/statistics/SUMMARY.md)
-
-### Typing Practice Sync Server
-
-A small Flask service: `GET /api/vocab` returns the Word Atlas snapshot read from Anki, `POST /api/sync` stores and pages the append-only answer log, and a background job copies `collection.anki2` from anki-sync-server. Access uses a bearer token. It no longer serves pages, media, FSRS or statistics.
-
-Key paths:
-
-- `typing-practice/backend/`
-- `typing-practice/docker-compose.yml`
-- `typing-practice/data/`
-
-Docs:
-
-- [Sync server overview](docs/typing-practice/SPEC.md)
-- [Docker deployment](docs/typing-practice/DOCKER-DEPLOY.md)
-
-## Documentation
-
-The docs are written as a project knowledge base rather than full tutorials. Start from:
-
-- [Documentation index](docs/README.md)
-- [Chinese documentation index](docs/README.zh-CN.md)
-
-## Repository Boundaries
-
-- Generated Anki exports stay under `apkg-generator/anki_export/`.
-- Runtime sync-server data stays under `typing-practice/data/`.
-- Server deployment configuration lives in `typing-practice/`.
-- Long-term design notes live under `docs/`.
+`deck/` builds the 7,298-word Anki deck from a local Word Atlas checkout with `genanki` (one English-to-Chinese card per word, with illustrations and UK/US audio) and exports the desktop media pack. See [Word Atlas deck](docs/deck/word-atlas.md).
