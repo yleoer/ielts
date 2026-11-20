@@ -17,37 +17,26 @@ env/
 .impeccable/review/
 
 # Generated Anki exports
-/anki_export/
-apkg-generator/anki_export/*.apkg
-apkg-generator/anki_export/*.tsv
-apkg-generator/anki_export/*.csv
-apkg-generator/anki_export/word-atlas/
+deck/anki_export/
 
 # Runtime databases
 **/.access-secret
-typing-practice/backend/data/*.db
-typing-practice/backend/data/*.db-*
-typing-practice/data/*
-!typing-practice/data/.gitkeep
-!typing-practice/data/anki-sync/
-typing-practice/data/anki-sync/*
-!typing-practice/data/anki-sync/.gitkeep
-!typing-practice/data/anki-cache/
-typing-practice/data/anki-cache/*
-!typing-practice/data/anki-cache/.gitkeep
-!typing-practice/data/anki-media/
-typing-practice/data/anki-media/*
-!typing-practice/data/anki-media/.gitkeep
-!typing-practice/data/stats/
-typing-practice/data/stats/*
-!typing-practice/data/stats/.gitkeep
-
-# Original large chapter audio files. Keep split per-word files in subfolders.
-apkg-generator/data/audio/*.mp3
-
-# Keep reusable generation caches
-!apkg-generator/anki_export/cache/
-!apkg-generator/anki_export/cache/*.json
+server/backend/data/*.db
+server/backend/data/*.db-*
+server/data/*
+!server/data/.gitkeep
+!server/data/anki-sync/
+server/data/anki-sync/*
+!server/data/anki-sync/.gitkeep
+!server/data/anki-cache/
+server/data/anki-cache/*
+!server/data/anki-cache/.gitkeep
+!server/data/anki-media/
+server/data/anki-media/*
+!server/data/anki-media/.gitkeep
+!server/data/stats/
+server/data/stats/*
+!server/data/stats/.gitkeep
 
 # Logs and temporary files
 *.log

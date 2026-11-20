@@ -1,11 +1,11 @@
-name: Build typing-practice image
+name: Build sync server image
 
 on:
   push:
     branches:
       - master
     paths:
-      - "typing-practice/**"
+      - "server/**"
       - ".github/workflows/docker-image.yml"
   workflow_dispatch:
 
@@ -43,7 +43,7 @@ jobs:
             fi
           fi
 
-          if grep -Eq '^(typing-practice/backend/|typing-practice/.dockerignore$|.github/workflows/docker-image.yml$)' changed-files.txt; then
+          if grep -Eq '^(server/backend/|server/.dockerignore$|.github/workflows/docker-image.yml$)' changed-files.txt; then
             echo "image_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "image_changed=false" >> "$GITHUB_OUTPUT"
@@ -74,8 +74,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
-          context: ./typing-practice
-          file: ./typing-practice/backend/Dockerfile
+          context: ./server
+          file: ./server/backend/Dockerfile
           push: true
           tags: |
             yleoer/ielts-typing-practice:latest
@@ -109,7 +109,7 @@ jobs:
             echo "Deploy secrets are not configured; skip remote deploy."
           fi
 
-      - name: Deploy typing-practice
+      - name: Deploy sync server
         if: steps.deploy_config.outputs.enabled == 'true'
         uses: appleboy/ssh-action@v1
         with:
