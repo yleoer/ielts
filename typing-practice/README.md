@@ -85,4 +85,4 @@ $headers = @{ Authorization = "Bearer $env:ACCESS_TOKEN" }
 
 ## Docker
 
-标准部署使用 `docker-compose.yml`，本地构建使用 `docker-compose.local-build.yml`，见 [Docker 部署](../docs/typing-practice/DOCKER-DEPLOY.md)。两份 Dockerfile 自动复制后端 `*.py`（`.dockerignore` 排除测试文件），构建时导入应用检查依赖。镜像检查统一通过 SSH 在 `typetest` 执行 `scripts/check_image.py`，见 [镜像验证](../docs/typing-practice/IMAGE-CHECK.md)。GitHub Actions 只负责构建、推送多架构镜像和部署。
+标准部署使用 `docker-compose.yml`，本地构建使用 `docker-compose.local-build.yml`，见 [Docker 部署](../docs/typing-practice/DOCKER-DEPLOY.md)。两份 Dockerfile 自动复制后端 `*.py`（`.dockerignore` 排除测试文件），构建时导入应用检查依赖。镜像检查在本机 Docker 执行 `scripts/check_image.py`，见 [镜像验证](../docs/typing-practice/IMAGE-CHECK.md)。GitHub Actions 只负责构建、推送多架构镜像和部署。

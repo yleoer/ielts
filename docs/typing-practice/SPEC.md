@@ -68,4 +68,4 @@
 
 配置来自 `backend/config/config.yaml`、`typing-practice/.env` 和进程环境变量，环境变量优先；变量列表见 [typing-practice/README.md](../../typing-practice/README.md)。启动时先检查已有数据库，后台线程首次等待默认 60 秒、检查间隔默认 3600 秒。设置 `ANKI_SYNC_SOURCE_DIR` 与 `ANKI_SYNC_TARGET` 后，每次先复制最新数据库再检查；否则直接检查 `ANKI_DB_PATH`。部署时先升级服务器，再升级桌面端。
 
-Python 单元测试在本机按改动范围运行，镜像冒烟检查统一在 SSH 测试机 `typetest` 运行；GitHub Actions 只负责构建、发布和部署。详见 [测试范围](TESTING.md)、[镜像验证](IMAGE-CHECK.md)、[部署](DOCKER-DEPLOY.md)。
+Python 单元测试在本机按改动范围运行，镜像冒烟检查在本机 Docker 运行；GitHub Actions 只负责构建、发布和部署。详见 [测试范围](TESTING.md)、[镜像验证](IMAGE-CHECK.md)、[部署](DOCKER-DEPLOY.md)。
