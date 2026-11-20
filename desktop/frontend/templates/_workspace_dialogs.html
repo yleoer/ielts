@@ -62,11 +62,11 @@
                             <div class="settings-row">
                                 <div class="settings-label" aria-live="polite">
                                     <p v-if="resources.loading" class="muted">正在读取资源状态…</p>
-                                    <p v-else-if="resources.status?.installed">已安装 {{ resources.status.counts.kinds.illustration.toLocaleString() }} 张插图、{{ (resources.status.counts.files - resources.status.counts.kinds.illustration).toLocaleString() }} 段音频</p>
+                                    <p v-else-if="resources.status?.installed">{{ resourceSummaryText }}</p>
                                     <p v-else>尚未导入资源包</p>
                                 </div>
                                 <button ref="resourceChoose" type="button" class="button button-secondary" :disabled="resourceBusy || updateInstalling" @click="$refs.resourceFile.click()">{{ resources.status?.installed ? '更换资源包' : '选择资源包' }}</button>
-                                <p class="settings-help">可选：导入 ZIP 资源包，无需解压。暂不导入也可先练习文字。</p>
+                                <p class="settings-help">可选：从 GitHub Releases 下载 ZIP 资源包后导入，无需解压；不能换回比当前更旧的版本。暂不导入也可先练习文字。</p>
                                 <p v-if="resourceBusy" class="settings-help" role="status">{{ resourceProgressText || '正在准备…' }}</p>
                                 <progress v-if="resourceBusy && resourceProgress !== null" :value="resourceProgress" max="100" :aria-label="resourceProgressText"></progress>
                                 <p v-if="resources.error || resources.status?.error" class="error-message" role="alert">{{ resources.error || resources.status.error }}</p>

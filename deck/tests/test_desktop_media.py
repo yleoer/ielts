@@ -7,7 +7,13 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from export_desktop_media import export
+from export_desktop_media import export as export_versioned, repack
+
+VERSION = "2026.11.19"
+
+
+def export(source, output):
+    return export_versioned(source, output, VERSION)
 
 
 class DesktopMediaTests(unittest.TestCase):
@@ -46,7 +52,7 @@ class DesktopMediaTests(unittest.TestCase):
         report = export(self.source, self.output)
         manifest_bytes = self.contents()["manifest.json"]
         manifest = json.loads(manifest_bytes)
-        self.assertEqual(manifest["format"], 1)
+        self.assertEqual((manifest["format"], manifest["version"]), (1, VERSION))
         self.assertEqual(manifest["words"]["missing"], {})
         self.assertEqual(report["files"], 3)
         contents = self.contents()
@@ -101,6 +107,30 @@ class DesktopMediaTests(unittest.TestCase):
             export(self.source, self.output)
         self.assertEqual({p.name: p.read_bytes() for p in self.output.iterdir()}, before)
 
+
+    def test_repack_sets_the_version_and_copies_every_entry(self):
+        self.media("img", "library.webp", b"picture")
+        export(self.source, self.output)
+        original = self.contents()
+        repacked = self.root / "repacked"
+        report = repack(self.output / "cijian-media.zip", repacked, "2026.12.1")
+        self.assertEqual((report["version"], report["previous_version"], report["files"]), ("2026.12.1", VERSION, 1))
+        with zipfile.ZipFile(repacked / "cijian-media.zip") as package:
+            contents = {name: package.read(name) for name in package.namelist()}
+        manifest = json.loads(contents.pop("manifest.json"))
+        self.assertEqual(manifest, {**json.loads(original.pop("manifest.json")), "version": "2026.12.1"})
+        self.assertEqual(contents, original)
+        # Repacking in place reads the old ZIP before replacing it.
+        repack(repacked / "cijian-media.zip", repacked, "2026.12.2")
+        with zipfile.ZipFile(repacked / "cijian-media.zip") as package:
+            self.assertEqual(json.loads(package.read("manifest.json"))["version"], "2026.12.2")
+
+    def test_versions_must_be_dotted_numbers(self):
+        self.media("img", "library.webp", b"picture")
+        for version in ("2026-11-19", "v1", "2026..1", ""):
+            with self.assertRaises(ValueError):
+                export_versioned(self.source, self.output, version)
+        self.assertFalse((self.output / "cijian-media.zip").exists())
 
 
 if __name__ == "__main__":

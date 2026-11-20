@@ -39,6 +39,13 @@ const workspaceControls = {
             const status = this.resources.status;
             return status?.phase === 'uploading' && status.total ? Math.floor(status.done * 100 / status.total) : null;
         },
+        resourceSummaryText() {
+            const status = this.resources.status;
+            if (!status?.installed) return '';
+            const illustrations = status.counts.kinds.illustration;
+            return `已安装 ${illustrations.toLocaleString()} 张插图、${(status.counts.files - illustrations).toLocaleString()} 段音频 · `
+                + (status.version ? `版本 ${status.version}` : '未标注版本');
+        },
         resourceProgressText() {
             const status = this.resources.status;
             if (!status) return '';
