@@ -78,9 +78,11 @@ function trayHarness(visible) {
 
 test('a word loaded hidden at login startup is untimed and replaced by the current pick once shown', async () => {
     const { h, listeners, queues } = trayHarness(false);
-    await h.app.initDesktopShell();
-    assert.equal(h.app.windowHidden, true, 'known before the first word loads');
+    const visibility = h.app.initDesktopShell();
     h.app.beginCurrentWord();
+    assert.equal(h.app.clockStartedAt, null, 'not timed before the window is known to be visible');
+    await visibility;
+    assert.equal(h.app.windowHidden, true);
     h.tick(60000);
     assert.equal(h.app.effectiveDuration(), 0);
     await listeners['cijian-window-shown']();
@@ -93,8 +95,11 @@ test('a word loaded hidden at login startup is untimed and replaced by the curre
 
 test('a word already seen or typed keeps its place and time when the window returns', async () => {
     const seen = trayHarness(true);
-    await seen.h.app.initDesktopShell();
+    const visibility = seen.h.app.initDesktopShell();
     seen.h.app.beginCurrentWord();
+    assert.equal(seen.h.app.clockStartedAt, null);
+    await visibility;
+    assert.notEqual(seen.h.app.clockStartedAt, null, 'timing starts once the window is known to be visible');
     seen.h.tick(2000);
     seen.listeners['cijian-window-hidden']();
     await seen.listeners['cijian-window-shown']();
@@ -112,13 +117,13 @@ test('a word already seen or typed keeps its place and time when the window retu
     assert.equal(typed.h.app.userInput, 'ap');
 });
 
-test('native tray hide pauses practice and excludes hidden time until the window returns', () => {
+test('native tray hide pauses practice and excludes hidden time until the window returns', async () => {
     const h = harness();
     const listeners = shellStub(h);
     h.context.axios.get = async () => ({ data: { data: { last_sync_at: null } } });
     let stopped = 0;
     h.app.stopWordAudio = () => { stopped++; };
-    h.app.initDesktopShell();
+    await h.app.initDesktopShell();
     h.app.userInput = 'app';
     h.app.beginCurrentWord();
     h.tick(1500);
@@ -142,7 +147,7 @@ test('merged answers from another device replace an untouched formal word, never
         queues++;
         return { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: `book-${queues}` }], summary: { total: 2 } } } };
     };
-    h.app.initDesktopShell();
+    await h.app.initDesktopShell();
     h.app.userInput = 'app';
     await listeners['cijian-answers-merged']();
     assert.equal(h.app.currentWord.word, 'apple', 'typing has started');
@@ -164,7 +169,7 @@ test('a word reloaded while hidden in the tray starts timing only when the windo
     h.context.axios.get = async url => url.endsWith('/practice/queue')
         ? { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: 'book' }], summary: { total: 2 } } } }
         : { data: { data: { last_sync_at: null, total: 2 } } };
-    h.app.initDesktopShell();
+    await h.app.initDesktopShell();
     h.app.beginCurrentWord();
     listeners['cijian-window-hidden']();
     await listeners['cijian-answers-merged']();
@@ -441,7 +446,7 @@ test('hiding to the tray closes results and showing the window re-reads the plan
         if (url.endsWith('/memory/summary')) summaries++;
         return { data: { data: { last_sync_at: null, total: 5, due_count: 0, new_available: 3 } } };
     };
-    h.app.initDesktopShell();
+    await h.app.initDesktopShell();
     h.app.stats = { correct: 1, incorrect: 0, errors: [] };
     h.app.finishPractice();
     const before = summaries;
