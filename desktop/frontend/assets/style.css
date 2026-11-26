@@ -118,7 +118,9 @@ ul { margin: 0; padding: 0; list-style: none; }
 /* The practice sheet sits directly on the content card; answer feedback lives on the input border. */
 .practice-sheet { padding: 28px 0 8px; }
 .entry-content { text-align: center; }
-.practice-meanings { display: grid; gap: 14px; }
+/* Reserve one primary line and the two shown secondary lines, bottom-aligned, so the answer box
+   keeps its place between words; only meanings that wrap still push it down. */
+.practice-meanings { display: grid; gap: 14px; align-content: end; min-height: calc(26px * 1.55 + 14px + 2 * 16px * 1.7 + 8px); }
 .practice-secondary-meanings { display: grid; gap: 8px; width: min(100%, 28rem); margin: 0 auto; }
 .practice-meaning { color: var(--ink); font-size: 26px; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
 .practice-meaning.is-secondary { font-size: 16px; font-weight: 400; line-height: 1.7; }
@@ -399,6 +401,7 @@ progress::-moz-progress-bar { background: var(--accent); }
     .titlebar { padding-left: 16px; }
     .titlebar-note { display: none; }
     .practice-meaning { font-size: 23px; }
+    .practice-meanings { min-height: calc(23px * 1.55 + 14px + 2 * 16px * 1.7 + 8px); }
     .metrics-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .topic-progress-list { grid-template-columns: 1fr; }
     .route-heading { align-items: flex-start; gap: 16px; }

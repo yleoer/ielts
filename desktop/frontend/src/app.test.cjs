@@ -848,6 +848,39 @@ test('counts and advancement follow the saved result, then the core selects the 
     assert.equal(h.app.currentIndex, 1);
 });
 
+test('formal advance keeps the answered word on screen until the next pick replaces it', async () => {
+    const h = harness();
+    h.context.axios.post = async () => ({ data: { data: { attempt_id: 'attempt', is_correct: true } } });
+    let reply;
+    h.context.axios.get = () => new Promise((resolve, reject) => { reply = { resolve, reject }; });
+    const book = { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: 'next' }], summary: { total: 2 } } } };
+    h.app.beginCurrentWord();
+    await h.app.submitInput('apple');
+    const advance = h.app.nextWord();
+    assert.equal(h.app.currentWord.word, 'apple', 'no empty loading state between words');
+    assert.equal(h.app.cardClass, 'is-success');
+    let blocked = false;
+    h.app.handleKeydown({ key: 'Enter', preventDefault() { blocked = true; } });
+    assert.equal(blocked, true, 'keys on the kept answer box wait for the next word');
+    h.app.quitPractice();
+    assert.equal(h.app.isFinished, false, 'Esc waits like the disabled exit button');
+    reply.resolve(book);
+    await advance;
+    assert.deepEqual([h.app.currentIndex, h.app.currentWord.word, h.app.answerAccepted, h.app.cardClass], [1, 'book', false, '']);
+
+    await h.app.submitInput('book');
+    const failed = h.app.nextWord();
+    assert.equal(h.app.currentWord.word, 'book');
+    reply.reject(new Error('offline'));
+    await failed;
+    assert.equal(h.app.currentWord, null, 'a failed load shows the retry state');
+    assert.ok(h.app.wordsError);
+    const retry = h.app.loadNextWord();
+    reply.resolve({ data: { data: { items: [{ word: 'cat', source_id: 'cat', attempt_id: 'third' }], summary: { total: 3 } } } });
+    await retry;
+    assert.deepEqual([h.app.currentIndex, h.app.currentWord.word, h.app.wordsError], [2, 'cat', '']);
+});
+
 test('a wrong answer waits for the correct spelling and Enter', async () => {
     const h = harness();
     h.app.practiceMode = 'free';
