@@ -76,10 +76,11 @@ const workspaceControls = {
             window.__TAURI__.event.listen('cijian-window-shown', () => { this.windowHidden = false; return this.afterWindowShown?.(); });
             // A background sync merged answers from another device.
             window.__TAURI__.event.listen('cijian-answers-merged', () => { this.refreshSyncSummary(); return this.afterSync(); });
-            // Login startup creates the window hidden in the tray (`--autostart`), without a hide event;
-            // the practice page waits for this before loading a word.
+            // Login startup creates the window hidden in the tray (`--autostart`) without a hide event,
+            // so practice is not timed until the window is known to be visible. Words still load at once.
+            this.windowHidden = true;
             return window.__TAURI__.window.getCurrentWindow().isVisible().then(visible => {
-                if (!visible) this.windowHidden = true;
+                if (visible) { this.windowHidden = false; this.resumeClock?.(); }
             });
         },
         handleDesktopShortcut(event) {

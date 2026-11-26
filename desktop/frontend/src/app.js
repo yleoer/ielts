@@ -558,10 +558,8 @@ const practiceApp = {
     },
     async mounted() {
         this.initUpdates();
-        const visibility = this.initDesktopShell();
+        this.initDesktopShell();
         const needsSetup = await this.checkServerSetup();
-        // A window hidden at login startup must be known before the first word starts timing.
-        await visibility;
         if (!needsSetup) await this.fetchWords();
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) { this.stopWordAudio(); this.pauseClock(); }
