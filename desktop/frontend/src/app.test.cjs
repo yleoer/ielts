@@ -51,13 +51,70 @@ function harness() {
         wordChanged() { options.watch.currentWord.call(app); }, tick(ms) { now += ms; } };
 }
 
-test('native tray hide pauses practice and excludes hidden time until the window returns', () => {
-    const h = harness();
+// Stubs the Tauri shell used by initDesktopShell and returns the registered event listeners.
+function shellStub(h, { visible = true } = {}) {
     const listeners = {};
-    h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
+    h.context.window.__TAURI__ = {
+        event: { listen(name, callback) { listeners[name] = callback; } },
+        window: { getCurrentWindow: () => ({ isVisible: async () => visible }) }
+    };
     h.context.window.matchMedia = () => ({ matches: false, addEventListener() {} });
     h.context.window.addEventListener = h.document.addEventListener = () => {};
     h.context.setInterval = () => {};
+    return listeners;
+}
+
+function trayHarness(visible) {
+    const h = harness();
+    const listeners = shellStub(h, { visible });
+    let queues = 0;
+    h.context.axios.get = async url => {
+        if (!url.endsWith('/practice/queue')) return { data: { data: { last_sync_at: null, total: 3, due_count: 1 } } };
+        queues++;
+        return { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: `book-${queues}` }], summary: { total: 3, due_count: 1 } } } };
+    };
+    return { h, listeners, queues: () => queues };
+}
+
+test('a word loaded hidden at login startup is untimed and replaced by the current pick once shown', async () => {
+    const { h, listeners, queues } = trayHarness(false);
+    await h.app.initDesktopShell();
+    assert.equal(h.app.windowHidden, true, 'known before the first word loads');
+    h.app.beginCurrentWord();
+    h.tick(60000);
+    assert.equal(h.app.effectiveDuration(), 0);
+    await listeners['cijian-window-shown']();
+    assert.equal(queues(), 1);
+    assert.equal(h.app.currentWord.attempt_id, 'book-1');
+    assert.equal(h.app.summary.due_count, 1);
+    h.tick(500);
+    assert.equal(h.app.effectiveDuration(), 500);
+});
+
+test('a word already seen or typed keeps its place and time when the window returns', async () => {
+    const seen = trayHarness(true);
+    await seen.h.app.initDesktopShell();
+    seen.h.app.beginCurrentWord();
+    seen.h.tick(2000);
+    seen.listeners['cijian-window-hidden']();
+    await seen.listeners['cijian-window-shown']();
+    assert.equal(seen.queues(), 0);
+    assert.equal(seen.h.app.currentWord.word, 'apple');
+    seen.h.tick(500);
+    assert.equal(seen.h.app.effectiveDuration(), 2500);
+
+    const typed = trayHarness(false);
+    await typed.h.app.initDesktopShell();
+    typed.h.app.beginCurrentWord();
+    typed.h.app.userInput = 'ap';
+    await typed.listeners['cijian-window-shown']();
+    assert.equal(typed.queues(), 0);
+    assert.equal(typed.h.app.userInput, 'ap');
+});
+
+test('native tray hide pauses practice and excludes hidden time until the window returns', () => {
+    const h = harness();
+    const listeners = shellStub(h);
     h.context.axios.get = async () => ({ data: { data: { last_sync_at: null } } });
     let stopped = 0;
     h.app.stopWordAudio = () => { stopped++; };
@@ -78,11 +135,7 @@ test('native tray hide pauses practice and excludes hidden time until the window
 
 test('merged answers from another device replace an untouched formal word, never typed input or results', async () => {
     const h = harness();
-    const listeners = {};
-    h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
-    h.context.window.matchMedia = () => ({ matches: false, addEventListener() {} });
-    h.context.window.addEventListener = h.document.addEventListener = () => {};
-    h.context.setInterval = () => {};
+    const listeners = shellStub(h);
     let queues = 0;
     h.context.axios.get = async url => {
         if (!url.endsWith('/practice/queue')) return { data: { data: { last_sync_at: null, total: 2 } } };
@@ -107,11 +160,7 @@ test('merged answers from another device replace an untouched formal word, never
 
 test('a word reloaded while hidden in the tray starts timing only when the window returns', async () => {
     const h = harness();
-    const listeners = {};
-    h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
-    h.context.window.matchMedia = () => ({ matches: false, addEventListener() {} });
-    h.context.window.addEventListener = h.document.addEventListener = () => {};
-    h.context.setInterval = () => {};
+    const listeners = shellStub(h);
     h.context.axios.get = async url => url.endsWith('/practice/queue')
         ? { data: { data: { items: [{ word: 'book', source_id: 'book', attempt_id: 'book' }], summary: { total: 2 } } } }
         : { data: { data: { last_sync_at: null, total: 2 } } };
@@ -122,7 +171,7 @@ test('a word reloaded while hidden in the tray starts timing only when the windo
     assert.equal(h.app.currentWord.word, 'book');
     assert.equal(h.app.clockStartedAt, null);
     h.tick(60000);
-    listeners['cijian-window-shown']();
+    await listeners['cijian-window-shown']();
     h.tick(800);
     assert.equal(h.app.effectiveDuration(), 800);
 });
@@ -137,14 +186,14 @@ test('resource installation refreshes URLs without replacing the active question
         assert.equal(url, '/api/resources/urls');
         assert.deepEqual(Array.from(payload.ids), [41]);
         requests++;
-        return { data: { data: [{ id: 41, illustration_url: '/api/media/41/illustration?v=new', audio_urls: {} }] } };
+        return { data: { data: [{ id: 41, audio_url: '/api/media/41/audio/uk?v=new', audio_urls: { uk: '/api/media/41/audio/uk?v=new' } }] } };
     };
     const attempt = h.app.currentWord.attempt_id;
     await h.app.loadResourceStatus();
     await h.app.loadResourceStatus();
     assert.equal(h.app.currentWord.attempt_id, attempt);
     assert.equal(h.app.userInput, 'app');
-    assert.equal(h.app.currentWord.illustration_url, '/api/media/41/illustration?v=new');
+    assert.equal(h.app.currentWord.audio_urls.uk, '/api/media/41/audio/uk?v=new');
     assert.equal(requests, 1);
 });
 
@@ -386,11 +435,7 @@ test('Done on results goes to the waiting page without requesting a queue', asyn
 
 test('hiding to the tray closes results and showing the window re-reads the plan', async () => {
     const h = harness();
-    const listeners = {};
-    h.context.window.__TAURI__ = { event: { listen(name, callback) { listeners[name] = callback; } } };
-    h.context.window.matchMedia = () => ({ matches: false, addEventListener() {} });
-    h.context.window.addEventListener = h.document.addEventListener = () => {};
-    h.context.setInterval = () => {};
+    const listeners = shellStub(h);
     let summaries = 0;
     h.context.axios.get = async url => {
         if (url.endsWith('/memory/summary')) summaries++;
@@ -429,7 +474,59 @@ test('due times read as today, tomorrow or a date with a countdown', () => {
     assert.equal(h.app.formatDueTime('2026-11-18T01:00:00Z', now), '11月18日 09:00（2 天后）');
 });
 
-test('clicking a practice meaning plays its pronunciation and mouse users can keep typing', () => {
+function hearingHarness() {
+    const h = harness();
+    const posts = [];
+    let played = 0;
+    h.app.playWord = () => { played++; };
+    h.app.$refs.inputField = { focus() {} };
+    h.context.axios.post = async (url, payload) => {
+        posts.push(payload);
+        return { data: { data: { attempt_id: payload.attempt_id, is_correct: false } } };
+    };
+    return { h, posts, played: () => played };
+}
+
+test('hearing the word before answering saves it as forgotten but keeps the answer hidden', async () => {
+    const { h, posts, played } = hearingHarness();
+    h.app.userInput = 'ap';
+    await h.app.hearWord({ detail: 1 });
+    assert.equal(played(), 1);
+    assert.deepEqual(posts.map(post => post.user_input), ['']);
+    assert.equal(h.app.showAnswer, false, 'the answer stays hidden');
+    assert.equal(h.app.userInput, 'ap', 'typing continues where it was');
+    assert.equal(h.app.stats.incorrect, 1);
+    assert.equal(h.app.stats.errors[0].user_input, '(听读音)');
+    await h.app.hearWord({ detail: 1 });
+    assert.equal(played(), 2, 'later clicks only replay');
+    assert.equal(posts.length, 1);
+    h.app.userInput = 'apple';
+    h.app.handleKeydown({ key: 'Enter', preventDefault() {} });
+    assert.equal(h.app.isAdvancing, true, 'a right spelling from the sound moves on');
+    assert.equal(h.app.showAnswer, false);
+    assert.equal(h.app.stats.correct, 0);
+    assert.equal(posts.length, 1, 'the retry after hearing is not saved');
+});
+
+test('a wrong or empty spelling after hearing shows the answer for correction', async () => {
+    const wrong = hearingHarness();
+    await wrong.h.app.hearWord({ detail: 1 });
+    wrong.h.app.userInput = 'aple';
+    wrong.h.app.handleKeydown({ key: 'Enter', preventDefault() {} });
+    assert.equal(wrong.h.app.showAnswer, true);
+    assert.equal(wrong.h.app.lastWrongInput, 'aple');
+    assert.equal(wrong.h.app.feedbackMessage, '拼写错误，正确答案：');
+    assert.equal(wrong.posts.length, 1);
+
+    const empty = hearingHarness();
+    await empty.h.app.hearWord({ detail: 1 });
+    empty.h.app.handleKeydown({ key: ' ', code: 'Space', preventDefault() {} });
+    assert.equal(empty.h.app.showAnswer, true);
+    assert.equal(empty.h.app.feedbackMessage, '正确答案：');
+    assert.equal(empty.posts.length, 1);
+});
+
+test('clicking the shown answer plays its pronunciation and mouse users can keep typing', () => {
     const h = harness();
     let played, focused = 0, stopped = 0;
     h.app.playWord = word => { played = word; };
@@ -592,7 +689,7 @@ test('formal practice completes all 25 available words when the queue empties', 
     const summary = () => ({ total: count, due_count: 0, new_available: count - h.app.attemptedTotal });
     h.context.axios.get = async (url, { params } = {}) => {
         if (url.endsWith('/memory/summary')) return { data: { data: summary() } };
-        assert.equal(params.limit, 3);
+        assert.equal(params.limit, 1);
         const index = h.app.attemptedTotal;
         return { data: { data: {
             items: index < count ? [{ word: 'apple', source_id: `apple-${index}`, attempt_id: `attempt-${index}` }] : [],
@@ -768,20 +865,17 @@ test('a wrong answer waits for the correct spelling and Enter', async () => {
     assert.equal(h.app.stats.incorrect, 1);
 });
 
-test('formal previews preload illustrations without appending speculative practice items', async () => {
+test('formal practice requests only the item it shows', async () => {
     const h = harness();
-    const images = [];
-    h.context.Image = class { set src(value) { images.push(value); } };
-    h.context.axios.get = async () => ({ data: { data: {
-        items: Array.from({ length: 3 }, (_, i) => ({ word: `word-${i}`, attempt_id: `item-${i}`, illustration_url: `/image-${i}?v=1` })),
-        summary: { total: 3 }, server_time: new Date().toISOString()
-    } } });
+    const limits = [];
+    h.context.axios.get = async (url, { params }) => {
+        limits.push(params.limit);
+        return { data: { data: { items: [{ word: 'word-0', attempt_id: 'item-0' }], summary: { total: 3 }, server_time: new Date().toISOString() } } };
+    };
     await h.app.fetchWords();
+    assert.deepEqual(limits, [1]);
     assert.equal(h.app.words.length, 1);
     assert.equal(h.app.currentWord.word, 'word-0');
-    assert.deepEqual(images, ['/image-0?v=1', '/image-1?v=1', '/image-2?v=1']);
-    h.app.preloadIllustrations(h.app.words);
-    assert.equal(images.length, 3);
 });
 
 function serverStub(h, { configured, saveError } = {}) {

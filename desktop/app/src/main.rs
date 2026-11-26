@@ -147,7 +147,16 @@ fn start_sync(app: Arc<App>, handle: tauri::AppHandle, nudges: Receiver<()>) {
 }
 
 fn main() {
+    // Login startup (see `autostart`) stays in the tray until the user opens the window.
+    let hidden = std::env::args().any(|arg| arg == autostart::LAUNCH_ARG);
     tauri::Builder::default()
+        // Must come first. Opening the app again, e.g. while it sits in the tray, shows the
+        // running window instead of starting a second copy on the same database.
+        .plugin(tauri_plugin_single_instance::init(|handle, args, _cwd| {
+            if !args.iter().any(|arg| arg == autostart::LAUNCH_ARG) {
+                desktop::show_window(handle);
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             desktop::get_close_to_tray, desktop::set_close_to_tray,
@@ -190,7 +199,7 @@ fn main() {
             }
             response.body(body).unwrap()
         })
-        .setup(|app| {
+        .setup(move |app| {
             let state = Arc::new(open_app(app.handle())?);
             let settings_path = state.config.server_file.as_ref().unwrap().with_file_name("desktop.json");
             app.manage(desktop::DesktopSettings::load(settings_path));
@@ -204,7 +213,8 @@ fn main() {
                 .title("词间")
                 .decorations(false)
                 .inner_size(1100.0, 780.0)
-                .min_inner_size(760.0, 560.0);
+                .min_inner_size(760.0, 560.0)
+                .visible(!hidden);
             // Tauri passes its own WebView2 arguments, which replace WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS;
             // repeat Tauri's defaults and add the debugging port for scripts/cdp.mjs.
             if let Some(port) = std::env::var("CIJIAN_DEVTOOLS_PORT").ok().filter(|v| v.parse::<u16>().is_ok()) {
@@ -213,6 +223,9 @@ fn main() {
                 ));
             }
             window.build()?;
+            if let Err(error) = autostart::upgrade() {
+                eprintln!("cijian: could not update the login startup entry: {error}");
+            }
             start_optimizer(state.clone());
             start_sync(state, app.handle().clone(), nudges);
             Ok(())

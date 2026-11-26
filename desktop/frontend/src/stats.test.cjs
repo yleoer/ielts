@@ -134,13 +134,29 @@ test('calendar date detail shows every scheduled word and switches history witho
         assert.equal(params.limit, undefined);
         return { data: { data: { practiced: [{ word: 'studied' }], due: words } } };
     });
+    app.today = '2026-10-30';
     await app.openCalendarWords({ date: '2026-10-30', practiced: 0, due_count: 501 });
     assert.equal(app.detailModal.type, 'calendar');
     assert.equal(app.detailModal.title, '2026-10-30');
+    assert.equal(app.detailModal.subtitle, '已学习 1 个词 · 待复习 501 个词');
     assert.equal(app.detailModal.items.length, 501);
     app.selectCalendarMode('practiced');
     assert.equal(app.detailModal.items[0].word, 'studied');
     assert.equal(calls, 1);
+});
+
+test('past calendar dates only describe history and future dates only plans', async () => {
+    const app = harness(async (url, { params }) => ({ data: { data: params.date < '2026-02-10'
+        ? { practiced: [{ word: 'studied' }], due: [] } : { practiced: [], due: [{ word: 'planned' }] } } }));
+    app.today = '2026-02-10';
+    assert.equal(app.calendarDayDescription({ date: '2026-02-09', practiced: 3, due_count: 0 }), '2026-02-09：已学习 3 个词');
+    assert.equal(app.calendarDayDescription({ date: '2026-02-10', practiced: 4, due_count: 2 }), '2026-02-10：已学习 4 个词，待复习 2 个词');
+    assert.equal(app.calendarDayDescription({ date: '2026-02-11', practiced: 0, due_count: 4 }), '2026-02-11：待复习 4 个词');
+    await app.openCalendarWords({ date: '2026-02-09', practiced: 1, due_count: 0 });
+    assert.equal(app.detailModal.subtitle, '已学习 1 个词');
+    await app.openCalendarWords({ date: '2026-02-11', practiced: 0, due_count: 1 });
+    assert.equal(app.detailModal.subtitle, '待复习 1 个词');
+    assert.equal(app.detailModal.items[0].word, 'planned');
 });
 
 test('empty calendar dates do not open a dialog or request words', async () => {

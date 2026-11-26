@@ -1,5 +1,4 @@
 const { createApp } = Vue;
-const illustrationPreloads = new Map();
 
 const practiceApp = {
     data() {
@@ -10,10 +9,12 @@ const practiceApp = {
             isPracticeAbandoned: false, isComposing: false, isLoadingWords: false,
             isAdvancing: false, advanceTimer: null,
             lastWrongInput: '', shake: false, shakeTimer: null, wordsError: '',
-            illustrationFailed: false, audioError: '', otherSensesExpanded: false, sensePointerType: '', sessionId: '',
+            audioError: '', otherSensesExpanded: false, sensePointerType: '', sessionId: '',
             practiceMode: 'normal', summary: null,
             pendingAttempt: null, submitError: '', submissionConflict: false,
             answerAccepted: false,
+            // The word was heard before answering: saved as forgotten, answer still hidden.
+            heardWord: false,
             clockStartedAt: null, elapsedMs: 0, firstInputMs: null,
             stats: { correct: 0, incorrect: 0, errors: [] },
             // Results and the waiting page re-read the local plan; clockNow drives the countdown text.
@@ -78,7 +79,7 @@ const practiceApp = {
         }
     },
     watch: {
-        currentWord() { this.stopWordAudio(); this.audioError = ''; this.illustrationFailed = false; this.otherSensesExpanded = false; },
+        currentWord() { this.stopWordAudio(); this.audioError = ''; this.otherSensesExpanded = false; },
         // The answer panel grows below the input; keep it visible in short desktop windows.
         showAnswer(shown) {
             if (shown) this.$nextTick(() => document.querySelector?.('.correction-area')?.scrollIntoView({ block: 'nearest' }));
@@ -94,6 +95,27 @@ const practiceApp = {
         playPracticeWord(word, event) {
             this.playWord(word);
             if (event.detail > 0) this.focusInput();
+        },
+        // Hearing the word before answering saves it as forgotten (like skipping), but keeps the
+        // answer hidden so the spelling can be recalled once more from the sound.
+        hearWord(event) {
+            this.playPracticeWord(this.currentWord, event);
+            if (this.answerAccepted || this.showAnswer) return;
+            this.heardWord = true;
+            return this.submitInput('');
+        },
+        // The retry after hearing is not saved: a right spelling moves on, anything else
+        // (including an empty answer) shows the answer for the usual correction.
+        checkHeardAnswer() {
+            const input = this.sanitizeInput(this.userInput).trim();
+            if (input && this.isRetypeCorrect()) {
+                this.startCorrectAdvance();
+                return;
+            }
+            this.updateAnswerFeedback(false, input);
+            this.userInput = '';
+            if (input) this.triggerShake();
+            this.focusInput();
         },
         rememberSensePointer(event) { this.sensePointerType = event.pointerType || ''; },
         toggleOtherSenses(event) {
@@ -179,18 +201,16 @@ const practiceApp = {
             this.wordsError = '';
             try {
                 const data = (await axios.get(`${this.apiBaseUrl}/practice/queue`, {
-                    params: { session_id: this.sessionId, limit: this.isFormalPractice ? 3 : 20,
+                    params: { session_id: this.sessionId, limit: this.isFormalPractice ? 1 : 20,
                         mode: this.isFormalPractice ? 'scheduled' : this.practiceMode }, timeout: 15000
                 })).data.data;
                 this.summary = data.summary;
-                this.preloadIllustrations(data.items);
                 if (!data.items.length) {
                     if (this.attemptedTotal) this.finishPractice();
                     return;
                 }
-                // Remaining formal items only warm media; after each saved answer
-                // the core selects the next real item again.
-                this.words.push(...(this.isFormalPractice ? data.items.slice(0, 1) : data.items));
+                // Formal practice takes one item; after each saved answer the core selects the next again.
+                this.words.push(...data.items);
                 this.resetInputState();
                 await this.$nextTick();
                 this.beginCurrentWord();
@@ -211,21 +231,7 @@ const practiceApp = {
             this.elapsedMs = 0;
             this.firstInputMs = null;
             this.clockStartedAt = null;
-            this.preloadIllustrations(this.words.slice(this.currentIndex, this.currentIndex + 3));
             this.resumeClock();
-        },
-        preloadIllustrations(words) {
-            for (const word of words.slice(0, 3)) {
-                const url = word.illustration_url;
-                if (!url || illustrationPreloads.has(url)) continue;
-                const picture = new Image();
-                picture.decoding = 'async';
-                picture.onload = () => picture.decode().catch(() => {});
-                picture.onerror = () => { illustrationPreloads.delete(url); };
-                illustrationPreloads.set(url, picture);
-                picture.src = url;
-                if (illustrationPreloads.size > 32) illustrationPreloads.delete(illustrationPreloads.keys().next().value);
-            }
         },
         resumeClock() {
             if (this.clockStartedAt === null && !document.hidden && !this.windowHidden && !this.syncModal.visible && !this.setup.visible && this.currentWord && !this.pendingAttempt && !this.answerAccepted && !this.showAnswer && !this.isFinished) this.clockStartedAt = performance.now();
@@ -240,7 +246,7 @@ const practiceApp = {
             return this.elapsedMs + (this.clockStartedAt === null ? 0 : Math.max(0, performance.now() - this.clockStartedAt));
         },
         handleBeforeInput(event) {
-            if (this.isChecking || this.pendingAttempt || this.isAdvancing || (this.answerAccepted && !this.showAnswer) || (event.data && this.sanitizeInput(event.data) !== event.data)) event.preventDefault();
+            if (this.isChecking || this.pendingAttempt || this.isAdvancing || (this.answerAccepted && !this.showAnswer && !this.heardWord) || (event.data && this.sanitizeInput(event.data) !== event.data)) event.preventDefault();
         },
         handleInput() {
             this.userInput = this.sanitizeInput(this.userInput);
@@ -262,14 +268,19 @@ const practiceApp = {
             if (this.showAnswer) {
                 if (!this.userInput.trim() || this.isRetypeCorrect()) this.nextWord();
                 else this.triggerShake();
-            } else this.submitAnswer();
+            } else if (this.heardWord && this.answerAccepted) this.checkHeardAnswer();
+            else this.submitAnswer();
         },
         submitAnswer() {
             const input = this.sanitizeInput(this.userInput).trim();
             if (!input || !this.isValidAnswerInput(input)) return;
             this.submitInput(input);
         },
-        skipWord() { if (!this.showAnswer) this.submitInput(''); },
+        skipWord() {
+            if (this.showAnswer) return;
+            if (this.heardWord && this.answerAccepted) return this.checkHeardAnswer();
+            return this.submitInput('');
+        },
         async submitInput(input) {
             if (!this.currentWord || this.pendingAttempt || this.isChecking || this.answerAccepted || this.showAnswer) return;
             this.pauseClock();
@@ -316,9 +327,14 @@ const practiceApp = {
             else {
                 const word = this.cloneWord(this.currentWord);
                 this.stats.incorrect++;
-                this.stats.errors.push({ word: word.word, meaning: word.chinese_meaning, user_input: input || '(看答案)', wordData: word });
+                this.stats.errors.push({ word: word.word, meaning: word.chinese_meaning, user_input: input || (this.heardWord ? '(听读音)' : '(看答案)'), wordData: word });
             }
             this.answerAccepted = true;
+            if (this.heardWord) {
+                this.feedbackMessage = '已计为忘记，请根据读音再拼一次';
+                this.focusInput();
+                return;
+            }
             this.updateAnswerFeedback(result.is_correct, input);
             this.userInput = '';
             if (result.is_correct) this.startCorrectAdvance();
@@ -340,6 +356,7 @@ const practiceApp = {
             this.userInput = '';
             this.showAnswer = false;
             this.answerAccepted = false;
+            this.heardWord = false;
             this.isCorrect = false;
             this.lastWrongInput = '';
             this.feedbackMessage = '';
@@ -495,9 +512,8 @@ const practiceApp = {
             const items = (await axios.post(`${this.apiBaseUrl}/resources/urls`, { ids: this.words.map(w => w.id) })).data.data;
             for (const item of items) {
                 const word = this.words.find(w => w.id === item.id);
-                if (word) Object.assign(word, { illustration_url: item.illustration_url, audio_url: item.audio_url, audio_urls: item.audio_urls });
+                if (word) Object.assign(word, { audio_url: item.audio_url, audio_urls: item.audio_urls });
             }
-            this.illustrationFailed = false;
         },
         // First launch: ask for the server before loading practice. Returns true when setup is needed.
         async checkServerSetup() {
@@ -522,6 +538,17 @@ const practiceApp = {
             await this.loadNextWord();
         },
 
+        // Back from the tray: a formal word never looked at (e.g. loaded at login startup) may be
+        // hours old, so show the core's current pick and plan instead; a word already seen keeps its time.
+        async afterWindowShown() {
+            if (this.currentWord && this.isFormalPractice && !this.isFinished && !this.userInput && !this.answerAccepted
+                && !this.elapsedMs && this.clockStartedAt === null) {
+                await this.refreshPageData();
+                return;
+            }
+            this.resumeClock();
+            await this.checkPlan();
+        },
         // Synced answers from another device may already have reviewed the word on screen:
         // show the core's current pick unless typing has started (a stale submit then conflicts).
         async afterSync() {
@@ -531,8 +558,10 @@ const practiceApp = {
     },
     async mounted() {
         this.initUpdates();
-        this.initDesktopShell();
+        const visibility = this.initDesktopShell();
         const needsSetup = await this.checkServerSetup();
+        // A window hidden at login startup must be known before the first word starts timing.
+        await visibility;
         if (!needsSetup) await this.fetchWords();
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) { this.stopWordAudio(); this.pauseClock(); }

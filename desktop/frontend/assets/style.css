@@ -118,13 +118,12 @@ ul { margin: 0; padding: 0; list-style: none; }
 /* The practice sheet sits directly on the content card; answer feedback lives on the input border. */
 .practice-sheet { padding: 28px 0 8px; }
 .entry-content { text-align: center; }
-.practice-illustration { display: block; width: clamp(120px, 26vh, 200px); height: auto; aspect-ratio: 1; object-fit: contain; border-radius: var(--radius-card); margin: 0 auto 22px; }
 .practice-meanings { display: grid; gap: 14px; }
 .practice-secondary-meanings { display: grid; gap: 8px; width: min(100%, 28rem); margin: 0 auto; }
 .practice-meaning { color: var(--ink); font-size: 26px; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
 .practice-meaning.is-secondary { font-size: 16px; font-weight: 400; line-height: 1.7; }
 .practice-meaning > [lang] { white-space: pre-line; }
-.practice-part-of-speech + .word-audio { margin-left: 8px; }
+.practice-part-of-speech + [lang] { margin-left: 8px; }
 .practice-part-of-speech { color: var(--part-of-speech); font-size: 14px; font-weight: 400; }
 .practice-more-meanings, .practice-extra-meanings { margin-top: 8px; }
 .sense-toggle { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--secondary); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
@@ -137,6 +136,9 @@ ul { margin: 0; padding: 0; list-style: none; }
 .answer-input:focus { border-color: var(--focus); background: var(--paper); outline: none; }
 .answer-input.is-invalid { border-color: var(--error); background: var(--paper); }
 .answer-input.is-correct { border-color: var(--success); background: var(--paper); }
+.answer-audio { display: inline-flex; flex: 0 0 56px; align-items: center; justify-content: center; border: 0; border-radius: 10px; background: var(--soft); color: var(--secondary); transition: background-color 150ms ease-out; }
+.answer-audio:hover:not(:disabled) { background: var(--soft-hover); color: var(--ink); }
+.answer-audio .icon { width: 22px; height: 22px; }
 .correction-area { padding-top: 20px; margin-top: 4px; }
 .correction-area > p + p { margin-top: 8px; }
 .feedback-text { color: var(--error); font-size: 13px; }
@@ -412,6 +414,5 @@ progress::-moz-progress-bar { background: var(--accent); }
 @media (max-height: 700px) {
     .practice-workspace { padding-top: 20px; }
     .practice-sheet { padding-top: 16px; padding-bottom: 8px; }
-    .practice-illustration { margin-bottom: 14px; }
     .answer-area { margin-top: 20px; }
 }

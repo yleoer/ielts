@@ -378,8 +378,18 @@ createApp({
             return day.practiced > 0 || day.due_count > 0;
         },
 
+        // Past days only have history and future days only plans (overdue words count on today).
+        calendarKinds(date) {
+            return date < this.today ? ['practiced'] : date > this.today ? ['due'] : ['practiced', 'due'];
+        },
+
+        calendarSummary(date, counts) {
+            const labels = { practiced: '已学习', due: '待复习' };
+            return this.calendarKinds(date).map(kind => `${labels[kind]} ${counts[kind]} 个词`);
+        },
+
         calendarDayDescription(day) {
-            return `${day.date}：已学习 ${day.practiced} 个词，待复习 ${day.due_count} 个词`;
+            return `${day.date}：${this.calendarSummary(day.date, { practiced: day.practiced, due: day.due_count }).join('，')}`;
         },
 
         centerCalendar() {
@@ -429,8 +439,9 @@ createApp({
 
         openCalendarWords(day) {
             if (!this.calendarDayHasWords(day)) return;
+            const labels = { practiced: '学习记录', due: '复习安排' };
             this.beginDetail({ type: 'calendar', title: day.date,
-                subtitle: '学习记录与复习安排', calendarDate: day.date,
+                subtitle: this.calendarKinds(day.date).map(kind => labels[kind]).join('与'), calendarDate: day.date,
                 calendarMode: day.practiced ? 'practiced' : 'due',
                 calendarGroups: { practiced: [], due: [] } });
             return this.loadCalendarWords();
@@ -443,7 +454,8 @@ createApp({
             try {
                 const response = await axios.get(`${this.apiBaseUrl}/stats/calendar-words`, { params: { date: modal.calendarDate } });
                 modal.calendarGroups = response.data.data;
-                modal.subtitle = `已学习 ${modal.calendarGroups.practiced.length} 个词 · 待复习 ${modal.calendarGroups.due.length} 个词`;
+                const groups = modal.calendarGroups;
+                modal.subtitle = this.calendarSummary(modal.calendarDate, { practiced: groups.practiced.length, due: groups.due.length }).join(' · ');
                 if (!modal.calendarGroups[modal.calendarMode].length) {
                     modal.calendarMode = modal.calendarMode === 'practiced' ? 'due' : 'practiced';
                 }

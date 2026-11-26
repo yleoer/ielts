@@ -1,6 +1,6 @@
 # 词间 (Cijian)
 
-Read the Chinese meaning and the illustration, type the English word. 词间 is a Windows desktop app that schedules reviews with the FSRS memory model and reminds you when words are due. The vocabulary comes from the Word Atlas Anki deck, and answers from the office and home computers are merged through a small self-hosted sync server.
+Read the Chinese meaning, type the English word. 词间 is a Windows desktop app that schedules reviews with the FSRS memory model and reminds you when words are due. The vocabulary comes from the Word Atlas Anki deck, and answers from the office and home computers are merged through a small self-hosted sync server.
 
 ![Practice](docs/desktop/screenshots/practice.png)
 
@@ -17,7 +17,7 @@ Read the Chinese meaning and the illustration, type the English word. 词间 is 
 
 ## Desktop App
 
-- Chinese meaning and illustration as the prompt, English spelling as the answer; grades come from correctness and time, and FSRS schedules the next review.
+- Chinese meaning as the prompt, English spelling as the answer; grades come from correctness and time, and FSRS schedules the next review.
 - The waiting page shows the next review time; the tray icon turns orange shortly before words are due and red when they are.
 - Free practice, difficult words and least-recently-practiced words all count toward memory and statistics; retyping this round's mistakes does not.
 - A one-year calendar, a 30-day trend, CEFR level and topic progress, and per-word mistake history.

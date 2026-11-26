@@ -73,9 +73,14 @@ const workspaceControls = {
                 this.pauseClock?.();
                 this.closeResults?.();
             });
-            window.__TAURI__.event.listen('cijian-window-shown', () => { this.windowHidden = false; this.resumeClock?.(); this.checkPlan?.(); });
+            window.__TAURI__.event.listen('cijian-window-shown', () => { this.windowHidden = false; return this.afterWindowShown?.(); });
             // A background sync merged answers from another device.
             window.__TAURI__.event.listen('cijian-answers-merged', () => { this.refreshSyncSummary(); return this.afterSync(); });
+            // Login startup creates the window hidden in the tray (`--autostart`), without a hide event;
+            // the practice page waits for this before loading a word.
+            return window.__TAURI__.window.getCurrentWindow().isVisible().then(visible => {
+                if (!visible) this.windowHidden = true;
+            });
         },
         handleDesktopShortcut(event) {
             const ctrl = event.ctrlKey || event.metaKey;
