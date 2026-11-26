@@ -109,7 +109,7 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
     }
 }
 
-fn show_window(handle: &AppHandle) {
+pub fn show_window(handle: &AppHandle) {
     if let Some(window) = handle.get_webview_window("main") {
         if let Err(error) = window
             .show()

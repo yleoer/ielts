@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="/src/pronunciation.js?v=20261103-plain-audio" defer></script>
-    <script src="/src/app.js?v=20261115-simplify" defer></script>
+    <script src="/src/app.js?v=20261125-issue16" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -30,22 +30,22 @@
                 </div>
                 <section class="practice-sheet" :class="cardClass" aria-label="当前词条">
                     <div v-if="currentWord" class="entry-content">
-                        <img v-if="currentWord.illustration_url && !illustrationFailed" :key="currentWord.id" :src="currentWord.illustration_url" alt="词义插图" @error="illustrationFailed = true" width="200" height="200" class="practice-illustration">
                         <div id="practice-meanings" class="practice-meanings">
                             <p v-if="primaryChineseSense" class="practice-meaning">
                                 <span v-if="primaryChineseSense.part_of_speech" class="practice-part-of-speech">{{ primaryChineseSense.part_of_speech }}</span>
-                                <button type="button" class="word-audio" lang="zh-CN" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ primaryChineseSense.chinese_meaning }}</button>
+                                <span lang="zh-CN">{{ primaryChineseSense.chinese_meaning }}</span>
                             </p>
                             <ul v-if="secondaryChineseSenses.length" class="practice-secondary-meanings" aria-label="其他中文释义">
                                 <li v-for="(sense, index) in secondaryChineseSenses" :key="index" class="practice-meaning is-secondary">
                                     <span v-if="sense.part_of_speech" class="practice-part-of-speech">{{ sense.part_of_speech }}</span>
-                                    <button type="button" class="word-audio" lang="zh-CN" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ sense.chinese_meaning }}</button>
+                                    <span lang="zh-CN">{{ sense.chinese_meaning }}</span>
                                 </li>
                             </ul>
                         </div>
                         <div class="answer-area">
                             <div class="answer-row">
                                 <input id="answer-input" ref="inputField" v-model="userInput" @beforeinput="handleBeforeInput" @input="handleInput" @keydown="handleKeydown" @compositionstart="handleCompositionStart" @compositionend="handleCompositionEnd" @keyup.esc="quitPractice" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" :aria-label="showAnswer ? '订正拼写' : '英文拼写'" :aria-describedby="otherSensesExpanded ? 'practice-meanings practice-extra-meanings' : 'practice-meanings'" class="answer-input" :class="inputClass" :readonly="isAdvancing || isChecking || Boolean(pendingAttempt)" :aria-busy="isChecking">
+                                <button v-if="hasWordAudio(currentWord)" type="button" class="answer-audio" :aria-label="answerAccepted || showAnswer ? '播放读音' : '播放读音，计为忘记'" :disabled="isAdvancing || isChecking || Boolean(pendingAttempt)" @click="hearWord($event)"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#speaker"/></svg></button>
                             </div>
                         </div>
                         <div v-if="remainingChineseSenses.length" class="practice-more-meanings">
@@ -53,7 +53,7 @@
                             <ul v-show="otherSensesExpanded" id="practice-extra-meanings" class="practice-secondary-meanings practice-extra-meanings" aria-label="补充中文释义">
                                 <li v-for="(sense, index) in remainingChineseSenses" :key="index" class="practice-meaning is-secondary">
                                     <span v-if="sense.part_of_speech" class="practice-part-of-speech">{{ sense.part_of_speech }}</span>
-                                    <button type="button" class="word-audio" lang="zh-CN" :disabled="!hasWordAudio(currentWord)" @click="playPracticeWord(currentWord, $event)">{{ sense.chinese_meaning }}</button>
+                                    <span lang="zh-CN">{{ sense.chinese_meaning }}</span>
                                 </li>
                             </ul>
                         </div>

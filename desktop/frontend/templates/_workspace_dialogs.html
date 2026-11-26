@@ -50,7 +50,7 @@
                             <div class="settings-row">
                                 <label class="settings-label" for="autostart">开机自启动</label>
                                 <input id="autostart" class="switch" type="checkbox" v-model="autostartSettings.enabled" :disabled="!autostartSettings.loaded || autostartSettings.saving || updateInstalling" aria-describedby="autostart-help" @change="saveAutostartSettings">
-                                <p id="autostart-help" class="settings-help">登录 Windows 后自动打开词间。更改后自动保存，仅在本机生效。</p>
+                                <p id="autostart-help" class="settings-help">登录 Windows 后在托盘后台启动，不弹出窗口。更改后自动保存，仅在本机生效。</p>
                                 <p v-if="autostartSettings.saving" class="settings-help" role="status">正在保存…</p>
                                 <div v-if="autostartSettings.error" class="settings-feedback"><p class="error-message" role="alert">{{ autostartSettings.error }}</p><button v-if="!autostartSettings.loaded" type="button" class="button button-secondary" @click="loadAutostartSettings">重试读取</button></div>
                             </div>

@@ -1,5 +1,8 @@
 //! Windows login startup, scoped to the current user.
 
+/// Login startup passes this flag so the app starts in the tray without showing its window.
+pub const LAUNCH_ARG: &str = "--autostart";
+
 #[cfg(windows)]
 mod platform {
     use std::io;
@@ -24,12 +27,34 @@ mod platform {
         Ok(optional(key.get_value::<String, _>(NAME))?.is_some())
     }
 
+    fn command(executable: &Path) -> String {
+        // Windows Run commands must quote the full executable path.
+        format!("\"{}\" {}", executable.display(), super::LAUNCH_ARG)
+    }
+
     fn write_entry(key: &RegKey, executable: Option<&Path>) -> io::Result<()> {
         if let Some(executable) = executable {
-            // Windows Run commands must quote the full executable path.
-            key.set_value(NAME, &format!("\"{}\"", executable.display()))
+            key.set_value(NAME, &command(executable))
         } else {
             optional(key.delete_value(NAME)).map(|_| ())
+        }
+    }
+
+    /// Earlier versions registered the bare path, which opens the window at login.
+    /// Only this executable's entry is rewritten, so a development build leaves it alone.
+    fn upgrade_entry(key: &RegKey, executable: &Path) -> io::Result<()> {
+        let bare = format!("\"{}\"", executable.display());
+        if optional(key.get_value::<String, _>(NAME))?.is_some_and(|value| value == bare) {
+            key.set_value(NAME, &command(executable))?;
+        }
+        Ok(())
+    }
+
+    pub fn upgrade() -> io::Result<()> {
+        let user = RegKey::predef(HKEY_CURRENT_USER);
+        match optional(user.open_subkey_with_flags(RUN, KEY_READ | KEY_SET_VALUE))? {
+            Some(key) => upgrade_entry(&key, &std::env::current_exe()?),
+            None => Ok(()),
         }
     }
 
@@ -86,12 +111,17 @@ mod platform {
             let (key, _) = user.create_subkey(&path).unwrap();
             key.set_value("OtherApp", &"keep").unwrap();
             assert!(!registered(&key).unwrap());
-            write_entry(&key, Some(Path::new(r"C:\Program Files\词间\cijian.exe"))).unwrap();
+            let executable = Path::new(r"C:\Program Files\词间\cijian.exe");
+            write_entry(&key, Some(executable)).unwrap();
             assert!(registered(&key).unwrap());
-            assert_eq!(
-                key.get_value::<String, _>(NAME).unwrap(),
-                "\"C:\\Program Files\\词间\\cijian.exe\""
-            );
+            let silent = "\"C:\\Program Files\\词间\\cijian.exe\" --autostart";
+            assert_eq!(key.get_value::<String, _>(NAME).unwrap(), silent);
+            // An entry from an earlier version gains the flag; another executable's entry is kept.
+            key.set_value(NAME, &"\"C:\\Program Files\\词间\\cijian.exe\"").unwrap();
+            upgrade_entry(&key, Path::new(r"C:\dev\cijian.exe")).unwrap();
+            assert_eq!(key.get_value::<String, _>(NAME).unwrap(), "\"C:\\Program Files\\词间\\cijian.exe\"");
+            upgrade_entry(&key, executable).unwrap();
+            assert_eq!(key.get_value::<String, _>(NAME).unwrap(), silent);
             write_entry(&key, None).unwrap();
             write_entry(&key, None).unwrap();
             assert!(!registered(&key).unwrap());
@@ -103,7 +133,7 @@ mod platform {
 }
 
 #[cfg(windows)]
-pub use platform::{is_enabled, set_enabled};
+pub use platform::{is_enabled, set_enabled, upgrade};
 
 #[cfg(not(windows))]
 pub fn is_enabled() -> std::io::Result<bool> {
@@ -116,4 +146,10 @@ pub fn is_enabled() -> std::io::Result<bool> {
 #[cfg(not(windows))]
 pub fn set_enabled(_enabled: bool) -> std::io::Result<()> {
     is_enabled().map(|_| ())
+}
+
+/// Nothing is registered outside Windows.
+#[cfg(not(windows))]
+pub fn upgrade() -> std::io::Result<()> {
+    Ok(())
 }

@@ -9,7 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
     <script src="/src/pronunciation.js?v=20261103-plain-audio" defer></script>
-    <script src="/src/stats.js?v=20261115-simplify" defer></script>
+    <script src="/src/stats.js?v=20261125-issue16" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">跳到内容</a>
@@ -118,7 +118,7 @@
                 <div v-if="detailModal.type === 'vocabulary'" class="vocabulary-filters" role="group" aria-label="按记忆状态筛选">
                     <button v-for="filter in vocabularyFilters" :key="filter.value" type="button" :aria-pressed="detailModal.status === filter.value" @click="selectVocabularyStatus(filter.value)">{{ filter.label }}</button>
                 </div>
-                <div v-if="detailModal.type === 'calendar' && !detailModal.loading && !detailModal.error && (detailModal.calendarGroups.practiced.length || detailModal.calendarGroups.due.length)" class="vocabulary-filters" role="group" aria-label="按日期记录类型筛选"><button type="button" :aria-pressed="detailModal.calendarMode === 'practiced'" :disabled="!detailModal.calendarGroups.practiced.length" @click="selectCalendarMode('practiced')">已学习 {{ detailModal.calendarGroups.practiced.length }}</button><button type="button" :aria-pressed="detailModal.calendarMode === 'due'" :disabled="!detailModal.calendarGroups.due.length" @click="selectCalendarMode('due')">待复习 {{ detailModal.calendarGroups.due.length }}</button></div>
+                <div v-if="detailModal.type === 'calendar' && detailModal.calendarDate === today && !detailModal.loading && !detailModal.error && (detailModal.calendarGroups.practiced.length || detailModal.calendarGroups.due.length)" class="vocabulary-filters" role="group" aria-label="按日期记录类型筛选"><button type="button" :aria-pressed="detailModal.calendarMode === 'practiced'" :disabled="!detailModal.calendarGroups.practiced.length" @click="selectCalendarMode('practiced')">已学习 {{ detailModal.calendarGroups.practiced.length }}</button><button type="button" :aria-pressed="detailModal.calendarMode === 'due'" :disabled="!detailModal.calendarGroups.due.length" @click="selectCalendarMode('due')">待复习 {{ detailModal.calendarGroups.due.length }}</button></div>
                 <div class="dialog-body" tabindex="0" aria-label="单词明细">
                     <p v-if="audioError" class="audio-error error-message" role="alert">{{ audioError }}</p>
                     <p v-if="detailModal.loading && !detailModal.items.length" class="chart-empty" role="status">加载中…</p>
