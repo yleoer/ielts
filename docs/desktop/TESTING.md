@@ -10,7 +10,7 @@
 | Rust 桌面壳 | 同上（或 `cargo test -p cijian`） | 关闭偏好、托盘倒计时与颜色、自启动注册表项与旧启动项升级（Windows） |
 | 前端逻辑 | 在仓库根目录运行 `node --test desktop/frontend/src/*.test.cjs` | 页面状态：结果页与等待页、到期检查、计时、保存失败重试、订正、错词重练、设置与同步面板、统计加载与明细、读音、软件更新 |
 | 真实窗口 | 在 Linux 上运行 `python3 desktop/e2e/run.py` | 模板绑定、焦点与滚动、键盘操作、WebKitGTK 行为（如自定义协议的缓存）、原生关闭事件、真实 core 与后台同步 |
-| 版本脚本 | `python3 -m unittest discover -s desktop/scripts -p test_version.py` | 标签与版本号格式、Cargo 工作区与锁文件同步 |
+| 版本脚本 | `python3 -m unittest discover -s desktop/scripts -p test_version.py` | 新版本判断（高于已发布标签、不能回退）、CHANGELOG 更新说明、版本号格式、Cargo 工作区与锁文件同步 |
 
 同步服务（`server/`）的测试与镜像检查见 [服务端测试](../server/TESTING.md)。
 
@@ -87,4 +87,4 @@ python3 desktop/e2e/run.py
 - `frontend/src/updates.test.cjs`：发现新版本、无更新、下载进度、失败重试、未保存答案阻止安装。
 - `frontend/src/window-controls.test.cjs`：窗口按钮调用原生操作，最大化／还原图标与名称随窗口状态更新。
 - `frontend/src/pronunciation.test.cjs`：英音、间隔 500 毫秒后美音，重复点击重新开始，缺失口音跳过。
-- `scripts/test_version.py`：标签匹配、正式版格式与 Cargo 工作区／锁文件版本同步。
+- `scripts/test_version.py`：对照已发布标签判断新版本（数字比较、不能回退）、读取 CHANGELOG 对应一节并写成 Actions 步骤输出、正式版格式与 Cargo 工作区／锁文件版本同步。

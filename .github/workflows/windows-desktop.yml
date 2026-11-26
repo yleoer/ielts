@@ -3,7 +3,6 @@ name: Windows 桌面安装包
 on:
   push:
     branches: ["**"]
-    tags: ["desktop-v*"]
     paths:
       - "desktop/**"
       - ".github/workflows/windows-desktop.yml"
@@ -34,20 +33,12 @@ jobs:
         run: |
           python -m pip install Jinja2==3.1.6
           npm ci
-      - name: 读取版本并核对发布标签
+      # One desktop PR is one release: a version above every published desktop-v tag is new,
+      # and merging it to master builds and publishes that Release in this same run.
+      - name: 读取版本并核对是否为新版本
         id: version
         working-directory: desktop
-        env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          if ($env:REF_TYPE -eq 'tag') {
-            $version = python scripts/version.py --tag $env:REF_NAME
-          } else {
-            $version = python scripts/version.py
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "version=$version" >> $env:GITHUB_OUTPUT
+        run: python scripts/version.py --check-release
       - name: 构建中文 NSIS 安装包及更新签名
         id: build
         uses: tauri-apps/tauri-action@v0
@@ -58,8 +49,9 @@ jobs:
         with:
           projectPath: desktop
           args: --bundles nsis -- --locked
-          tagName: ${{ startsWith(github.ref, 'refs/tags/desktop-v') && github.ref_name || '' }}
+          tagName: ${{ github.ref == 'refs/heads/master' && steps.version.outputs.new == 'true' && format('desktop-v{0}', steps.version.outputs.version) || '' }}
           releaseName: 词间 v${{ steps.version.outputs.version }}
+          releaseBody: ${{ steps.version.outputs.notes }}
           releaseDraft: true
           generateReleaseNotes: true
           updaterJsonPreferNsis: true
@@ -72,9 +64,16 @@ jobs:
             desktop/target/release/bundle/nsis/*.sig
           if-no-files-found: error
           retention-days: 14
+      # Publishing the draft creates the desktop-v tag on this commit.
       - name: 发布完整 Release 并设为最新版本
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        if: github.ref == 'refs/heads/master' && steps.version.outputs.new == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release edit $env:RELEASE_TAG --draft=false --latest
+          RELEASE_ID: ${{ steps.build.outputs.releaseId }}
+        run: gh api -X PATCH "repos/${{ github.repository }}/releases/$env:RELEASE_ID" -F draft=false -f make_latest=true --silent
+      # Branch builds still upload the installer for testing, then flag a PR that would not release.
+      - name: 核对 PR 已升版本号
+        if: github.ref != 'refs/heads/master' && steps.version.outputs.new != 'true'
+        run: |
+          Write-Output "::error::桌面版本 ${{ steps.version.outputs.version }} 已发布。每个桌面端 PR 就是一次发布：用 desktop/scripts/version.py --set 升版本号，并在 desktop/CHANGELOG.md 写这一版的更新说明。"
+          exit 1

@@ -11,10 +11,31 @@ SPEC.loader.exec_module(version)
 
 
 class VersionTests(unittest.TestCase):
-    def test_tag_must_match_workspace_version(self):
-        self.assertEqual(version.release_tag('0.2.1', 'desktop-v0.2.1'), 'desktop-v0.2.1')
-        with self.assertRaisesRegex(ValueError, '不一致'):
-            version.release_tag('0.2.1', 'desktop-v0.2.0')
+    def test_only_versions_above_every_release_are_new(self):
+        listing = ('aaa\trefs/tags/desktop-v0.9.0\nbbb\trefs/tags/desktop-v0.9.0^{}\n'
+                   'ccc\trefs/tags/desktop-v0.10.0\nddd\trefs/tags/media-2026.11.19\n')
+        released = version.released_versions(listing)
+        self.assertEqual(sorted(released), ['0.10.0', '0.9.0'])
+        self.assertTrue(version.is_unreleased('0.10.1', released))
+        self.assertTrue(version.is_unreleased('0.1.0', []))
+        self.assertFalse(version.is_unreleased('0.10.0', released))
+        for older in ['0.9.0', '0.9.5']:
+            with self.subTest(older=older), self.assertRaisesRegex(ValueError, '低于已发布的 0.10.0'):
+                version.is_unreleased(older, released)
+
+    def test_new_version_outputs_its_changelog_section(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            root.joinpath('Cargo.toml').write_text('[workspace.package]\nversion = "0.7.1"\n', encoding='utf-8')
+            root.joinpath('CHANGELOG.md').write_text(
+                '# 更新记录\n\n## 0.7.10\n\n- 以后\n\n## 0.7.1\n\n- 切题不再跳动\n- 释义区预留高度\n\n## 0.7.0\n\n- 听读音\n',
+                encoding='utf-8')
+            self.assertEqual(version.release_outputs(root, 'x\trefs/tags/desktop-v0.7.0\n'),
+                             'version=0.7.1\nnew=true\nnotes<<CIJIAN_NOTES_END\n- 切题不再跳动\n- 释义区预留高度\nCIJIAN_NOTES_END\n')
+            self.assertEqual(version.release_outputs(root, 'x\trefs/tags/desktop-v0.7.1\n'), 'version=0.7.1\nnew=false\n')
+            root.joinpath('CHANGELOG.md').write_text('## 0.7.0\n\n- 听读音\n', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, '缺少 0.7.1'):
+                version.release_outputs(root, 'x\trefs/tags/desktop-v0.7.0\n')
 
     def test_only_stable_three_part_versions(self):
         for value in ['v0.2.0', '0.2', '01.2.0', '0.2.0-beta.1']:

@@ -4,47 +4,44 @@
 
 桌面端唯一的版本来源是 `desktop/Cargo.toml` 中的 `[workspace.package].version`。壳、core、Tauri 安装包和程序显示均使用该值；不要另在 `tauri.conf.json` 或 `package.json` 添加版本。
 
-使用正式版三段数字（如 `0.1.0`、`0.1.1`）：新增功能或改变使用方式时升第二段，只改样式或修复问题时升第三段。发布标签固定为 `desktop-v<版本>`，与后端镜像分开。工作流在打包前核对标签与工作区版本，不一致就停止。
+使用正式版三段数字（如 `0.1.0`、`0.1.1`）：新增功能或改变使用方式时升第二段，只改样式或修复问题时升第三段。发布标签固定为 `desktop-v<版本>`，与后端镜像分开，由发布时自动创建，不手动打标签。
 
-在仓库根目录更新版本：
+## 一个 PR 一次发布
 
-```powershell
-.\.venv\Scripts\python.exe desktop\scripts\version.py --set 0.7.0
-```
+每个改动桌面端的 PR 就是一次版本更新，PR 里同时带上：
 
-脚本同时通过 `cargo update --workspace --offline` 刷新 `Cargo.lock` 的本地包版本，不升级第三方依赖。需已安装 Rust 并下载过当前依赖。只读取版本可省略 `--set`。
+1. 新版本号。在仓库根目录运行：
 
-当前发布版本为 `0.7.0`，主题是练习页听读音与开机静默自启：
+   ```powershell
+   .\.venv\Scripts\python.exe desktop\scripts\version.py --set 0.7.1
+   ```
 
-- 练习页输入框右侧新增喇叭按钮（需已导入含读音的资源包）：作答前点一下，本题计为“忘记”并保存，但不显示答案，可凭读音再拼一次；拼对直接下一题，拼错或留空才显示答案订正。中文释义不再能点击播放读音。
-- 练习页不再显示插图，只凭中文释义回忆拼写；资源包与统计页不受影响。
-- 开机自启改为登录后只在托盘运行、不弹出窗口；旧版写入的启动项在启动时自动更新。同一时间只运行一个词间，再次打开会显示已在运行的窗口。
-- 学习日历按日期区分：过去只显示已学习，未来只显示待复习，今天两者都显示。
+   脚本同时通过 `cargo update --workspace --offline` 刷新 `Cargo.lock` 的本地包版本，不升级第三方依赖。需已安装 Rust 并下载过当前依赖。只读取版本可省略 `--set`。
 
-同步服务器与资源包都没有变化，新旧桌面端都能连接，已导入的资源包照常可用。
+2. 更新说明。在 [`desktop/CHANGELOG.md`](../../desktop/CHANGELOG.md) 最上面加一节 `## <版本号>`，写给使用者看。这一节就是 GitHub Release 的正文，也是程序内“设置 → 软件更新”显示的新版说明；那里按纯文本显示，所以只用列表，不加粗、不加标题。
+
+推送前可在本机核对：`python3 desktop/scripts/version.py --check-release` 会对照远程已发布的 `desktop-v*` 标签，打印版本、是否为新版本（`new=true`）以及读到的更新说明。版本低于已发布的最新版，或新版本在 CHANGELOG 中没有对应一节时直接报错。
+
+发布前先按 [桌面端测试](TESTING.md) 完成本轮相关测试，包括 Linux 上的真实窗口测试和 Windows 上的手工检查。PR 的 Windows 构建通过后合并到 master，同一工作流随即构建并发布，不需要再开升版本号的 PR，也不需要手动打标签。
+
+只改同步服务器或仓库其他部分、不触及 `desktop/` 的 PR 不会触发桌面工作流，也就不需要升版本。
 
 ## GitHub Actions
 
 `.github/workflows/windows-desktop.yml` 使用 Windows x64 runner 构建简体中文 NSIS 安装包。构建只需 Rust、Node、Python 和 Jinja2，不包含媒体资源，不运行独立测试任务；测试在本机完成。安装器与卸载器固定使用简体中文（NSIS `SimpChinese`），图标复用程序的 `app/icons/icon.ico`，由 `app/tauri.conf.json` 的 `bundle.windows.nsis` 配置。
 
+工作流先运行 `version.py --check-release`：版本高于所有已发布的 `desktop-v*` 标签即为新版本，并读出 CHANGELOG 中这一版的说明。
+
 | 触发方式 | 结果 |
 | --- | --- |
-| 任意分支上桌面代码或工作流变化 | 构建签名安装包，保存 Actions artifact，保留 14 天 |
-| Actions 页面手动运行 | 对所选 ref 构建 artifact，不发布 Release |
-| 推送 `desktop-v*` 标签 | 核对版本、构建、创建 Release 草稿、上传安装包/签名/`latest.json`，全部成功后发布并设为 latest |
+| 分支上桌面代码或工作流变化（PR 构建） | 构建签名安装包，保存 Actions artifact，保留 14 天；版本号仍是已发布的版本时，最后一步失败，提示升版本号 |
+| 合并到 master，且版本是新版本 | 构建、创建 Release 草稿（正文为 CHANGELOG 这一节，后附自动生成的 PR 链接），上传安装包、签名与 `latest.json`，全部成功后发布并设为 latest；发布时在该提交上创建 `desktop-v<版本>` 标签 |
+| 合并到 master，但版本已发布 | 只构建 artifact，不发布 |
+| Actions 页面手动运行 | 与所选分支推送时相同；在 master 上运行可重试一次失败的发布 |
 
-桌面与现有 Docker 工作流独立。只有正式标签发布会更新应用的下载源；普通提交不会让已安装程序升级。失败构建留下的草稿不会成为公开更新。
+桌面与现有 Docker 工作流独立。只有发布成功才会更新应用的下载源；分支构建不会让已安装程序升级。失败构建留下的草稿不会成为公开更新，也不会创建标签，修好后在 Actions 页面重新运行 master 的那次构建即可。
 
-发布前先按 [桌面端测试](TESTING.md) 完成本轮相关测试，包括 Linux 上的真实窗口测试和 Windows 上的手工检查。功能改动与版本号放在同一个分支、同一个 PR：最后一个提交只更新版本号和本文的“当前发布版本”。PR 的 Windows 构建通过后合并到 master，再对 master 的最新提交打标签触发发布：
-
-```powershell
-git switch master
-git pull --ff-only
-git tag -a desktop-v0.7.0 -m "词间 v0.7.0"
-git push origin desktop-v0.7.0
-```
-
-首个已发布版本为 `0.1.0`，标签为 `desktop-v0.1.0`。之后每次发布递增版本；不要重新打包覆盖已经公开的同版本安装包。工作流需在标签指向的提交中存在；Actions 页面手动运行还需工作流已进入默认分支。
+首个已发布版本为 `0.1.0`，标签为 `desktop-v0.1.0`；0.7.1 起改为合并即发布，此前的版本靠手动推送标签发布。每次发布递增版本；不要重新打包覆盖已经公开的同版本安装包。
 
 ## 更新签名
 
