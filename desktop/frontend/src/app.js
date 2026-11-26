@@ -195,27 +195,31 @@ const practiceApp = {
                 : `${Math.floor(minutes / 1440)} 天后`;
             return `${this.formatDateTime(value, now)}（${left}）`;
         },
-        async loadNextWord() {
+        // The new items go at `at`. A word shown there or before stays on screen until the reply
+        // arrives, so advancing patches the answer box in place instead of flashing the loading state.
+        async loadNextWord({ at = this.currentIndex } = {}) {
             if (this.isLoadingWords || this.pendingAttempt) return;
             this.isLoadingWords = true;
             this.wordsError = '';
+            const moveTo = () => { this.words.splice(at); this.currentIndex = at; this.resetInputState(); };
             try {
                 const data = (await axios.get(`${this.apiBaseUrl}/practice/queue`, {
                     params: { session_id: this.sessionId, limit: this.isFormalPractice ? 1 : 20,
                         mode: this.isFormalPractice ? 'scheduled' : this.practiceMode }, timeout: 15000
                 })).data.data;
                 this.summary = data.summary;
+                moveTo();
                 if (!data.items.length) {
                     if (this.attemptedTotal) this.finishPractice();
                     return;
                 }
                 // Formal practice takes one item; after each saved answer the core selects the next again.
                 this.words.push(...data.items);
-                this.resetInputState();
                 await this.$nextTick();
                 this.beginCurrentWord();
                 this.focusInput();
             } catch (error) {
+                moveTo();
                 this.wordsError = error.response?.data?.error || '无法加载单词，请检查连接后重试。';
             } finally {
                 this.isLoadingWords = false;
@@ -255,7 +259,7 @@ const practiceApp = {
         handleCompositionStart() { this.isComposing = true; },
         handleCompositionEnd() { this.isComposing = false; this.handleInput(); },
         handleKeydown(event) {
-            if (this.isAdvancing || this.isChecking || this.pendingAttempt) { event.preventDefault(); return; }
+            if (this.isAdvancing || this.isChecking || this.isLoadingWords || this.pendingAttempt) { event.preventDefault(); return; }
             if (event.key === 'Enter') this.handleEnter(event);
             if ((event.key === ' ' || event.code === 'Space') && !this.userInput.trim()) {
                 event.preventDefault();
@@ -376,12 +380,17 @@ const practiceApp = {
         },
         async nextWord() {
             if (this.pendingAttempt || this.isLoadingWords || !this.answerAccepted) return;
+            if (this.isFormalPractice) {
+                // The answered word stays on screen as it is (locked while loading) until the core's next pick replaces it.
+                window.clearTimeout(this.advanceTimer);
+                this.advanceTimer = null;
+                await this.loadNextWord({ at: this.currentIndex + 1 });
+                return;
+            }
             this.clearAdvanceTimer();
             this.currentIndex++;
             this.resetInputState();
-            if (this.isFormalPractice) {
-                await this.loadNextWord();
-            } else if (this.currentWord) {
+            if (this.currentWord) {
                 this.beginCurrentWord(); this.focusInput();
             } else this.finishPractice();
         },
@@ -408,6 +417,8 @@ const practiceApp = {
             this.beginCurrentWord(); this.focusInput();
         },
         quitPractice() {
+            // The exit button is disabled while the next word loads; Esc on the kept answer box matches it.
+            if (this.isLoadingWords) return;
             if (this.pendingAttempt) { this.submitError = '请先重试保存或处理失效题目，再退出练习。'; return; }
             this.finishPractice({ abandoned: true });
         },

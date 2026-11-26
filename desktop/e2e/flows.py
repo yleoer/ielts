@@ -32,6 +32,16 @@ return { page: location.pathname, finished: a.isFinished, idle: a.isIdle, word: 
   scrollTop: Math.round(main.scrollTop), overflow: main.scrollHeight - main.clientHeight,
   title: document.querySelector('.titlebar-note')?.textContent.trim() };"""
 
+# Counts answer-box rebuilds and loading flashes while practising; the results page ends the count.
+WATCH_ANSWER_BOX = """window.__answerBox = { input: document.querySelector('#answer-input'), rebuilt: 0 };
+new MutationObserver(() => {
+  const box = window.__answerBox, input = document.querySelector('#answer-input');
+  if (document.querySelector('#app')._vnode.component.proxy.isFinished) return;
+  if (input !== box.input || document.querySelector('.empty-state[role=status]')) box.rebuilt++;
+  box.input = input;
+}).observe(document.querySelector('main'), { childList: true, subtree: true });"""
+ANSWER_TOP = "return Math.round(document.querySelector('#answer-input').getBoundingClientRect().top)"
+
 STATS_STATE = """const a = document.querySelector('#app')._vnode.component.proxy;
 const dialog = document.querySelector('.detail-dialog');
 return { page: location.pathname, loading: a.loading, loadError: a.loadError,
@@ -151,12 +161,19 @@ def practice_round(t: Session, mock):
     t.ready()
     s = t.practice(lambda s: s['word'] == 'apple', 15, 'apple')
     t.check('round starts with progress and a dash for accuracy', s['progress'] and s['accuracy'] == '正确率 —', s)
+    t.js(WATCH_ANSWER_BOX)
+    tops = []
     for word in FIRST_ROUND:
+        t.practice(lambda s: s['word'] == word and not s['showAnswer'], 15, f'word {word}')
+        tops.append(t.js(ANSWER_TOP))
         t.answer(word, wrong=True)
 
     s = t.practice(lambda s: s['finished'], 10, 'results')
     t.check('results heading, saved count and next review', s['heading'] == '本轮练习完成'
             and s['status'].startswith('5 次作答已保存 · 下次复习 今天') and s['status'].endswith('（1 分钟内）'), s)
+    rebuilt = t.js('return window.__answerBox.rebuilt')
+    t.check('the answer box stays in place between words with one or two senses', len(set(tops)) == 1 and rebuilt == 0,
+            {'tops': tops, 'rebuilt': rebuilt})
     t.check('results list all five mistakes with only mistake practice and Done', s['mistakes'] == 5 and s['buttons'] == ['错词重练', '完成'], s)
     t.check('long results open at the top with the sheet focused', s['overflow'] > 0 and s['scrollTop'] == 0 and s['focused'] == 'RESULTS', s)
     # Saved answers go up right away, not with the next once-a-minute sync.
